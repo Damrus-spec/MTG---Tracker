@@ -2117,6 +2117,7 @@ function saveSetting(key, val) {
   data.settings[key]=parseFloat(val);
   renderSettingsLegend();
   renderScore();
+  renderGraph();
   scheduleSync();
 }
 function saveStrSetting(key, val) {
@@ -2308,6 +2309,7 @@ function renderGraph() {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
+      layout: { padding: { right: 36 } },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -2339,23 +2341,48 @@ function renderGraph() {
     }
   });
 
-  // Draw threshold lines manually after render
-  // (Chart.js annotation plugin not loaded — draw on canvas)
+  // Unregister old plugin if exists so it picks up new settings
+  try { Chart.unregister(Chart.registry.plugins.get('thresholds')); } catch(e){}
+
+  // Draw threshold lines + right-side labels live from current settings
   Chart.register({
     id:'thresholds',
     afterDraw(chart) {
+      const s2 = cfg(); // always read current settings
       const {ctx:cx, chartArea:{left,right,top,bottom}, scales:{y}} = chart;
       const lines = [
-        {val:s.maxWin,    col:'rgba(224,96,96,.7)'},
-        {val:s.strongWin, col:'rgba(212,146,31,.7)'},
-        {val:s.fallBehind,col:'rgba(91,163,232,.7)'},
+        {val:s2.maxWin,    col:'rgba(224,96,96,.85)',   label:s2.maxWin+'%'},
+        {val:s2.strongWin, col:'rgba(212,146,31,.85)',  label:s2.strongWin+'%'},
+        {val:s2.strongWin, col:'rgba(80,180,80,.5)',    label:null, fill:true, fillTop:s2.fallBehind, fillBot:s2.strongWin},
+        {val:s2.fallBehind,col:'rgba(91,163,232,.85)',  label:s2.fallBehind+'%'},
       ];
       cx.save();
-      lines.forEach(({val,col})=>{
+      cx.font = '10px sans-serif';
+      cx.textAlign = 'right';
+      // Draw green fill band (just right zone)
+      const yTop  = y.getPixelForValue(s2.strongWin);
+      const yBot  = y.getPixelForValue(s2.fallBehind);
+      cx.fillStyle = 'rgba(80,180,80,.08)';
+      cx.fillRect(left, yTop, right-left, yBot-yTop);
+
+      // Draw the three threshold lines
+      const canvasWidth = chart.canvas.width;
+      [
+        {val:s2.maxWin,    col:'rgba(224,96,96,.9)',   label:s2.maxWin+'%'},
+        {val:s2.strongWin, col:'rgba(212,146,31,.9)',  label:s2.strongWin+'%'},
+        {val:s2.fallBehind,col:'rgba(91,163,232,.9)',  label:s2.fallBehind+'%'},
+      ].forEach(({val,col,label})=>{
         const yPos = y.getPixelForValue(val);
+        // Line goes to right edge of chart area
         cx.beginPath(); cx.moveTo(left,yPos); cx.lineTo(right,yPos);
-        cx.strokeStyle=col; cx.lineWidth=1; cx.setLineDash([4,3]);
+        cx.strokeStyle=col; cx.lineWidth=1.5; cx.setLineDash([4,3]);
         cx.stroke();
+        // Label drawn in the padding zone (right of chart area)
+        cx.setLineDash([]);
+        cx.fillStyle=col;
+        cx.textAlign='left';
+        cx.font='bold 10px sans-serif';
+        cx.fillText(label, right+4, yPos+3);
       });
       cx.restore();
     }
