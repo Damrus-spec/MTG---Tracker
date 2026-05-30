@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="90" fill="#1a1a1a"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#c9a84c" stroke-width="14"/>
+  <!-- MTG-style 5-pointed star -->
+  <path d="M256 72 L299 196 H430 L328 272 L366 400 L256 322 L146 400 L184 272 L82 196 H213 Z" 
+        fill="#c9a84c"/>
+  <!-- Inner darker star overlay for depth -->
+  <path d="M256 130 L281 208 H363 L298 252 L321 332 L256 286 L191 332 L214 252 L149 208 H231 Z" 
+        fill="#8b6914" opacity="0.5"/>
+</svg>

@@ -1,0 +1,18 @@
+{
+  "name": "MTG Tracker",
+  "short_name": "MTG",
+  "description": "Magic: The Gathering deck tracker",
+  "start_url": "/MTG---Tracker/",
+  "scope": "/MTG---Tracker/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
