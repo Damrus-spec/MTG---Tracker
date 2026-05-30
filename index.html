@@ -1405,7 +1405,13 @@ function renderDeckWantsSection(deck, dw) {
         <div class="want-card-row">
           <div class="w-dot w-${e.inStatus}"></div>
           <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
-          ${e.out?`<span class="w-card-out">${e.out}</span>`:`<span class="w-no-out">no replacement</span>`}
+          <input type="text"
+            value="${e.out||''}"
+            placeholder="replacement..."
+            data-deck="${deck.replace(/"/g,'&quot;')}"
+            data-idx="${idx}"
+            onchange="updateWantOut(this.dataset.deck, parseInt(this.dataset.idx), this.value)"
+            style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
           <div style="display:flex;gap:4px;flex-shrink:0">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
             <button class="w-del" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
@@ -1433,6 +1439,14 @@ function toggleWantsDeckSection(deck) {
   deckSectionOpen[deck] = !(deckSectionOpen[deck]===true);
   renderDeckWants();
 }
+function updateWantOut(deck, idx, value) {
+  if (!data.deckWants[deck]||data.deckWants[deck][idx]===undefined) return;
+  data.deckWants[deck][idx].out = value.trim() || null;
+  scheduleSync();
+  // Re-render buy list in case this card now qualifies
+  renderBuyList();
+}
+
 function cycleWantStatus(deck, idx) {
   if(!data.deckWants[deck]||!data.deckWants[deck][idx]) return;
   const order=['buy','considering','owned'];
