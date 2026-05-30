@@ -1,0 +1,2600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MTG Tracker">
+<title>MTG Tracker</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<script src="https://accounts.google.com/gsi/client" onload="initGSI()" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f5f5f0;--surface:#fff;--border:rgba(0,0,0,.10);--border-md:rgba(0,0,0,.18);
+  --text:#1a1a1a;--text2:#666;--text3:#999;
+  --blue:#2d6bcb;--green:#3b6d11;--green-bg:#eaf3de;
+  --red:#a32d2d;--red-bg:#fcebeb;--amber:#ba7517;--amber-bg:#faeeda;
+  --info:#185fa5;--info-bg:#e6f1fb;--radius:10px;--radius-sm:7px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1a1a1a;--surface:#252525;--border:rgba(255,255,255,.10);--border-md:rgba(255,255,255,.18);
+  --text:#f0f0f0;--text2:#aaa;--text3:#555;
+  --green-bg:#1a2e0a;--green:#6abf3a;--red-bg:#2e0a0a;--red:#e06060;
+  --amber-bg:#2e1f00;--amber:#d4921f;--info-bg:#0a1e30;--info:#5ba3e8;
+}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.app{max-width:480px;margin:0 auto;min-height:100vh;background:var(--bg)}
+
+/* SYNC BAR */
+.sync-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border-bottom:.5px solid var(--border);font-size:12px;color:var(--text2);position:sticky;top:0;z-index:20}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:background .3s}
+.sync-dot.green{background:var(--green)}.sync-dot.amber{background:var(--amber);animation:pulse 1s infinite}.sync-dot.red{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.signin-btn{margin-left:auto;padding:3px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:11px;color:var(--text2)}
+
+/* NAV */
+.nav{display:flex;background:var(--surface);border-bottom:.5px solid var(--border);position:sticky;top:29px;z-index:19}
+.nav-btn{flex:1;padding:9px 2px 7px;border:none;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text3);transition:color .15s}
+.nav-btn.active{color:var(--text)}.nav-btn i{font-size:19px}.nav-btn span{font-size:8.5px;letter-spacing:-.1px}
+.nav-bar{height:2px;background:var(--blue);border-radius:1px;width:20px;opacity:0}
+.nav-btn.active .nav-bar{opacity:1}
+
+/* PAGES */
+.page{display:none;padding:12px}.page.active{display:block}
+
+/* CARD */
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:11px;overflow:hidden}
+.card.no-pad{padding:0}
+.card-title{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:11px}
+
+/* STATS */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:11px}
+.stat{background:var(--bg);border-radius:var(--radius-sm);padding:10px 12px}
+.stat .val{font-size:22px;font-weight:500}.stat .lbl{font-size:12px;color:var(--text2);margin-top:2px}
+
+/* PILLS */
+.sort-row{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.pill{padding:5px 11px;border:.5px solid var(--border-md);border-radius:20px;background:none;font-size:12px;cursor:pointer;color:var(--text2)}
+.pill.active{background:var(--info-bg);color:var(--info);border-color:transparent}
+
+/* ── SCORE DECK ROW ── */
+.deck-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:68px}
+.deck-row:last-child{border-bottom:none}
+.deck-art{position:relative;width:80px;height:68px;flex-shrink:0;overflow:hidden;background:var(--bg)}
+.deck-art img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
+.deck-art-overlay{display:none}
+.deck-rate{display:none}
+.deck-rate-bar{display:none}
+.deck-rate-fill{display:none}
+.deck-left{flex:1;min-width:0;padding:9px 12px}
+.deck-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-meta{font-size:11px;color:var(--text2);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-wr{font-size:16px;font-weight:700;flex-shrink:0;padding-right:12px;text-align:right}
+.deck-art.loading{background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.wr-tostrong{color:var(--red)}.wr-strong{color:var(--amber)}.wr-justright{color:var(--green)}.wr-behind{color:var(--info)}.wr-new{color:var(--text3)}
+
+/* LEGACY SECTION */
+.legacy-header{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;background:var(--bg);border-bottom:.5px solid var(--border)}
+
+/* FORMS */
+select,input[type=text],input[type=number]{width:100%;padding:9px 11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:9px;-webkit-appearance:none;appearance:none}
+select:focus,input:focus{outline:none;border-color:var(--blue)}
+label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:3px;font-weight:500}
+
+/* LOG GAME */
+.log-entry{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.log-entry-name{flex:1;font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-entry-btns{display:flex;gap:6px;flex-shrink:0}
+.log-mini-btn{width:34px;height:34px;border-radius:var(--radius-sm);border:.5px solid var(--border-md);background:none;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;color:var(--text2)}
+.log-mini-btn.w-sel{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.log-mini-btn.l-sel{background:var(--red-bg);border-color:var(--red);color:var(--red)}
+.log-count{font-size:13px;font-weight:500;min-width:22px;text-align:center;color:var(--text2)}
+.submit-btn{width:100%;padding:13px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);font-size:14px;font-weight:500;cursor:pointer;margin-top:4px}
+.submit-btn:disabled{opacity:.35;cursor:default}
+.undo-row{display:flex;gap:8px;margin-top:10px}
+.undo-btn{flex:1;padding:9px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:12px;color:var(--text2)}
+.undo-btn:disabled{opacity:.4}
+
+/* HISTORY */
+.search-bar{width:100%;padding:9px 12px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px}
+.h-row{display:flex;align-items:center;padding:7px 0;border-bottom:.5px solid var(--border);gap:7px}
+.h-row:last-child{border-bottom:none}
+.h-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
+.h-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.h-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
+.h-main{flex:1;min-width:0}
+.h-deck{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.h-submeta{font-size:11px;color:var(--text2);margin-top:1px}
+.h-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;flex-shrink:0}
+.h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
+.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:26px;text-align:left}
+.h-del-btn{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px;flex-shrink:0;transition:color .15s}
+.h-del-btn:active,.h-del-active{color:var(--red)!important}
+.h-selected{background:var(--red-bg)}
+
+/* ── WANTS ── */
+.wants-tabs{display:flex;margin-bottom:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);overflow:hidden}
+.wants-tab{flex:1;padding:8px 4px;border:none;background:none;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);border-right:.5px solid var(--border-md)}
+.wants-tab:last-child{border-right:none}
+.wants-tab.active{background:var(--blue);color:#fff}
+
+/* Buy list */
+.buy-copy-btn{width:100%;padding:10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:13px;cursor:pointer;color:var(--info);margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:6px}
+.buy-item-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--border)}
+.buy-item-row:last-child{border-bottom:none}
+.buy-item-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
+.buy-item-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.buy-item-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
+.buy-item-name{flex:1;font-size:14px;font-weight:500}
+.buy-item-qty{font-size:13px;color:var(--text2);flex-shrink:0}
+.buy-item-price{font-size:13px;font-weight:500;flex-shrink:0;min-width:44px;text-align:right}
+.buy-item-price.loading{color:var(--text3);font-size:11px}
+.buy-item-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;font-size:16px;flex-shrink:0}
+
+/* By deck */
+.deck-section{margin-bottom:12px}
+.deck-sec-header{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:0}
+.deck-sec-art{width:36px;height:26px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
+.deck-sec-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.deck-sec-name{flex:1;font-size:13px;font-weight:500}
+.deck-sec-count{font-size:11px;color:var(--text2)}
+.deck-sec-toggle{font-size:14px;color:var(--text3);transition:transform .2s}
+.deck-sec-toggle.open{transform:rotate(180deg)}
+.deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:0 12px}
+.deck-sec-body.open{display:block}
+.want-card-row{display:flex;align-items:center;padding:7px 0;border-bottom:.5px solid var(--border);gap:8px}
+.want-card-row:last-child{border-bottom:none}
+.w-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.w-buy{background:var(--blue)}.w-considering{background:var(--amber)}.w-owned{background:var(--green)}
+.w-card-name{flex:1;font-size:13px}
+.w-card-out{font-size:11px;color:var(--red);max-width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.w-no-out{font-size:10px;color:var(--text3);font-style:italic}
+.w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px}
+.w-edit-status{font-size:10px;padding:1px 6px;border-radius:8px;border:.5px solid var(--border-md);background:none;cursor:pointer;color:var(--text3)}
+.w-edit-status.active-buy{background:var(--info-bg);color:var(--info);border-color:transparent}
+.w-edit-status.active-considering{background:var(--amber-bg);color:var(--amber);border-color:transparent}
+.w-edit-status.active-owned{background:var(--green-bg);color:var(--green);border-color:transparent}
+/* inline add form */
+.add-card-form{padding:8px 0;display:flex;flex-direction:column;gap:6px;border-top:.5px solid var(--border)}
+.add-card-form input{margin-bottom:0;font-size:13px;padding:7px 10px}
+.add-card-row{display:flex;gap:6px}
+.add-card-row input{flex:1;margin:0}
+.add-status-row{display:flex;gap:5px}
+.add-mini-pill{padding:4px 9px;border:.5px solid var(--border-md);border-radius:12px;background:none;font-size:11px;cursor:pointer;color:var(--text2)}
+.add-mini-pill.active{background:var(--info-bg);color:var(--info);border-color:transparent}
+.add-submit{padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;white-space:nowrap}
+
+/* ── DECKS TAB ── */
+.add-deck-form{margin-bottom:12px}
+.deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
+.deck-mgr-row:last-child{border-bottom:none}
+.deck-mgr-art{width:56px;height:40px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;margin-left:12px}
+.deck-mgr-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
+.deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.deck-mgr-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck-mgr-selects{display:flex;gap:6px}
+.deck-mgr-selects select{margin:0;font-size:11px;padding:4px 8px;width:auto;flex:1}
+.deck-mgr-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;padding:8px;flex-shrink:0}
+
+/* ── SETTINGS ── */
+.settings-section{margin-bottom:18px}
+.settings-label{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.setting-block{padding:10px 0;border-bottom:.5px solid var(--border)}
+.setting-block:last-child{border-bottom:none}
+.setting-name{font-size:14px;font-weight:500;margin-bottom:2px}
+.setting-desc{font-size:12px;color:var(--text2);margin-bottom:6px}
+.setting-input{width:100%;margin:0;font-size:15px;font-weight:500;padding:8px 11px}
+.wr-legend{display:grid;gap:5px;margin-top:10px}
+.wr-legend-row{display:flex;align-items:center;gap:9px;font-size:12px;padding:5px 9px;border-radius:var(--radius-sm)}
+.wr-legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+
+/* DECK EXPAND PANEL */
+.deck-expand{display:none;background:var(--bg);border-bottom:.5px solid var(--border);padding:10px 12px}
+.deck-expand.open{display:block}
+.log-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.log-col-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:6px}
+.log-col-label.win-lbl{color:var(--green)}.log-col-label.loss-lbl{color:var(--red)}
+.log-btn-row{display:flex;gap:16px;justify-content:center}
+.log-adj-btn{width:72px;height:48px;border-radius:var(--radius-sm);border:.5px solid var(--border-md);background:var(--surface);cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--text);transition:background .1s}
+.log-adj-btn:active{opacity:.7}
+.log-adj-btn.plus-win{color:var(--green);border-color:var(--green)}
+.log-adj-btn.minus-win{color:var(--text2)}
+.log-adj-btn.plus-loss{color:var(--red);border-color:var(--red)}
+.log-adj-btn.minus-loss{color:var(--text2)}
+.log-pending-preview{margin-top:8px;font-size:12px;color:var(--text2);text-align:center;min-height:16px}
+
+/* AUTOCOMPLETE */
+.ac-wrap{position:relative;width:100%}
+.ac-input{width:100%}
+.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:.5px solid var(--border-md);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);z-index:50;max-height:180px;overflow-y:auto;display:none}
+.ac-dropdown.open{display:block}
+.ac-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:.5px solid var(--border)}
+.ac-item:last-child{border-bottom:none}
+.ac-item:hover,.ac-item.focused{background:var(--info-bg);color:var(--info)}
+.ac-invalid{border-color:var(--amber)!important}
+.ac-valid{border-color:var(--green)!important}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:100;white-space:nowrap}
+.toast.show{opacity:1}
+.empty{padding:12px;color:var(--text2);font-size:13px}
+#quick-stats-card{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="sync-bar">
+  <div class="sync-dot" id="sync-dot"></div>
+  <span id="sync-status">Loading...</span>
+  <button class="signin-btn" id="signin-btn" onclick="signIn()">Sign in with Google</button>
+</div>
+
+<nav class="nav">
+  <button class="nav-btn active" onclick="showPage('score',this)"><i class="ti ti-trophy"></i><span>Score</span><div class="nav-bar"></div></button>
+  <button class="nav-btn" onclick="showPage('history',this)"><i class="ti ti-history"></i><span>History</span><div class="nav-bar"></div></button>
+  <button class="nav-btn" onclick="showPage('wants',this)"><i class="ti ti-cards"></i><span>Wants</span><div class="nav-bar"></div></button>
+  <button class="nav-btn" onclick="showPage('decks',this)"><i class="ti ti-layout-grid"></i><span>Decks</span><div class="nav-bar"></div></button>
+  <button class="nav-btn" onclick="showPage('settings',this)"><i class="ti ti-settings"></i><span>Settings</span><div class="nav-bar"></div></button>
+</nav>
+
+<!-- SCORE -->
+<div id="page-score" class="page active">
+
+  <!-- Stats — scroll away naturally -->
+  <div class="stat-grid">
+    <div class="stat"><div class="val" id="total-games">—</div><div class="lbl">total games</div></div>
+    <div class="stat"><div class="val" id="overall-wr">—</div><div class="lbl">overall win rate</div></div>
+    <div class="stat"><div class="val" id="total-decks">—</div><div class="lbl">owned decks</div></div>
+    <div class="stat"><div class="val" id="last-played">—</div><div class="lbl">last game</div></div>
+  </div>
+
+  <!-- Sticky: graph + sort pills -->
+  <div id="score-sticky" style="position:sticky;top:78px;z-index:15;background:var(--bg);margin:0 -12px;padding:4px 12px 4px">
+    <!-- WIN RATE GRAPH — collapsible -->
+    <div class="card" style="margin-bottom:8px;padding:0;overflow:hidden">
+      <div onclick="toggleGraph()" style="display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer">
+        <div style="font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;flex:1">Win rate over time</div>
+        <i class="ti ti-chevron-down" id="graph-toggle-icon" style="font-size:14px;color:var(--text3);transition:transform .2s"></i>
+      </div>
+      <div id="graph-body" style="padding:0 14px 10px">
+        <div style="position:relative;height:140px">
+          <canvas id="wr-chart"></canvas>
+        </div>
+      </div>
+    </div>
+    <!-- Sort pills -->
+    <div class="sort-row" id="sort-row">
+      <button class="pill" id="pill-total" onclick="sortDecks('total',this)">Most played</button>
+      <button class="pill" id="pill-winRate" onclick="sortDecks('winRate',this)">Win rate</button>
+      <button class="pill active" id="pill-lastDate" onclick="sortDecks('lastDate',this)">Last played ↑</button>
+    </div>
+  </div><!-- /score-sticky -->
+
+  <!-- Pending changes bar -->
+  <div id="pending-bar" style="display:none;margin-bottom:10px">
+    <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius);padding:10px 14px">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Pending changes</div>
+      <div id="pending-list" style="margin-bottom:10px;font-size:13px"></div>
+      <button class="submit-btn" style="padding:11px" onclick="submitPending()">Submit entries</button>
+    </div>
+  </div>
+
+  <div class="card no-pad"><div id="deck-list"></div></div>
+
+  <div id="legacy-section" style="margin-top:14px;display:none">
+    <div class="card no-pad">
+      <div class="legacy-header">Retired decks</div>
+      <div id="legacy-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin:20px;max-width:380px;width:100%">
+    <div style="font-size:15px;font-weight:500;margin-bottom:8px" id="modal-title">Confirm</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.5" id="modal-body"></div>
+    <div style="display:flex;gap:10px">
+      <button onclick="modalCancel()" style="flex:1;padding:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:14px;color:var(--text2)">Cancel</button>
+      <button onclick="modalConfirm()" id="modal-ok" style="flex:1;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:500">Confirm</button>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- HISTORY -->
+<div id="page-history" class="page">
+  <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+    <input class="search-bar" type="text" id="hist-search" placeholder="Search deck..." oninput="renderHistory()" style="flex:1;margin:0">
+    <div style="display:flex;gap:4px;flex-shrink:0">
+      <select id="hist-year" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
+        <option value="">Year</option>
+      </select>
+      <select id="hist-month" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
+        <option value="">Month</option>
+      </select>
+    </div>
+  </div>
+  <div id="hist-delete-bar" style="display:none;margin-bottom:8px">
+    <div style="background:var(--red-bg);border:.5px solid var(--red);border-radius:var(--radius-sm);padding:8px 12px;display:flex;align-items:center;gap:10px">
+      <span style="flex:1;font-size:13px;color:var(--red)" id="hist-delete-count">0 selected</span>
+      <button onclick="confirmDeleteSelected()" style="padding:5px 12px;background:var(--red);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Delete selected</button>
+      <button onclick="clearHistorySelection()" style="padding:5px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2)">Cancel</button>
+    </div>
+  </div>
+  <div class="card no-pad"><div id="history-list"></div></div>
+</div>
+
+<!-- WANTS -->
+<div id="page-wants" class="page">
+  <div class="wants-tabs">
+    <button class="wants-tab active" onclick="switchWantsTab('buy',this)">Buy list</button>
+    <button class="wants-tab" onclick="switchWantsTab('deck',this)">By deck</button>
+  </div>
+  <!-- BUY LIST -->
+  <div id="wants-buy">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <button class="buy-copy-btn" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy full list</button>
+      <div id="buy-total-price" style="font-size:14px;font-weight:600;color:var(--text);flex-shrink:0;padding:10px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm)">€—</div>
+    </div>
+    <div class="card"><div id="buy-list"></div></div>
+  </div>
+  <!-- BY DECK -->
+  <div id="wants-deck" style="display:none">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px;flex-wrap:wrap">
+      <div style="display:flex;gap:12px;font-size:11px;color:var(--text2);flex:1;flex-wrap:wrap">
+        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:3px;vertical-align:middle"></span>Buy</span>
+        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block;margin-right:3px;vertical-align:middle"></span>Considering</span>
+        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:3px;vertical-align:middle"></span>Owned, not in</span>
+      </div>
+      <button onclick="spellCheckWants()" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap;flex-shrink:0"><i class="ti ti-spell-check"></i> Spell check</button>
+    </div>
+    <div id="deck-wants-list"></div>
+  </div>
+</div>
+
+<!-- DECKS -->
+<div id="page-decks" class="page">
+  <!-- Add new deck form -->
+  <div class="card add-deck-form">
+    <div class="card-title">Add a deck</div>
+    <label class="field-label">Commander name</label>
+    <input type="text" id="new-deck-name" placeholder="e.g. Marchesa, the Black Rose">
+    <label class="field-label">Partner commander (optional)</label>
+    <input type="text" id="new-deck-partner" placeholder="e.g. Tymna the Weaver">
+    <label class="field-label">Status</label>
+    <select id="new-deck-status">
+      <option value="Owned">Owned</option>
+      <option value="Building">Building</option>
+      <option value="Planned">Planned</option>
+    </select>
+    <button class="submit-btn" style="margin-top:2px" onclick="addDeck()">Add deck</button>
+  </div>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:8px" id="deck-mgr-summary"></p>
+  <div class="card no-pad"><div id="deck-mgr-list"></div></div>
+</div>
+
+<!-- SETTINGS -->
+<div id="page-settings" class="page">
+  <div class="settings-section">
+    <div class="settings-label">Score — win rate thresholds</div>
+    <div class="card">
+      <div class="setting-block">
+        <div class="setting-name">Max win rate</div>
+        <div class="setting-desc">At or above this % → too strong (red)</div>
+        <input type="number" class="setting-input" id="s-maxWin" min="0" max="100" step="1" oninput="saveSetting('maxWin',this.value)">
+      </div>
+      <div class="setting-block">
+        <div class="setting-name">Strong win rate</div>
+        <div class="setting-desc">At or above this % → strong (amber)</div>
+        <input type="number" class="setting-input" id="s-strongWin" min="0" max="100" step="1" oninput="saveSetting('strongWin',this.value)">
+      </div>
+      <div class="setting-block">
+        <div class="setting-name">Fall behind</div>
+        <div class="setting-desc">At or below this % → underperforming (blue)</div>
+        <input type="number" class="setting-input" id="s-fallBehind" min="0" max="100" step="0.5" oninput="saveSetting('fallBehind',this.value)">
+      </div>
+      <div class="setting-block">
+        <div class="setting-name">Threshold</div>
+        <div class="setting-desc">Min games before colour applies (grey below)</div>
+        <input type="number" class="setting-input" id="s-threshold" min="0" max="100" step="1" oninput="saveSetting('threshold',this.value)">
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Current colour bands</div>
+        <div class="wr-legend" id="wr-legend"></div>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-label">App</div>
+    <div class="card">
+      <div class="setting-block">
+        <div class="setting-name">History limit</div>
+        <div class="setting-desc">Max entries shown in history view</div>
+        <input type="number" class="setting-input" id="s-historyLimit" min="10" max="1000" step="10" oninput="saveSetting('historyLimit',this.value)">
+      </div>
+      <div class="setting-block">
+        <div class="setting-name">Card marketplace</div>
+        <div class="setting-desc">Used for card links throughout the app</div>
+        <select class="setting-input" id="s-cardSeller" onchange="saveStrSetting('cardSeller',this.value)" style="font-size:14px;padding:8px 11px">
+          <option value="cardmarket">Cardmarket (EU)</option>
+          <option value="tcgplayer">TCGplayer (US)</option>
+          <option value="scryfall">Scryfall</option>
+          <option value="manapool">ManaPool (UK)</option>
+          <option value="mtggoldfish">MTGGoldfish</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /app -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// COLOR IDENTITIES
+// ============================================================
+const COLOR_OPTIONS = [
+  'Colorless','Mono White','Mono Blue','Mono Black','Mono Red','Mono Green',
+  'Azorius','Dimir','Rakdos','Gruul','Selesnya',
+  'Orzhov','Izzet','Golgari','Boros','Simic',
+  'Esper','Grixis','Jund','Naya','Bant',
+  'Abzan','Jeskai','Sultai','Mardu','Temur',
+  'Ink -B','Dune -B','Glint -W','Witch -R','Yore - G',
+  'WURBG'
+];
+
+// ============================================================
+// INITIAL DATA
+// ============================================================
+const INITIAL_DATA = {
+  settings: {
+    maxWin:45, strongWin:36, fallBehind:1.5, threshold:8, historyLimit:500,
+    cardSeller:'cardmarket'
+  },
+
+  // colorDecks is now the source of truth for all decks.
+  // Each entry: { color, name, status } where status is 'Owned'|'Building'|'Planned'
+  // colorDecks entries now support: {color, name, partner, status, artOverride, partnerArtOverride}
+  colorDecks: [
+    {color:"Colorless",  name:"Liberator, Urza's Battlethopter", status:"Building"},
+    {color:"Mono Black", name:"1/1 death",                        status:"Planned"},
+    {color:"Mono Red",   name:"Plargg and Nassari",               status:"Building"},
+    {color:"Mono Green", name:"Sasaya, Orochi Ascendant",         status:"Owned"},
+    {color:"Mono Blue",  name:"Minn, Wily Illusionist",           status:"Owned"},
+    {color:"Mono White", name:"Sram, Senior Edificer",            status:"Owned"},
+    {color:"Azorius",    name:"Taigam, Ojutai Master",            status:"Owned"},
+    {color:"Orzhov",     name:"Teysa, Orzhov Scion",              status:"Owned"},
+    {color:"Selesnya",   name:"Sythis, Harvest's Hand",           status:"Owned"},
+    {color:"Boros",      name:"Feather, the Redeemed",            status:"Owned"},
+    {color:"Gruul",      name:"Wort, The raid Mother",            status:"Owned"},
+    {color:"Izzet",      name:"Ghyrson Starn, Kelermorph",        status:"Owned"},
+    {color:"Rakdos",     name:"Obosh, the Preypiercer",           status:"Owned"},
+    {color:"Golgari",    name:"",                                  status:"Planned"},
+    {color:"Dimir",      name:"Oona, Queen of Fae",               status:"Owned"},
+    {color:"Simic",      name:"Sakashima & Kodama East Tree",      status:"Building"},
+    {color:"Abzan",      name:"Nethroi, Apex of Death",           status:"Owned"},
+    {color:"Bant",       name:"Derevi, Empyrial Tactician",       status:"Owned"},
+    {color:"Esper",      name:"Sen Triplets",                      status:"Owned"},
+    {color:"Grixis",     name:"Marchesa, the Black Rose",         status:"Owned"},
+    {color:"Jeskai",     name:"Kykar, Wind's Fury",               status:"Owned"},
+    {color:"Jund",       name:"Ziatora The Incinerator",          status:"Building"},
+    {color:"Mardu",      name:"Tariel, Reckoner of Souls",        status:"Owned"},
+    {color:"Naya",       name:"Jetmir, Nexus of Revels",          status:"Owned"},
+    {color:"Sultai",     name:"Damia, Sage of Stone",             status:"Owned"},
+    {color:"Temur",      name:"Illuna / Ghidorah",                status:"Owned"},
+    {color:"Dune -B",    name:"Saskia the Unyielding",            status:"Owned"},
+    {color:"Ink -B",     name:"Omnath, Locus of Creation",        status:"Building"},
+    {color:"Yore - G",   name:"Breya, Etherium Shaper",           status:"Owned"},
+    {color:"WURBG",      name:"Scion, The Ur Dragon",             status:"Owned"},
+    {color:"Abzan",      name:"Ikra // Tymna",                    status:"Owned"},
+    {color:"Azorius",    name:"Calix, Guided by Fate",            status:"Owned"}
+  ],
+
+  // scores: keyed by deck name
+  scores: {
+    "Obosh, the Preypiercer":          {wins:20,losses:33,total:53,winRate:37.7,lastDate:"2026-05-14",lastResult:"Win"},
+    "Marchesa, the Black Rose":        {wins:17,losses:31,total:48,winRate:35.4,lastDate:"2026-05-24",lastResult:"Win"},
+    "Breya, Etherium Shaper":          {wins:16,losses:26,total:42,winRate:38.1,lastDate:"2026-05-14",lastResult:"Loss"},
+    "Tariel, Reckoner of Souls":       {wins:15,losses:25,total:40,winRate:37.5,lastDate:"2026-05-14",lastResult:"Loss"},
+    "Saskia the Unyielding":           {wins:13,losses:27,total:40,winRate:32.5,lastDate:"2026-04-06",lastResult:"Loss"},
+    "Ikra // Tymna":                   {wins:15,losses:22,total:37,winRate:40.5,lastDate:"2026-05-14",lastResult:"Loss"},
+    "Derevi, Empyrial Tactician":      {wins:13,losses:22,total:35,winRate:37.1,lastDate:"2026-02-08",lastResult:"Loss"},
+    "Kykar, Wind's Fury":              {wins:17,losses:15,total:32,winRate:53.1,lastDate:"2026-02-08",lastResult:"Loss"},
+    "Feather, the Redeemed":           {wins:15,losses:17,total:32,winRate:46.9,lastDate:"2026-02-08",lastResult:"Loss"},
+    "Taigam, Ojutai Master":           {wins:10,losses:20,total:30,winRate:33.3,lastDate:"2026-05-14",lastResult:"Win"},
+    "Illuna / Ghidorah":               {wins:7, losses:20,total:27,winRate:25.9,lastDate:"2026-01-11",lastResult:"Loss"},
+    "Minn, Wily Illusionist":          {wins:16,losses:11,total:27,winRate:59.3,lastDate:"2025-12-13",lastResult:"Win"},
+    "Scion, The Ur Dragon":            {wins:12,losses:15,total:27,winRate:44.4,lastDate:"2025-09-20",lastResult:"Win"},
+    "Wort, The raid Mother":           {wins:12,losses:14,total:26,winRate:46.2,lastDate:"2026-05-14",lastResult:"Win"},
+    "Teysa, Orzhov Scion":             {wins:18,losses:6, total:24,winRate:75.0,lastDate:"2026-02-08",lastResult:"Win"},
+    "Sram, Senior Edificer":           {wins:15,losses:9, total:24,winRate:62.5,lastDate:"2025-10-04",lastResult:"Win"},
+    "Oona, Queen of Fae":              {wins:13,losses:11,total:24,winRate:54.2,lastDate:"2026-05-14",lastResult:"Win"},
+    "Damia, Sage of Stone":            {wins:8, losses:15,total:23,winRate:34.8,lastDate:"2026-04-04",lastResult:"Loss"},
+    "Sen Triplets":                    {wins:12,losses:10,total:22,winRate:54.5,lastDate:"2025-10-04",lastResult:"Loss"},
+    "Ghyrson Starn, Kelermorph":       {wins:9, losses:12,total:21,winRate:42.9,lastDate:"2026-04-04",lastResult:"Win"},
+    "Sasaya, Orochi Ascendant":        {wins:10,losses:7, total:17,winRate:58.8,lastDate:"2026-03-08",lastResult:"Win"},
+    "Nethroi, Apex of Death":          {wins:6, losses:11,total:17,winRate:35.3,lastDate:"2025-12-13",lastResult:"Loss"},
+    "Jetmir, Nexus of Revels":         {wins:9, losses:7, total:16,winRate:56.2,lastDate:"2025-10-04",lastResult:"Win"},
+    "Calix, Guided by Fate":           {wins:1, losses:0, total:1, winRate:100, lastDate:"2026-05-24",lastResult:"Win"},
+    // Retired decks — kept for legacy display
+    "Gahiji":                          {wins:7, losses:11,total:18,winRate:38.9,lastDate:"",          lastResult:""},
+    "Sythis, Harvest's Hand":          {wins:15,losses:7, total:22,winRate:68.2,lastDate:"2026-04-04",lastResult:"Loss"}
+  },
+
+  deckWants: {
+    "Feather, the Redeemed":[
+      {in:"Practiced Scrollsmith",inStatus:"buy",out:"Pinnacle monk"},
+      {in:"Aziza, Mage Tower Captain",inStatus:"owned",out:null},
+      {in:"Personify",inStatus:"buy",out:null},
+      {in:"Eldrazi Confluence",inStatus:"considering",out:null}
+    ],
+    "Ghyrson Starn, Kelermorph":[
+      {in:"Intruder Alarm",inStatus:"owned",out:null},
+      {in:"Neko-Te",inStatus:"considering",out:null},
+      {in:"Flatline",inStatus:"considering",out:null}
+    ],
+    "Jetmir, Nexus of Revels":[
+      {in:"Agate Instigator token",inStatus:"buy",out:null},
+      {in:"Agate Instigator",inStatus:"considering",out:null},
+      {in:"Cosmogrand Zenith",inStatus:"considering",out:null}
+    ],
+    "Kykar, Wind's Fury":[
+      {in:"Aziza, Mage Tower Captain",inStatus:"owned",out:null},
+      {in:"Nanogene Conversion",inStatus:"buy",out:null},
+      {in:"Keep Watch",inStatus:"considering",out:null},
+      {in:"Welcoming vampire",inStatus:"buy",out:"Creature type draw?"},
+      {in:"Brainstorm",inStatus:"considering",out:null}
+    ],
+    "Marchesa, the Black Rose":[
+      {in:"Sidisi, Regent of the Mire",inStatus:"owned",out:null},
+      {in:"My Precious",inStatus:"buy",out:"Nasty end"},
+      {in:"Planar Incision",inStatus:"owned",out:null},
+      {in:"Frost cliff siege",inStatus:"buy",out:"Haste enchantment"}
+    ],
+    "Nethroi, Apex of Death":[
+      {in:"Secret Salvage",inStatus:"buy",out:null},
+      {in:"Shadow-Rite Priest",inStatus:"buy",out:null},
+      {in:"Agent venom",inStatus:"buy",out:null}
+    ],
+    "Obosh, the Preypiercer":[
+      {in:"Qarsi Revenant",inStatus:"considering",out:null},
+      {in:"Surtr, Fiery Jotun",inStatus:"considering",out:null},
+      {in:"Adrenaline Jockey",inStatus:"buy",out:null},
+      {in:"Star athlete",inStatus:"considering",out:null}
+    ],
+    "Omnath, Locus of Creation":[
+      {in:"Mina and Denn, Wildborn",inStatus:"owned",out:"Spanish mina"},
+      {in:"Conduit of Worlds",inStatus:"owned",out:null},
+      {in:"Horizon of Progress",inStatus:"owned",out:null}
+    ],
+    "Oona, Queen of the Fae":[
+      {in:"Shadow of the Second Sun",inStatus:"buy",out:"Sphinx of the Second Sun"}
+    ],
+    "Sasaya, Orochi Ascendant":[
+      {in:"Horizon of Progress",inStatus:"buy",out:null},
+      {in:"Rites of Spring",inStatus:"considering",out:null}
+    ],
+    "Saskia the Unyielding":[
+      {in:"Winter, Misanthropic Guide",inStatus:"buy",out:null},
+      {in:"Torpor orb",inStatus:"owned",out:null}
+    ],
+    "Scion, The Ur Dragon":[
+      {in:"Mox Jasper",inStatus:"buy",out:null},
+      {in:"Frost cliff siege",inStatus:"buy",out:null}
+    ],
+    "Sen Triplets":[
+      {in:"Horizon of Progress",inStatus:"buy",out:null},
+      {in:"Bilbo thief in the night",inStatus:"buy",out:null},
+      {in:"Sage of the Beyond",inStatus:"buy",out:null},
+      {in:"Fortune Teller's Talent",inStatus:"buy",out:null}
+    ],
+    "Sram, Senior Edificer":[
+      {in:"Trouble in Pairs",inStatus:"owned",out:"All that glitters"},
+      {in:"Dawn's Truce",inStatus:"owned",out:"Surge of Salvation"}
+    ],
+    "Calix, Guided by Fate":[
+      {in:"Kodama of the West Tree",inStatus:"buy",out:null},
+      {in:"Rune of Might",inStatus:"buy",out:null},
+      {in:"Incubation Druid",inStatus:"buy",out:null},
+      {in:"Alpha Authority",inStatus:"buy",out:null},
+      {in:"Esper Sentinel",inStatus:"buy",out:null},
+      {in:"Bear Umbra",inStatus:"owned",out:null}
+    ],
+    "Taigam, Ojutai Master":[
+      {in:"Restoration Seminar",inStatus:"owned",out:"Keeper of the accord"}
+    ],
+    "Tariel, Reckoner of Souls":[
+      {in:"Underworld Breach",inStatus:"buy",out:null},
+      {in:"Kroxa, Titan of Death's Hunger",inStatus:"buy",out:null},
+      {in:"Junji, the Midnight Sky",inStatus:"buy",out:null},
+      {in:"Balor",inStatus:"considering",out:null}
+    ],
+    "Wort, The raid Mother":[
+      {in:"Pinnacle Monk",inStatus:"owned",out:"Mountain"},
+      {in:"Seething Song",inStatus:"owned",out:null},
+      {in:"Molten-Core Maestro",inStatus:"owned",out:null}
+    ]
+  },
+
+  history: [
+    {date:"2023-05-13",deck:"Ghyrson Starn, Kelermorph",wins:3,losses:6,last:"Win"},
+    {date:"2023-05-13",deck:"Ikra // Tymna",wins:9,losses:11,last:"Win"},
+    {date:"2023-05-13",deck:"Illuna / Ghidorah",wins:4,losses:9,last:"Loss"},
+    {date:"2023-05-13",deck:"Scion, The Ur Dragon",wins:7,losses:6,last:"Win"},
+    {date:"2023-05-13",deck:"Taigam, Ojutai Master",wins:4,losses:8,last:"Win"},
+    {date:"2023-05-19",deck:"Saskia the Unyielding",wins:7,losses:17,last:"Loss"},
+    {date:"2023-05-19",deck:"Breya, Etherium Shaper",wins:10,losses:16,last:"Loss"},
+    {date:"2023-05-19",deck:"Kykar, Wind's Fury",wins:11,losses:5,last:"Win"},
+    {date:"2023-05-19",deck:"Obosh, the Preypiercer",wins:14,losses:18,last:"Win"},
+    {date:"2023-05-19",deck:"Ghyrson Starn, Kelermorph",wins:4,losses:6,last:"Win"},
+    {date:"2023-05-19",deck:"Nethroi, Apex of Death",wins:3,losses:4,last:"Win"},
+    {date:"2023-05-19",deck:"Taigam, Ojutai Master",wins:4,losses:9,last:"Loss"},
+    {date:"2023-05-20",deck:"Illuna / Ghidorah",wins:4,losses:10,last:"Win"},
+    {date:"2023-05-20",deck:"Jetmir, Nexus of Revels",wins:6,losses:3,last:"Win"},
+    {date:"2023-05-20",deck:"Ikra // Tymna",wins:9,losses:12,last:"Loss"},
+    {date:"2023-05-20",deck:"Marchesa, the Black Rose",wins:12,losses:19,last:"Loss"},
+    {date:"2023-05-20",deck:"Derevi, Empyrial Tactician",wins:9,losses:13,last:"Loss"},
+    {date:"2023-05-27",deck:"Tariel, Reckoner of Souls",wins:11,losses:12,last:"Win"},
+    {date:"2023-05-27",deck:"Wort, The raid Mother",wins:9,losses:7,last:"Loss"},
+    {date:"2023-05-27",deck:"Sram, Senior Edificer",wins:10,losses:6,last:"Win"},
+    {date:"2023-05-27",deck:"Feather, the Redeemed",wins:10,losses:5,last:"Win"},
+    {date:"2023-05-27",deck:"Damia, Sage of Stone",wins:2,losses:2,last:"Loss"},
+    {date:"2023-05-27",deck:"Sasaya, Orochi Ascendant",wins:7,losses:3,last:"Win"},
+    {date:"2023-05-27",deck:"Obosh, the Preypiercer",wins:14,losses:19,last:"Loss"},
+    {date:"2023-05-27",deck:"Saskia the Unyielding",wins:7,losses:18,last:"Loss"},
+    {date:"2023-05-27",deck:"Sen Triplets",wins:10,losses:4,last:"Win"},
+    {date:"2023-05-29",deck:"Oona, Queen of Fae",wins:10,losses:5,last:"Loss"},
+    {date:"2023-05-29",deck:"Saskia the Unyielding",wins:8,losses:18,last:"Win"},
+    {date:"2023-05-29",deck:"Illuna / Ghidorah",wins:5,losses:10,last:"Win"},
+    {date:"2023-05-29",deck:"Breya, Etherium Shaper",wins:11,losses:16,last:"Win"},
+    {date:"2023-05-29",deck:"Nethroi, Apex of Death",wins:3,losses:5,last:"Loss"},
+    {date:"2023-06-02",deck:"Taigam, Ojutai Master",wins:4,losses:10,last:"Loss"},
+    {date:"2023-06-02",deck:"Obosh, the Preypiercer",wins:14,losses:20,last:"Loss"},
+    {date:"2023-06-02",deck:"Sram, Senior Edificer",wins:11,losses:6,last:"Win"},
+    {date:"2023-06-02",deck:"Ghyrson Starn, Kelermorph",wins:5,losses:6,last:"Win"},
+    {date:"2023-06-02",deck:"Breya, Etherium Shaper",wins:11,losses:17,last:"Loss"},
+    {date:"2023-06-02",deck:"Derevi, Empyrial Tactician",wins:10,losses:13,last:"Win"},
+    {date:"2023-06-02",deck:"Marchesa, the Black Rose",wins:13,losses:19,last:"Win"},
+    {date:"2023-06-10",deck:"Derevi, Empyrial Tactician",wins:10,losses:13,last:"Loss"},
+    {date:"2023-06-10",deck:"Breya, Etherium Shaper",wins:11,losses:18,last:"Loss"},
+    {date:"2023-06-10",deck:"Saskia the Unyielding",wins:9,losses:18,last:"Win"},
+    {date:"2023-06-10",deck:"Tariel, Reckoner of Souls",wins:11,losses:13,last:"Loss"},
+    {date:"2023-06-10",deck:"Kykar, Wind's Fury",wins:11,losses:6,last:"Loss"},
+    {date:"2023-06-10",deck:"Illuna / Ghidorah",wins:7,losses:13,last:"Loss"},
+    {date:"2023-06-12",deck:"Minn, Wily Illusionist",wins:11,losses:6,last:"Win"},
+    {date:"2023-06-17",deck:"Teysa, Orzhov Scion",wins:12,losses:3,last:"Win"},
+    {date:"2023-06-17",deck:"Obosh, the Preypiercer",wins:14,losses:21,last:"Loss"},
+    {date:"2023-06-17",deck:"Nethroi, Apex of Death",wins:4,losses:5,last:"Win"},
+    {date:"2023-06-17",deck:"Ikra // Tymna",wins:10,losses:12,last:"Win"},
+    {date:"2023-06-17",deck:"Ikra // Tymna",wins:10,losses:13,last:"Loss"},
+    {date:"2023-06-17",deck:"Breya, Etherium Shaper",wins:11,losses:19,last:"Loss"},
+    {date:"2023-07-01",deck:"Marchesa, the Black Rose",wins:14,losses:20,last:"Loss"},
+    {date:"2023-07-01",deck:"Tariel, Reckoner of Souls",wins:12,losses:13,last:"Win"},
+    {date:"2023-07-04",deck:"Sen Triplets",wins:10,losses:5,last:"Loss"},
+    {date:"2023-07-08",deck:"Kykar, Wind's Fury",wins:11,losses:7,last:"Loss"},
+    {date:"2023-07-15",deck:"Damia, Sage of Stone",wins:2,losses:3,last:"Loss"},
+    {date:"2023-07-15",deck:"Obosh, the Preypiercer",wins:14,losses:22,last:"Loss"},
+    {date:"2023-07-15",deck:"Scion, The Ur Dragon",wins:7,losses:7,last:"Loss"},
+    {date:"2023-07-15",deck:"Sen Triplets",wins:11,losses:5,last:"Win"},
+    {date:"2023-07-15",deck:"Derevi, Empyrial Tactician",wins:10,losses:14,last:"Loss"},
+    {date:"2023-07-15",deck:"Ghyrson Starn, Kelermorph",wins:6,losses:6,last:"Win"},
+    {date:"2023-07-15",deck:"Ikra // Tymna",wins:11,losses:13,last:"Win"},
+    {date:"2023-08-13",deck:"Illuna / Ghidorah",wins:7,losses:14,last:"Loss"},
+    {date:"2023-08-13",deck:"Nethroi, Apex of Death",wins:4,losses:6,last:"Loss"},
+    {date:"2023-08-26",deck:"Damia, Sage of Stone",wins:2,losses:5,last:"Loss"},
+    {date:"2023-08-26",deck:"Minn, Wily Illusionist",wins:11,losses:7,last:"Loss"},
+    {date:"2023-09-10",deck:"Obosh, the Preypiercer",wins:15,losses:22,last:"Win"},
+    {date:"2023-09-10",deck:"Kykar, Wind's Fury",wins:12,losses:7,last:"Win"},
+    {date:"2023-09-10",deck:"Teysa, Orzhov Scion",wins:12,losses:4,last:"Loss"},
+    {date:"2023-09-10",deck:"Jetmir, Nexus of Revels",wins:7,losses:3,last:"Win"},
+    {date:"2023-09-10",deck:"Derevi, Empyrial Tactician",wins:10,losses:15,last:"Loss"},
+    {date:"2023-09-13",deck:"Taigam, Ojutai Master",wins:4,losses:11,last:"Loss"},
+    {date:"2023-09-13",deck:"Scion, The Ur Dragon",wins:8,losses:8,last:"Win"},
+    {date:"2023-09-17",deck:"Ghyrson Starn, Kelermorph",wins:6,losses:7,last:"Loss"},
+    {date:"2023-09-17",deck:"Jetmir, Nexus of Revels",wins:7,losses:4,last:"Loss"},
+    {date:"2023-09-17",deck:"Jetmir, Nexus of Revels",wins:8,losses:4,last:"Win"},
+    {date:"2023-09-17",deck:"Ikra // Tymna",wins:11,losses:14,last:"Loss"},
+    {date:"2023-09-17",deck:"Sram, Senior Edificer",wins:11,losses:7,last:"Loss"},
+    {date:"2023-09-20",deck:"Oona, Queen of Fae",wins:10,losses:6,last:"Loss"},
+    {date:"2023-09-21",deck:"Scion, The Ur Dragon",wins:9,losses:8,last:"Win"},
+    {date:"2023-09-25",deck:"Wort, The raid Mother",wins:9,losses:8,last:"Loss"},
+    {date:"2023-09-25",deck:"Saskia the Unyielding",wins:9,losses:19,last:"Loss"},
+    {date:"2023-09-25",deck:"Tariel, Reckoner of Souls",wins:13,losses:13,last:"Win"},
+    {date:"2023-09-25",deck:"Breya, Etherium Shaper",wins:11,losses:20,last:"Loss"},
+    {date:"2023-09-25",deck:"Marchesa, the Black Rose",wins:14,losses:21,last:"Loss"},
+    {date:"2023-09-26",deck:"Teysa, Orzhov Scion",wins:13,losses:4,last:"Win"},
+    {date:"2023-10-15",deck:"Tariel, Reckoner of Souls",wins:13,losses:14,last:"Loss"},
+    {date:"2023-10-15",deck:"Ikra // Tymna",wins:12,losses:14,last:"Win"},
+    {date:"2023-10-28",deck:"Feather, the Redeemed",wins:11,losses:5,last:"Win"},
+    {date:"2023-10-28",deck:"Wort, The raid Mother",wins:9,losses:9,last:"Loss"},
+    {date:"2023-10-28",deck:"Oona, Queen of Fae",wins:10,losses:7,last:"Loss"},
+    {date:"2023-10-28",deck:"Scion, The Ur Dragon",wins:9,losses:9,last:"Loss"},
+    {date:"2023-10-28",deck:"Ghyrson Starn, Kelermorph",wins:7,losses:7,last:"Win"},
+    {date:"2023-10-28",deck:"Marchesa, the Black Rose",wins:14,losses:22,last:"Loss"},
+    {date:"2023-10-28",deck:"Kykar, Wind's Fury",wins:12,losses:8,last:"Loss"},
+    {date:"2023-11-11",deck:"Scion, The Ur Dragon",wins:9,losses:11,last:"Loss"},
+    {date:"2023-11-11",deck:"Wort, The raid Mother",wins:9,losses:10,last:"Loss"},
+    {date:"2023-11-11",deck:"Minn, Wily Illusionist",wins:11,losses:8,last:"Loss"},
+    {date:"2023-11-19",deck:"Damia, Sage of Stone",wins:2,losses:7,last:"Loss"},
+    {date:"2023-11-19",deck:"Derevi, Empyrial Tactician",wins:10,losses:16,last:"Loss"},
+    {date:"2023-12-07",deck:"Kykar, Wind's Fury",wins:12,losses:9,last:"Loss"},
+    {date:"2023-12-07",deck:"Sram, Senior Edificer",wins:11,losses:8,last:"Loss"},
+    {date:"2023-12-07",deck:"Taigam, Ojutai Master",wins:5,losses:11,last:"Win"},
+    {date:"2023-12-07",deck:"Ghyrson Starn, Kelermorph",wins:7,losses:8,last:"Loss"},
+    {date:"2023-12-07",deck:"Obosh, the Preypiercer",wins:15,losses:23,last:"Loss"},
+    {date:"2023-12-07",deck:"Sasaya, Orochi Ascendant",wins:7,losses:4,last:"Loss"},
+    {date:"2023-12-07",deck:"Ikra // Tymna",wins:12,losses:14,last:"Win"},
+    {date:"2023-12-18",deck:"Damia, Sage of Stone",wins:2,losses:8,last:"Loss"},
+    {date:"2023-12-18",deck:"Obosh, the Preypiercer",wins:15,losses:24,last:"Loss"},
+    {date:"2023-12-18",deck:"Scion, The Ur Dragon",wins:10,losses:11,last:"Win"},
+    {date:"2023-12-18",deck:"Breya, Etherium Shaper",wins:11,losses:21,last:"Loss"},
+    {date:"2023-12-18",deck:"Ikra // Tymna",wins:12,losses:15,last:"Loss"},
+    {date:"2023-12-18",deck:"Tariel, Reckoner of Souls",wins:13,losses:15,last:"Loss"},
+    {date:"2023-12-30",deck:"Tariel, Reckoner of Souls",wins:13,losses:16,last:"Loss"},
+    {date:"2023-12-30",deck:"Illuna / Ghidorah",wins:7,losses:15,last:"Loss"},
+    {date:"2023-12-30",deck:"Saskia the Unyielding",wins:10,losses:19,last:"Win"},
+    {date:"2023-12-30",deck:"Kykar, Wind's Fury",wins:13,losses:9,last:"Win"},
+    {date:"2023-12-30",deck:"Feather, the Redeemed",wins:11,losses:6,last:"Loss"},
+    {date:"2024-01-15",deck:"Taigam, Ojutai Master",wins:6,losses:11,last:"Win"},
+    {date:"2024-01-15",deck:"Saskia the Unyielding",wins:10,losses:20,last:"Loss"},
+    {date:"2024-01-15",deck:"Obosh, the Preypiercer",wins:15,losses:25,last:"Loss"},
+    {date:"2024-01-15",deck:"Ghyrson Starn, Kelermorph",wins:7,losses:9,last:"Loss"},
+    {date:"2024-01-15",deck:"Sram, Senior Edificer",wins:11,losses:9,last:"Loss"},
+    {date:"2024-01-15",deck:"Breya, Etherium Shaper",wins:12,losses:21,last:"Win"},
+    {date:"2024-01-20",deck:"Taigam, Ojutai Master",wins:6,losses:12,last:"Loss"},
+    {date:"2024-01-20",deck:"Feather, the Redeemed",wins:11,losses:8,last:"Loss"},
+    {date:"2024-01-20",deck:"Nethroi, Apex of Death",wins:4,losses:7,last:"Loss"},
+    {date:"2024-01-20",deck:"Obosh, the Preypiercer",wins:15,losses:26,last:"Loss"},
+    {date:"2024-01-20",deck:"Feather, the Redeemed",wins:12,losses:8,last:"Win"},
+    {date:"2024-01-21",deck:"Sen Triplets",wins:11,losses:6,last:"Loss"},
+    {date:"2024-01-21",deck:"Feather, the Redeemed",wins:12,losses:9,last:"Loss"},
+    {date:"2024-01-21",deck:"Feather, the Redeemed",wins:13,losses:9,last:"Win"},
+    {date:"2024-01-21",deck:"Derevi, Empyrial Tactician",wins:10,losses:17,last:"Loss"},
+    {date:"2024-02-24",deck:"Scion, The Ur Dragon",wins:10,losses:12,last:"Loss"},
+    {date:"2024-02-24",deck:"Minn, Wily Illusionist",wins:12,losses:8,last:"Win"},
+    {date:"2024-02-24",deck:"Oona, Queen of Fae",wins:11,losses:7,last:"Win"},
+    {date:"2024-02-24",deck:"Sen Triplets",wins:11,losses:7,last:"Loss"},
+    {date:"2024-02-24",deck:"Taigam, Ojutai Master",wins:6,losses:13,last:"Loss"},
+    {date:"2024-02-25",deck:"Saskia the Unyielding",wins:11,losses:20,last:"Win"},
+    {date:"2024-03-17",deck:"Damia, Sage of Stone",wins:2,losses:9,last:"Loss"},
+    {date:"2024-03-17",deck:"Kykar, Wind's Fury",wins:13,losses:11,last:"Loss"},
+    {date:"2024-03-17",deck:"Tariel, Reckoner of Souls",wins:14,losses:16,last:"Win"},
+    {date:"2024-04-13",deck:"Breya, Etherium Shaper",wins:13,losses:21,last:"Win"},
+    {date:"2024-04-13",deck:"Marchesa, the Black Rose",wins:14,losses:24,last:"Loss"},
+    {date:"2024-04-13",deck:"Kykar, Wind's Fury",wins:14,losses:11,last:"Win"},
+    {date:"2024-04-13",deck:"Taigam, Ojutai Master",wins:6,losses:14,last:"Loss"},
+    {date:"2024-05-05",deck:"Marchesa, the Black Rose",wins:14,losses:25,last:"Loss"},
+    {date:"2024-05-05",deck:"Ghyrson Starn, Kelermorph",wins:7,losses:10,last:"Loss"},
+    {date:"2024-05-05",deck:"Ikra // Tymna",wins:12,losses:18,last:"Loss"},
+    {date:"2024-05-19",deck:"Jetmir, Nexus of Revels",wins:8,losses:5,last:"Loss"},
+    {date:"2024-05-19",deck:"Tariel, Reckoner of Souls",wins:14,losses:17,last:"Loss"},
+    {date:"2024-05-19",deck:"Sasaya, Orochi Ascendant",wins:7,losses:5,last:"Loss"},
+    {date:"2024-05-19",deck:"Sasaya, Orochi Ascendant",wins:8,losses:5,last:"Win"},
+    {date:"2024-05-19",deck:"Kykar, Wind's Fury",wins:14,losses:12,last:"Loss"},
+    {date:"2024-05-30",deck:"Teysa, Orzhov Scion",wins:14,losses:4,last:"Win"},
+    {date:"2024-05-30",deck:"Minn, Wily Illusionist",wins:12,losses:9,last:"Loss"},
+    {date:"2024-05-30",deck:"Minn, Wily Illusionist",wins:13,losses:9,last:"Win"},
+    {date:"2024-05-30",deck:"Wort, The raid Mother",wins:10,losses:10,last:"Win"},
+    {date:"2024-05-30",deck:"Saskia the Unyielding",wins:12,losses:20,last:"Win"},
+    {date:"2024-06-16",deck:"Obosh, the Preypiercer",wins:15,losses:27,last:"Loss"},
+    {date:"2024-06-16",deck:"Sen Triplets",wins:11,losses:8,last:"Loss"},
+    {date:"2024-06-16",deck:"Sen Triplets",wins:12,losses:7,last:"Win"},
+    {date:"2024-06-16",deck:"Taigam, Ojutai Master",wins:7,losses:14,last:"Win"},
+    {date:"2024-06-16",deck:"Scion, The Ur Dragon",wins:10,losses:13,last:"Loss"},
+    {date:"2024-06-16",deck:"Sram, Senior Edificer",wins:11,losses:10,last:"Loss"},
+    {date:"2024-06-16",deck:"Sram, Senior Edificer",wins:12,losses:9,last:"Win"},
+    {date:"2024-07-26",deck:"Illuna / Ghidorah",wins:7,losses:16,last:"Loss"},
+    {date:"2024-07-26",deck:"Minn, Wily Illusionist",wins:13,losses:10,last:"Loss"},
+    {date:"2024-07-26",deck:"Feather, the Redeemed",wins:13,losses:10,last:"Loss"},
+    {date:"2024-07-26",deck:"Sasaya, Orochi Ascendant",wins:8,losses:6,last:"Loss"},
+    {date:"2024-07-26",deck:"Obosh, the Preypiercer",wins:16,losses:27,last:"Win"},
+    {date:"2024-08-01",deck:"Oona, Queen of Fae",wins:11,losses:9,last:"Loss"},
+    {date:"2024-08-01",deck:"Feather, the Redeemed",wins:13,losses:11,last:"Loss"},
+    {date:"2024-08-01",deck:"Wort, The raid Mother",wins:11,losses:10,last:"Win"},
+    {date:"2024-08-01",deck:"Scion, The Ur Dragon",wins:10,losses:14,last:"Loss"},
+    {date:"2024-08-01",deck:"Scion, The Ur Dragon",wins:11,losses:14,last:"Win"},
+    {date:"2024-08-02",deck:"Derevi, Empyrial Tactician",wins:11,losses:17,last:"Win"},
+    {date:"2024-08-02",deck:"Illuna / Ghidorah",wins:7,losses:17,last:"Loss"},
+    {date:"2024-08-02",deck:"Damia, Sage of Stone",wins:2,losses:10,last:"Loss"},
+    {date:"2024-08-02",deck:"Breya, Etherium Shaper",wins:14,losses:21,last:"Win"},
+    {date:"2024-08-02",deck:"Saskia the Unyielding",wins:12,losses:21,last:"Loss"},
+    {date:"2024-08-02",deck:"Marchesa, the Black Rose",wins:15,losses:25,last:"Win"},
+    {date:"2024-08-02",deck:"Teysa, Orzhov Scion",wins:15,losses:4,last:"Win"},
+    {date:"2024-08-05",deck:"Breya, Etherium Shaper",wins:15,losses:21,last:"Win"},
+    {date:"2024-08-05",deck:"Nethroi, Apex of Death",wins:4,losses:8,last:"Loss"},
+    {date:"2024-09-14",deck:"Obosh, the Preypiercer",wins:17,losses:27,last:"Win"},
+    {date:"2024-09-14",deck:"Ikra // Tymna",wins:13,losses:18,last:"Win"},
+    {date:"2024-09-14",deck:"Kykar, Wind's Fury",wins:14,losses:13,last:"Loss"},
+    {date:"2024-09-15",deck:"Ghyrson Starn, Kelermorph",wins:7,losses:11,last:"Loss"},
+    {date:"2024-10-04",deck:"Illuna / Ghidorah",wins:7,losses:18,last:"Loss"},
+    {date:"2024-10-04",deck:"Obosh, the Preypiercer",wins:17,losses:28,last:"Loss"},
+    {date:"2024-10-04",deck:"Damia, Sage of Stone",wins:3,losses:10,last:"Win"},
+    {date:"2024-10-22",deck:"Damia, Sage of Stone",wins:3,losses:11,last:"Loss"},
+    {date:"2024-10-22",deck:"Tariel, Reckoner of Souls",wins:14,losses:18,last:"Loss"},
+    {date:"2024-10-22",deck:"Tariel, Reckoner of Souls",wins:14,losses:19,last:"Loss"},
+    {date:"2024-10-22",deck:"Ikra // Tymna",wins:14,losses:18,last:"Win"},
+    {date:"2024-10-22",deck:"Saskia the Unyielding",wins:12,losses:22,last:"Loss"},
+    {date:"2024-10-22",deck:"Taigam, Ojutai Master",wins:8,losses:14,last:"Win"},
+    {date:"2024-10-22",deck:"Sram, Senior Edificer",wins:13,losses:9,last:"Win"},
+    {date:"2024-10-23",deck:"Feather, the Redeemed",wins:13,losses:12,last:"Loss"},
+    {date:"2024-10-23",deck:"Derevi, Empyrial Tactician",wins:11,losses:18,last:"Loss"},
+    {date:"2024-12-14",deck:"Derevi, Empyrial Tactician",wins:12,losses:18,last:"Win"},
+    {date:"2024-12-14",deck:"Kykar, Wind's Fury",wins:15,losses:13,last:"Win"},
+    {date:"2024-12-14",deck:"Marchesa, the Black Rose",wins:15,losses:26,last:"Loss"},
+    {date:"2024-12-14",deck:"Minn, Wily Illusionist",wins:14,losses:10,last:"Win"},
+    {date:"2024-12-14",deck:"Sasaya, Orochi Ascendant",wins:9,losses:6,last:"Win"},
+    {date:"2024-12-14",deck:"Oona, Queen of Fae",wins:12,losses:9,last:"Win"},
+    {date:"2024-12-14",deck:"Scion, The Ur Dragon",wins:11,losses:15,last:"Loss"},
+    {date:"2024-12-14",deck:"Obosh, the Preypiercer",wins:17,losses:29,last:"Loss"},
+    {date:"2024-12-15",deck:"Feather, the Redeemed",wins:14,losses:12,last:"Win"},
+    {date:"2024-12-21",deck:"Damia, Sage of Stone",wins:4,losses:11,last:"Win"},
+    {date:"2024-12-21",deck:"Breya, Etherium Shaper",wins:16,losses:21,last:"Win"},
+    {date:"2024-12-21",deck:"Marchesa, the Black Rose",wins:15,losses:27,last:"Loss"},
+    {date:"2024-12-21",deck:"Sen Triplets",wins:12,losses:8,last:"Loss"},
+    {date:"2024-12-22",deck:"Nethroi, Apex of Death",wins:5,losses:8,last:"Win"},
+    {date:"2024-12-22",deck:"Ikra // Tymna",wins:14,losses:19,last:"Loss"},
+    {date:"2024-12-28",deck:"Oona, Queen of Fae",wins:12,losses:10,last:"Loss"},
+    {date:"2024-12-28",deck:"Jetmir, Nexus of Revels",wins:8,losses:6,last:"Loss"},
+    {date:"2024-12-28",deck:"Ghyrson Starn, Kelermorph",wins:8,losses:11,last:"Win"},
+    {date:"2024-12-28",deck:"Taigam, Ojutai Master",wins:8,losses:15,last:"Loss"},
+    {date:"2025-01-05",deck:"Ikra // Tymna",wins:14,losses:20,last:"Loss"},
+    {date:"2025-01-05",deck:"Illuna / Ghidorah",wins:7,losses:19,last:"Loss"},
+    {date:"2025-01-05",deck:"Tariel, Reckoner of Souls",wins:15,losses:19,last:"Win"},
+    {date:"2025-01-05",deck:"Saskia the Unyielding",wins:12,losses:23,last:"Loss"},
+    {date:"2025-01-05",deck:"Derevi, Empyrial Tactician",wins:12,losses:19,last:"Loss"},
+    {date:"2025-01-05",deck:"Minn, Wily Illusionist",wins:15,losses:10,last:"Win"},
+    {date:"2025-02-15",deck:"Kykar, Wind's Fury",wins:16,losses:13,last:"Win"},
+    {date:"2025-02-15",deck:"Obosh, the Preypiercer",wins:18,losses:29,last:"Win"},
+    {date:"2025-02-15",deck:"Damia, Sage of Stone",wins:4,losses:12,last:"Loss"},
+    {date:"2025-02-15",deck:"Nethroi, Apex of Death",wins:6,losses:8,last:"Win"},
+    {date:"2025-02-15",deck:"Jetmir, Nexus of Revels",wins:8,losses:7,last:"Loss"},
+    {date:"2025-03-02",deck:"Taigam, Ojutai Master",wins:8,losses:16,last:"Loss"},
+    {date:"2025-03-02",deck:"Tariel, Reckoner of Souls",wins:15,losses:20,last:"Loss"},
+    {date:"2025-03-02",deck:"Tariel, Reckoner of Souls",wins:15,losses:21,last:"Loss"},
+    {date:"2025-03-02",deck:"Damia, Sage of Stone",wins:4,losses:13,last:"Loss"},
+    {date:"2025-03-02",deck:"Saskia the Unyielding",wins:12,losses:24,last:"Loss"},
+    {date:"2025-03-02",deck:"Sram, Senior Edificer",wins:14,losses:9,last:"Win"},
+    {date:"2025-03-23",deck:"Marchesa, the Black Rose",wins:15,losses:28,last:"Loss"},
+    {date:"2025-03-23",deck:"Breya, Etherium Shaper",wins:16,losses:22,last:"Loss"},
+    {date:"2025-03-23",deck:"Teysa, Orzhov Scion",wins:15,losses:5,last:"Loss"},
+    {date:"2025-03-23",deck:"Teysa, Orzhov Scion",wins:16,losses:5,last:"Win"},
+    {date:"2025-05-10",deck:"Derevi, Empyrial Tactician",wins:13,losses:19,last:"Win"},
+    {date:"2025-05-10",deck:"Obosh, the Preypiercer",wins:18,losses:30,last:"Loss"},
+    {date:"2025-05-10",deck:"Damia, Sage of Stone",wins:4,losses:14,last:"Loss"},
+    {date:"2025-06-01",deck:"Marchesa, the Black Rose",wins:15,losses:29,last:"Loss"},
+    {date:"2025-06-01",deck:"Oona, Queen of Fae",wins:12,losses:11,last:"Loss"},
+    {date:"2025-06-01",deck:"Feather, the Redeemed",wins:14,losses:13,last:"Loss"},
+    {date:"2025-06-01",deck:"Obosh, the Preypiercer",wins:18,losses:31,last:"Loss"},
+    {date:"2025-07-18",deck:"Obosh, the Preypiercer",wins:18,losses:32,last:"Loss"},
+    {date:"2025-07-18",deck:"Kykar, Wind's Fury",wins:17,losses:13,last:"Win"},
+    {date:"2025-07-18",deck:"Nethroi, Apex of Death",wins:6,losses:9,last:"Loss"},
+    {date:"2025-07-18",deck:"Saskia the Unyielding",wins:12,losses:25,last:"Loss"},
+    {date:"2025-07-18",deck:"Feather, the Redeemed",wins:14,losses:14,last:"Loss"},
+    {date:"2025-08-17",deck:"Damia, Sage of Stone",wins:5,losses:14,last:"Win"},
+    {date:"2025-09-20",deck:"Scion, The Ur Dragon",wins:12,losses:15,last:"Win"},
+    {date:"2025-09-20",deck:"Taigam, Ojutai Master",wins:9,losses:16,last:"Win"},
+    {date:"2025-09-20",deck:"Sen Triplets",wins:12,losses:9,last:"Loss"},
+    {date:"2025-09-20",deck:"Nethroi, Apex of Death",wins:6,losses:10,last:"Loss"},
+    {date:"2025-09-20",deck:"Feather, the Redeemed",wins:15,losses:14,last:"Win"},
+    {date:"2025-10-04",deck:"Jetmir, Nexus of Revels",wins:9,losses:7,last:"Win"},
+    {date:"2025-10-04",deck:"Ikra // Tymna",wins:15,losses:20,last:"Win"},
+    {date:"2025-10-04",deck:"Tariel, Reckoner of Souls",wins:15,losses:22,last:"Loss"},
+    {date:"2025-10-04",deck:"Tariel, Reckoner of Souls",wins:15,losses:23,last:"Loss"},
+    {date:"2025-10-04",deck:"Teysa, Orzhov Scion",wins:17,losses:5,last:"Win"},
+    {date:"2025-10-04",deck:"Sram, Senior Edificer",wins:15,losses:9,last:"Win"},
+    {date:"2025-10-04",deck:"Sen Triplets",wins:12,losses:10,last:"Loss"},
+    {date:"2025-10-04",deck:"Wort, The raid Mother",wins:11,losses:11,last:"Loss"},
+    {date:"2025-11-29",deck:"Saskia the Unyielding",wins:13,losses:25,last:"Win"},
+    {date:"2025-11-29",deck:"Damia, Sage of Stone",wins:6,losses:14,last:"Win"},
+    {date:"2025-11-29",deck:"Feather, the Redeemed",wins:15,losses:15,last:"Loss"},
+    {date:"2025-12-06",deck:"Breya, Etherium Shaper",wins:16,losses:24,last:"Loss"},
+    {date:"2025-12-06",deck:"Taigam, Ojutai Master",wins:9,losses:17,last:"Loss"},
+    {date:"2025-12-06",deck:"Minn, Wily Illusionist",wins:15,losses:11,last:"Loss"},
+    {date:"2025-12-06",deck:"Wort, The raid Mother",wins:11,losses:12,last:"Loss"},
+    {date:"2025-12-06",deck:"Wort, The raid Mother",wins:11,losses:13,last:"Loss"},
+    {date:"2025-12-06",deck:"Wort, The raid Mother",wins:11,losses:14,last:"Loss"},
+    {date:"2025-12-13",deck:"Nethroi, Apex of Death",wins:6,losses:11,last:"Loss"},
+    {date:"2025-12-13",deck:"Kykar, Wind's Fury",wins:17,losses:14,last:"Loss"},
+    {date:"2025-12-13",deck:"Sasaya, Orochi Ascendant",wins:9,losses:7,last:"Loss"},
+    {date:"2025-12-13",deck:"Minn, Wily Illusionist",wins:16,losses:11,last:"Win"},
+    {date:"2025-12-13",deck:"Derevi, Empyrial Tactician",wins:13,losses:20,last:"Loss"},
+    {date:"2026-01-11",deck:"Illuna / Ghidorah",wins:7,losses:20,last:"Loss"},
+    {date:"2026-01-11",deck:"Damia, Sage of Stone",wins:7,losses:14,last:"Win"},
+    {date:"2026-01-11",deck:"Derevi, Empyrial Tactician",wins:13,losses:21,last:"Loss"},
+    {date:"2026-02-08",deck:"Teysa, Orzhov Scion",wins:17,losses:6,last:"Loss"},
+    {date:"2026-02-08",deck:"Teysa, Orzhov Scion",wins:18,losses:6,last:"Win"},
+    {date:"2026-02-08",deck:"Derevi, Empyrial Tactician",wins:13,losses:22,last:"Loss"},
+    {date:"2026-02-08",deck:"Feather, the Redeemed",wins:15,losses:16,last:"Loss"},
+    {date:"2026-02-08",deck:"Kykar, Wind's Fury",wins:17,losses:15,last:"Loss"},
+    {date:"2026-03-08",deck:"Damia, Sage of Stone",wins:8,losses:14,last:"Win"},
+    {date:"2026-03-08",deck:"Obosh, the Preypiercer",wins:19,losses:32,last:"Win"},
+    {date:"2026-03-08",deck:"Breya, Etherium Shaper",wins:16,losses:25,last:"Loss"},
+    {date:"2026-03-08",deck:"Ghyrson Starn, Kelermorph",wins:8,losses:12,last:"Loss"},
+    {date:"2026-03-08",deck:"Sasaya, Orochi Ascendant",wins:10,losses:7,last:"Win"},
+    {date:"2026-03-08",deck:"Marchesa, the Black Rose",wins:16,losses:29,last:"Win"},
+    {date:"2026-03-08",deck:"Taigam, Ojutai Master",wins:9,losses:18,last:"Loss"},
+    {date:"2026-03-08",deck:"Taigam, Ojutai Master",wins:9,losses:19,last:"Loss"},
+    {date:"2026-04-04",deck:"Ghyrson Starn, Kelermorph",wins:9,losses:12,last:"Win"},
+    {date:"2026-04-04",deck:"Obosh, the Preypiercer",wins:19,losses:33,last:"Loss"},
+    {date:"2026-04-04",deck:"Marchesa, the Black Rose",wins:16,losses:30,last:"Loss"},
+    {date:"2026-04-04",deck:"Damia, Sage of Stone",wins:8,losses:15,last:"Loss"},
+    {date:"2026-04-04",deck:"Marchesa, the Black Rose",wins:16,losses:31,last:"Loss"},
+    {date:"2026-04-06",deck:"Saskia the Unyielding",wins:13,losses:26,last:"Loss"},
+    {date:"2026-04-06",deck:"Taigam, Ojutai Master",wins:9,losses:20,last:"Loss"},
+    {date:"2026-04-06",deck:"Tariel, Reckoner of Souls",wins:15,losses:24,last:"Loss"},
+    {date:"2026-04-06",deck:"Saskia the Unyielding",wins:13,losses:27,last:"Loss"},
+    {date:"2026-05-14",deck:"Breya, Etherium Shaper",wins:16,losses:26,last:"Loss"},
+    {date:"2026-05-14",deck:"Wort, The raid Mother",wins:12,losses:14,last:"Win"},
+    {date:"2026-05-14",deck:"Tariel, Reckoner of Souls",wins:15,losses:25,last:"Loss"},
+    {date:"2026-05-14",deck:"Ikra // Tymna",wins:15,losses:21,last:"Loss"},
+    {date:"2026-05-14",deck:"Ikra // Tymna",wins:15,losses:22,last:"Loss"},
+    {date:"2026-05-14",deck:"Obosh, the Preypiercer",wins:20,losses:33,last:"Win"},
+    {date:"2026-05-14",deck:"Taigam, Ojutai Master",wins:10,losses:20,last:"Win"},
+    {date:"2026-05-14",deck:"Oona, Queen of Fae",wins:13,losses:11,last:"Win"},
+    {date:"2026-05-24",deck:"Calix, Guided by Fate",wins:1,losses:0,last:"Win"},
+    {date:"2026-05-24",deck:"Marchesa, the Black Rose",wins:17,losses:31,last:"Win"}
+  ],
+
+  // Last 3 logged entries for undo
+  undoStack: []
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let data = JSON.parse(JSON.stringify(INITIAL_DATA));
+let sortKey = 'lastDate';
+let sortDir = 1; // 1=ascending for lastDate = oldest first (least recently played on top) // -1 = descending (default), 1 = ascending
+let newDeckAddStatus = 'buy'; // for wants add form
+let dirty = false;
+let syncTimer = null;
+let syncing = false;
+let driveFileId = null;
+let accessToken = null;
+let artCache = {};
+let priceCache = {}; // card name -> {eur, usd, updated}
+let wantsTab = 'buy';
+// per-deck open/close state for wants by-deck
+let deckSectionOpen = {};
+// log game selections: {deckName: 'Win'|'Loss'|null}
+let logSelections = {};
+// pending: { deckName: { wins: N, losses: N } }
+let pending = {};
+let modalCallback = null;
+let lastExpandedDeck = null; // for graph filtering
+
+function cfg() { return data.settings || INITIAL_DATA.settings; }
+
+// Format ISO date string (YYYY-MM-DD) as DD MMM YYYY e.g. "24 May 2026"
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  if (!y||!m||!d) return iso;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${parseInt(d)} ${months[parseInt(m)-1]} ${y}`;
+}
+
+// ============================================================
+// LOCAL STORAGE
+// ============================================================
+function saveLocal() {
+  try { localStorage.setItem('mtg_data', JSON.stringify(data)); } catch(e) {}
+  dirty = true;
+}
+function loadLocal() {
+  try {
+    const s = localStorage.getItem('mtg_data');
+    if (s) {
+      const loaded = JSON.parse(s);
+      // Always merge on top of INITIAL_DATA so missing keys get defaults
+      data = Object.assign({}, INITIAL_DATA, loaded);
+      if (!data.settings)   data.settings   = INITIAL_DATA.settings;
+      if (!data.colorDecks || !data.colorDecks.length)
+                            data.colorDecks  = INITIAL_DATA.colorDecks;
+      if (!data.scores)     data.scores     = INITIAL_DATA.scores;
+      if (!data.deckWants)  data.deckWants  = INITIAL_DATA.deckWants;
+      if (!data.history)    data.history    = INITIAL_DATA.history;
+      if (!data.undoStack)  data.undoStack  = [];
+      // Validate score totals — reset if inflated
+      const loadedTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
+      const correctTotal = Object.values(INITIAL_DATA.scores).reduce((s,d)=>s+(d.total||0),0);
+      if (loadedTotal > correctTotal + 10) {
+        data.scores = JSON.parse(JSON.stringify(INITIAL_DATA.scores));
+      }
+    }
+  } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
+  try { accessToken = localStorage.getItem('mtg_token')||null; } catch(e) {}
+  try { driveFileId = localStorage.getItem('mtg_file_id')||null; } catch(e) {}
+  try { artCache = JSON.parse(localStorage.getItem('mtg_art')||'{}'); } catch(e) { artCache={}; }
+  try { priceCache = JSON.parse(localStorage.getItem('mtg_prices')||'{}'); } catch(e) { priceCache={}; }
+}
+function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artCache));}catch(e){} }
+function savePriceCache() { try{localStorage.setItem('mtg_prices',JSON.stringify(priceCache));}catch(e){} }
+
+// ============================================================
+// GOOGLE AUTH
+// ============================================================
+const CLIENT_ID = '759702102602-oqut2g10iijjiilci142fqr5ll9i78rfh.apps.googleusercontent.com';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const FILE_NAME = 'MTG_Tools_Data.json';
+
+let gsiClient = null;
+
+function initGSI() {
+  if (typeof google === 'undefined' || !google.accounts?.oauth2) return false;
+  if (gsiClient) return true;
+  try {
+    gsiClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.error) { setSyncStatus('red','Sign-in failed: '+resp.error); return; }
+        accessToken = resp.access_token;
+        try { localStorage.setItem('mtg_token', accessToken); } catch(e) {}
+        updateSignInBtn(); loadFromDrive();
+      }
+    });
+    return true;
+  } catch(e) {
+    setSyncStatus('red', 'GSI init failed: '+e.message);
+    return false;
+  }
+}
+
+function signIn() {
+  if (!initGSI()) {
+    setSyncStatus('red', 'Google not loaded — try again');
+    return;
+  }
+  try {
+    gsiClient.requestAccessToken();
+  } catch(e) {
+    setSyncStatus('red', 'Sign-in error: '+e.message);
+  }
+}
+function signOut() {
+  if (accessToken) google.accounts.oauth2.revoke(accessToken, ()=>{});
+  accessToken = null; driveFileId = null;
+  try { localStorage.removeItem('mtg_token'); localStorage.removeItem('mtg_file_id'); } catch(e) {}
+  setSyncStatus('red','Not signed in'); updateSignInBtn();
+}
+function updateSignInBtn() {
+  const btn = document.getElementById('signin-btn');
+  if (!btn) return;
+  if (accessToken) { btn.textContent='Sign out'; btn.onclick=signOut; }
+  else { btn.textContent='Sign in with Google'; btn.onclick=signIn; }
+}
+function setSyncStatus(state, msg) {
+  document.getElementById('sync-dot').className='sync-dot '+(state==='ok'?'green':state==='busy'?'amber':'red');
+  document.getElementById('sync-status').textContent=msg;
+}
+
+// ============================================================
+// DRIVE SYNC
+// ============================================================
+async function getOrCreateFile() {
+  if (driveFileId) return driveFileId;
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${FILE_NAME}'+and+trashed=false&fields=files(id)`,
+    {headers:{Authorization:`Bearer ${accessToken}`}});
+  const j = await r.json();
+  if (j.files && j.files.length > 0) {
+    driveFileId = j.files[0].id;
+    try{localStorage.setItem('mtg_file_id',driveFileId);}catch(e){}
+  }
+  return driveFileId;
+}
+async function syncDrive(silent) {
+  if (syncing||!accessToken) return;
+  syncing=true; dirty=false; setSyncStatus('busy','Syncing...');
+  try {
+    const fid = await getOrCreateFile();
+    const body = JSON.stringify(data);
+    let res;
+    if (fid) {
+      res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fid}?uploadType=media`,
+        {method:'PATCH',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body});
+    } else {
+      const meta = new Blob([JSON.stringify({name:FILE_NAME,mimeType:'application/json'})],{type:'application/json'});
+      const content = new Blob([body],{type:'application/json'});
+      const form = new FormData(); form.append('metadata',meta); form.append('file',content);
+      res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        {method:'POST',headers:{Authorization:`Bearer ${accessToken}`},body:form});
+      const c = await res.json(); driveFileId=c.id;
+      try{localStorage.setItem('mtg_file_id',driveFileId);}catch(e){}
+    }
+    if (res.ok) {
+      setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+      if (!silent) showToast('Saved to Drive');
+    } else if (res.status===401) { accessToken=null; setSyncStatus('red','Session expired'); updateSignInBtn(); }
+    else setSyncStatus('red','Sync error');
+  } catch(e){ setSyncStatus('red','Offline — saved locally'); }
+  syncing=false;
+}
+async function loadFromDrive() {
+  if (!accessToken) { setSyncStatus('red','Not signed in'); return; }
+  setSyncStatus('busy','Loading...');
+  try {
+    const fid = await getOrCreateFile();
+    if (!fid) { setSyncStatus('ok','No Drive file yet'); renderAll(); return; }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`,
+      {headers:{Authorization:`Bearer ${accessToken}`}});
+    if (res.ok) {
+      const loaded = await res.json();
+      data = Object.assign({},INITIAL_DATA,loaded);
+      if (!data.settings)  data.settings  = INITIAL_DATA.settings;
+      if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
+      if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
+      if (!data.undoStack) data.undoStack = [];
+      // Validate scores: if loaded total exceeds the known correct total, reset to INITIAL_DATA
+      // Validate score totals
+      const loadedTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
+      const correctTotal = Object.values(INITIAL_DATA.scores).reduce((s,d)=>s+(d.total||0),0);
+      if (!data.scores || loadedTotal > correctTotal + 10) {
+        data.scores = JSON.parse(JSON.stringify(INITIAL_DATA.scores));
+      }
+      saveLocal(); renderAll();
+      setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+    } else if (res.status===401) { accessToken=null; setSyncStatus('red','Session expired'); updateSignInBtn(); renderAll(); }
+    else { setSyncStatus('red','Load error'); renderAll(); }
+  } catch(e){ setSyncStatus('red','Offline — using local'); renderAll(); }
+}
+function scheduleSync() { saveLocal(); clearTimeout(syncTimer); syncTimer=setTimeout(()=>syncDrive(true),3000); }
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'&&dirty) syncDrive(true);
+  else if(document.visibilityState==='visible'&&accessToken) loadFromDrive();
+});
+window.addEventListener('blur',()=>{if(dirty&&accessToken){clearTimeout(syncTimer);syncDrive(true);}});
+window.addEventListener('focus',()=>{if(accessToken) loadFromDrive();});
+window.addEventListener('pagehide',()=>{if(dirty&&accessToken) syncDrive(true);});
+
+// ============================================================
+// SCRYFALL ART
+// ============================================================
+function scryfallKey(name) {
+  return name.split(/[\/,]/)[0].trim().toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,'-');
+}
+async function fetchArt(name) {
+  const key = scryfallKey(name);
+  if (artCache[key]) return artCache[key];
+  const searchName = name.split(/[\/,]/)[0].trim();
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(searchName)}`,
+      {headers:{Accept:'application/json'}});
+    if (!res.ok) return null;
+    const card = await res.json();
+    const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || null;
+    if (url) { artCache[key]=url; saveArtCache(); }
+    return url;
+  } catch(e){ return null; }
+}
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+async function fetchMissingArt(names) {
+  for (const name of names) {
+    const key = scryfallKey(name);
+    if (artCache[key]) continue;
+    const url = await fetchArt(name);
+    if (url) {
+      // Inject into any rendered cells with this key
+      document.querySelectorAll(`[data-art="${key}"]`).forEach(el=>{
+        el.classList.remove('loading');
+        if (!el.querySelector('img')) {
+          const img=document.createElement('img'); img.src=url; img.alt=name; img.loading='lazy';
+          el.insertBefore(img, el.firstChild);
+        }
+      });
+    }
+    await sleep(80);
+  }
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  btn.classList.add('active');
+  if(id==='score')    renderScore();
+  if(id==='history')  { renderHistory(); populateHistoryFilters(); }
+  if(id==='wants')    renderWants();
+  if(id==='decks')    renderDeckMgr();
+  if(id==='settings') renderSettings();
+}
+
+// ============================================================
+// WIN RATE COLOUR
+// ============================================================
+function wrClass(wr, total) {
+  const s=cfg();
+  if(total<s.threshold) return 'wr-new';
+  if(wr>=s.maxWin)      return 'wr-tostrong';
+  if(wr>=s.strongWin)   return 'wr-strong';
+  if(wr<=s.fallBehind)  return 'wr-behind';
+  return 'wr-justright';
+}
+const WR_FILL = {'wr-tostrong':'#e06060','wr-strong':'#d4921f','wr-justright':'#6abf3a','wr-behind':'#5ba3e8','wr-new':'rgba(255,255,255,.35)'};
+
+// ============================================================
+// SCORE
+// ============================================================
+function ownedDecks() {
+  return (data.colorDecks||[]).filter(d=>d.status==='Owned' && d.name);
+}
+function deckDisplayName(d) {
+  return d.partner ? `${d.name} // ${d.partner}` : d.name;
+}
+function deckScoreKey(d) {
+  // Score is stored under display name
+  return deckDisplayName(d);
+}
+function sortDecks(key, btn) {
+  if (sortKey === key) {
+    sortDir *= -1; // same key — flip direction
+  } else {
+    sortKey = key;
+    sortDir = -1; // new key — reset to descending
+  }
+  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  // Show arrow on button
+  btn.dataset.dir = sortDir === -1 ? '↓' : '↑';
+  renderScore();
+}
+function renderScore() {
+  // Update sort pill arrows
+  ['total','winRate','lastDate'].forEach(k=>{
+    const p = document.getElementById('pill-'+k);
+    if (!p) return;
+    const labels = {total:'Most played',winRate:'Win rate',lastDate:'Last played'};
+    p.textContent = labels[k] + (sortKey===k ? (sortDir===-1?' ↓':' ↑') : '');
+  });
+  const owned = ownedDecks();
+  const ownedNames = new Set(owned.map(d=>d.name));
+
+  // Build score display list
+  let list = owned.map(d=>{
+    const s = data.scores?.[d.name] || {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    return {...s, name:d.name};
+  }).filter(d=>d.total>0 || true); // show all owned even with 0 games
+
+  list.sort((a,b)=>{
+    if(sortKey==='lastDate') {
+      const cmp = (b.lastDate||'').localeCompare(a.lastDate||'');
+      return cmp * sortDir * -1; // -1 flips so descending = newest first by default
+    }
+    return ((b[sortKey]||0)-(a[sortKey]||0)) * sortDir;
+  });
+
+  const W=list.reduce((s,d)=>s+(d.wins||0),0);
+  const L=list.reduce((s,d)=>s+(d.losses||0),0);
+  const G=W+L;
+  // Include ALL decks (owned + retired) in total games count
+  const totalAllGames = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
+  document.getElementById('total-games').textContent  = totalAllGames||G;
+  document.getElementById('overall-wr').textContent   = G>0?(W/G*100).toFixed(1)+'%':'—';
+  // Dynamic: count all owned decks from colorDecks
+  const allDecksData = data.colorDecks||[];
+  const ownedCount = allDecksData.filter(d=>d.status==='Owned'&&d.name).length;
+  document.getElementById('total-decks').textContent  = ownedCount;
+  const lastH=data.history?.[data.history.length-1];
+  document.getElementById('last-played').textContent  = lastH?fmtDate(lastH.date):'—';
+
+  const artNames = list.map(d=>d.name);
+
+  document.getElementById('deck-list').innerHTML = list.map(d=>{
+    const cls  = wrClass(d.winRate||0, d.total||0);
+    const fill = WR_FILL[cls]||'rgba(255,255,255,.35)';
+    const lp   = fmtDate(d.lastDate);
+
+    const key  = scryfallKey(d.name);
+    const art  = artCache[key];
+    const eid  = 'exp-'+key;
+    const pid  = 'prev-'+key;
+    const sn   = d.name.replace(/'/g,"\\'");
+    return `<div>
+      <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
+        <div class="deck-art${art?'':' loading'}" data-art="${key}">
+          ${art?`<img src="${art}" alt="${d.name}" loading="lazy">`:''}
+        </div>
+        <div class="deck-left">
+          <div class="deck-name">${d.name}</div>
+          <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · Last played: ${lp}</div>
+        </div>
+        <div class="deck-wr ${cls}">${d.winRate||0}%</div>
+      </div>
+      <div class="deck-expand" id="${eid}">
+        <div class="log-cols">
+          <div>
+            <div class="log-col-label win-lbl">Wins</div>
+            <div class="log-btn-row">
+              <button class="log-adj-btn plus-win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button>
+              <button class="log-adj-btn minus-win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button>
+            </div>
+          </div>
+          <div>
+            <div class="log-col-label loss-lbl">Losses</div>
+            <div class="log-btn-row">
+              <button class="log-adj-btn plus-loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button>
+              <button class="log-adj-btn minus-loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button>
+            </div>
+          </div>
+        </div>
+        <div class="log-pending-preview" id="${pid}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Legacy: decks with history but not currently owned
+  const legacyNames = Object.keys(data.scores||{}).filter(n=>
+    !ownedNames.has(n) && data.scores[n].total>0
+  );
+  const legacySec = document.getElementById('legacy-section');
+  if (legacyNames.length>0) {
+    legacySec.style.display='';
+    document.getElementById('legacy-list').innerHTML = legacyNames.map(n=>{
+      const s=data.scores[n];
+      const cls=wrClass(s.winRate,s.total);
+      const fill=WR_FILL[cls];
+      const key=scryfallKey(n);
+      const art=artCache[key];
+      return `<div class="deck-row">
+        <div class="deck-art${art?'':' loading'}" data-art="${key}">
+          ${art?`<img src="${art}" alt="${n}" loading="lazy">`:''}
+        </div>
+        <div class="deck-left">
+          <div class="deck-name">${n}</div>
+          <div class="deck-meta">${s.total} games · ${s.wins}W · ${s.losses}L · Last played: ${fmtDate(s.lastDate)}</div>
+        </div>
+        <div class="deck-wr ${cls}">${s.winRate}%</div>
+      </div>`;
+    }).join('');
+    fetchMissingArt(legacyNames);
+  } else { legacySec.style.display='none'; }
+
+  fetchMissingArt(artNames);
+}
+
+// ============================================================
+// DECK EXPAND + PENDING LOG SYSTEM
+// ============================================================
+function toggleDeckExpand(eid) {
+  const el = document.getElementById(eid);
+  if (!el) return;
+  const wasOpen = el.classList.contains('open');
+  el.classList.toggle('open');
+  if (!wasOpen) {
+    // Extract deck name from eid = 'exp-' + scryfallKey
+    // Find it from the deck list
+    const key = eid.replace(/^exp-/,'');
+    const owned = ownedDecks();
+    const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
+    if (deck) {
+      lastExpandedDeck = deckDisplayName(deck);
+      populateGraphSelect();
+      renderGraph();
+    }
+  } else {
+    // Collapsed — if it was the selected graph deck, reset to ALL
+    const key = eid.replace(/^exp-/,'');
+    const owned = ownedDecks();
+    const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
+    if (deck && lastExpandedDeck===deckDisplayName(deck)) {
+      lastExpandedDeck = null;
+      populateGraphSelect();
+      renderGraph();
+    }
+  }
+}
+
+function adjustPending(evt, name, type, delta) {
+  evt.stopPropagation();
+  if (!pending[name]) pending[name] = {wins:0, losses:0};
+  if (type==='Win') {
+    pending[name].wins = Math.max(0, pending[name].wins + delta);
+  } else {
+    pending[name].losses = Math.max(0, pending[name].losses + delta);
+  }
+  if (pending[name].wins===0 && pending[name].losses===0) delete pending[name];
+  renderPendingBar();
+  // Update preview under this deck
+  const key = scryfallKey(name);
+  const prev = document.getElementById('prev-'+key);
+  if (prev) {
+    const p = pending[name];
+    if (!p) { prev.textContent=''; return; }
+    const parts=[];
+    if(p.wins>0)   parts.push(`+${p.wins} Win${p.wins>1?'s':''}`);
+    if(p.losses>0) parts.push(`+${p.losses} Loss${p.losses>1?'es':''}`);
+    prev.textContent = parts.join(' · ');
+  }
+}
+
+function renderPendingBar() {
+  const bar = document.getElementById('pending-bar');
+  if (!bar) return;
+  const entries = Object.entries(pending).filter(([,v])=>v.wins>0||v.losses>0);
+  if (!entries.length) { bar.style.display='none'; return; }
+  bar.style.display='';
+  const pl = document.getElementById('pending-list');
+  if (pl) pl.innerHTML = entries.map(([name,v])=>{
+    const parts=[];
+    if(v.wins>0)   parts.push(`<span style="color:var(--green)">+${v.wins}W</span>`);
+    if(v.losses>0) parts.push(`<span style="color:var(--red)">+${v.losses}L</span>`);
+    return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:.5px solid var(--border)">
+      <span style="font-size:13px">${name.split(',')[0]}</span>
+      <span style="font-size:13px;display:flex;gap:8px">${parts.join('')}</span>
+    </div>`;
+  }).join('');
+}
+
+function submitPending() {
+  const entries = Object.entries(pending).filter(([,v])=>v.wins>0||v.losses>0);
+  if (!entries.length) return;
+  const totalEntries = entries.reduce((s,[,v])=>s+v.wins+v.losses,0);
+  const lines = entries.map(([name,v])=>{
+    const parts=[];
+    if(v.wins>0)   parts.push(`${v.wins} Win${v.wins>1?'s':''}`);
+    if(v.losses>0) parts.push(`${v.losses} Loss${v.losses>1?'es':''}`);
+    return `${name.split(',')[0]}: ${parts.join(' + ')}`;
+  }).join('\n');
+  if (totalEntries > 1) {
+    showModal(
+      'Submit entries',
+      `Log the following games?\n\n${lines}\n\n${totalEntries} history entries will be created.`,
+      () => commitPending()
+    );
+  } else {
+    commitPending();
+  }
+}
+
+function commitPending() {
+  const today = new Date().toISOString().slice(0,10);
+  if (!data.scores)    data.scores={};
+  if (!data.undoStack) data.undoStack=[];
+  let totalLogged = 0;
+  for (const [name, p] of Object.entries(pending)) {
+    if (!data.scores[name]) data.scores[name]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    const s = data.scores[name];
+    for (let i=0; i<p.wins; i++) {
+      s.wins++; s.total=s.wins+s.losses;
+      s.winRate=parseFloat((s.wins/s.total*100).toFixed(1));
+      s.lastResult='Win'; s.lastDate=today;
+      data.history.push({date:today,deck:name,wins:s.wins,losses:s.losses,last:'Win'});
+      totalLogged++;
+    }
+    for (let i=0; i<p.losses; i++) {
+      s.losses++; s.total=s.wins+s.losses;
+      s.winRate=parseFloat((s.wins/s.total*100).toFixed(1));
+      s.lastResult='Loss'; s.lastDate=today;
+      data.history.push({date:today,deck:name,wins:s.wins,losses:s.losses,last:'Loss'});
+      totalLogged++;
+    }
+    data.undoStack.unshift({date:today,deck:name,result:`${p.wins}W/${p.losses}L`,before:{...data.scores[name]}});
+    if(data.undoStack.length>3) data.undoStack.pop();
+  }
+  pending = {};
+  renderPendingBar();
+  renderScore();
+  showToast(`${totalLogged} game${totalLogged>1?'s':''} logged`);
+  scheduleSync();
+}
+
+// ── MODAL ──
+function showModal(title, body, onConfirm) {
+  const ov = document.getElementById('modal-overlay');
+  if (!ov) return;
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerText = body;
+  ov.style.display='flex';
+  modalCallback = onConfirm;
+}
+function modalConfirm() {
+  const ov = document.getElementById('modal-overlay');
+  if (ov) ov.style.display='none';
+  if (modalCallback) { modalCallback(); modalCallback=null; }
+}
+function modalCancel() {
+  const ov = document.getElementById('modal-overlay');
+  if (ov) ov.style.display='none';
+  modalCallback=null;
+}
+
+// ============================================================
+// HISTORY
+// ============================================================
+let historySelected = new Set();
+
+function populateHistoryFilters() {
+  const withResult = (data.history||[]).filter(h=>h.last&&h.deck);
+  const years  = [...new Set(withResult.map(h=>h.date.slice(0,4)))].sort().reverse();
+  const months = [...new Set(withResult.map(h=>h.date.slice(5,7)))].sort();
+  const MNAMES = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const ySel = document.getElementById('hist-year');
+  const mSel = document.getElementById('hist-month');
+  if (!ySel||!mSel) return;
+  const curY=ySel.value, curM=mSel.value;
+  ySel.innerHTML = '<option value="">All years</option>' +
+    years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  mSel.innerHTML = '<option value="">All months</option>' +
+    months.map(m=>`<option value="${m}">${MNAMES[parseInt(m)]||m}</option>`).join('');
+  if (curY) ySel.value=curY;
+  if (curM) mSel.value=curM;
+}
+
+function renderHistory() {
+  const q = (document.getElementById('hist-search')?.value||'').toLowerCase();
+  const filterYear  = document.getElementById('hist-year')?.value||'';
+  const filterMonth = document.getElementById('hist-month')?.value||'';
+  const limit = parseInt(cfg().historyLimit)||500;
+
+  // Build absolute game numbers
+  // Get the true total from the most recent history entry per deck
+  // (avoids issues with stale score data)
+  const allWithResult = (data.history||[]).filter(h=>h.last&&h.deck);
+  const historyCount = allWithResult.length;
+  // Find the peak cumulative total per deck from history
+  const peakPerDeck = {};
+  for (const h of allWithResult) {
+    const t = (h.wins||0)+(h.losses||0);
+    if (!peakPerDeck[h.deck] || t > peakPerDeck[h.deck]) peakPerDeck[h.deck] = t;
+  }
+  // Add in decks that have scores but no history entries
+  const scoresTotal = Object.entries(data.scores||{}).reduce((sum,[deck,s])=>{
+    return sum + (peakPerDeck[deck] ? 0 : (s.total||0));
+  }, 0);
+  const trueTotal = Object.values(peakPerDeck).reduce((s,v)=>s+v,0) + scoresTotal;
+  const gameOffset = Math.max(0, trueTotal - historyCount);
+
+  const indexed = allWithResult
+    .map((h,i)=>({h,i,absNum:gameOffset+i+1})) // offset so newest = totalScoreGames
+    .filter(({h})=>!q||h.deck.toLowerCase().includes(q))
+    .filter(({h})=>!filterYear ||h.date.startsWith(filterYear))
+    .filter(({h})=>!filterMonth||h.date.slice(5,7)===filterMonth)
+    .reverse(); // newest first
+
+  const shown = indexed.slice(0,limit);
+  const total = indexed.length;
+
+  if (!shown.length) {
+    document.getElementById('history-list').innerHTML='<div class="empty">No entries found</div>';
+    updateHistoryDeleteBar();
+    return;
+  }
+
+  const artNames=[...new Set(shown.map(({h})=>h.deck))];
+  document.getElementById('history-list').innerHTML = shown.map(({h,i,absNum},rowIdx)=>{
+    const key = scryfallKey(h.deck);
+    const art = artCache[key];
+    const gameNum = absNum;
+    const isSel = historySelected.has(i);
+    return `<div class="h-row${isSel?' h-selected':''}" style="cursor:pointer">
+      <span class="h-num">#${gameNum}</span>
+      <div class="h-art${art?'':' loading'}" data-art="${key}">
+        ${art?`<img src="${art}" alt="${h.deck}" loading="lazy">`:''}
+      </div>
+      <div class="h-main">
+        <div class="h-deck">${h.deck}</div>
+        <div class="h-submeta">${fmtDate(h.date)} · ${h.wins}W ${h.losses}L</div>
+      </div>
+      <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
+      <button class="h-del-btn${isSel?' h-del-active':''}" onclick="toggleHistorySelect(${i},event)" title="Select to delete">
+        <i class="ti ti-trash"></i>
+      </button>
+    </div>`;
+  }).join('');
+
+  fetchMissingArt(artNames);
+  updateHistoryDeleteBar();
+}
+
+function toggleHistorySelect(realIdx, evt) {
+  if(evt) evt.stopPropagation();
+  if(historySelected.has(realIdx)) historySelected.delete(realIdx);
+  else historySelected.add(realIdx);
+  updateHistoryDeleteBar();
+  renderHistory();
+}
+
+function updateHistoryDeleteBar() {
+  const bar     = document.getElementById('hist-delete-bar');
+  const countEl = document.getElementById('hist-delete-count');
+  const n = historySelected.size;
+  if(bar) bar.style.display = n>0 ? '' : 'none';
+  if(countEl) countEl.textContent = `${n} entr${n===1?'y':'ies'} selected`;
+}
+
+function clearHistorySelection() {
+  historySelected.clear();
+  updateHistoryDeleteBar();
+  renderHistory();
+}
+
+function confirmDeleteSelected() {
+  const n = historySelected.size;
+  if(!n) return;
+  const indices = [...historySelected].sort((a,b)=>b-a);
+  showModal(
+    'Delete entries',
+    `Delete ${n} selected entr${n===1?'y':'ies'}?
+
+Scores will be recalculated for affected decks.`,
+    ()=>{
+      const affected = [...new Set(indices.map(i=>data.history[i]?.deck).filter(Boolean))];
+      indices.forEach(i=>{ if(data.history[i]) data.history.splice(i,1); });
+      historySelected.clear();
+      affected.forEach(d=>rebuildScoreForDeck(d));
+      renderHistory(); renderScore(); scheduleSync();
+      showToast(`${n} entr${n===1?'y':'ies'} deleted`);
+    }
+  );
+}
+
+function deleteHistoryEntry(idx) {
+  toggleHistorySelect(idx, null);
+}
+
+function rebuildScoreForDeck(deckName) {
+  // Find the most recent history entry for this deck and use its cumulative values
+  // History entries already store cumulative wins/losses at that point in time
+  if (!data.scores) data.scores = {};
+  const deckHistory = data.history
+    .filter(h => h.deck === deckName && h.last)
+    .sort((a,b) => a.date.localeCompare(b.date));
+  if (!deckHistory.length) {
+    // No history left — reset to zero
+    if (data.scores[deckName]) {
+      data.scores[deckName] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    }
+    return;
+  }
+  // The last entry has the most recent cumulative totals
+  const last = deckHistory[deckHistory.length - 1];
+  const s = data.scores[deckName] || {};
+  s.wins       = last.wins;
+  s.losses     = last.losses;
+  s.total      = last.wins + last.losses;
+  s.winRate    = s.total > 0 ? parseFloat((last.wins / s.total * 100).toFixed(1)) : 0;
+  s.lastDate   = last.date;
+  s.lastResult = last.last;
+  data.scores[deckName] = s;
+}
+
+// ============================================================
+// WANTS
+// ============================================================
+function switchWantsTab(tab, btn) {
+  wantsTab=tab;
+  document.querySelectorAll('.wants-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('wants-buy').style.display  = tab==='buy' ?'':'none';
+  document.getElementById('wants-deck').style.display = tab==='deck'?'':'none';
+}
+
+function renderWants() { renderBuyList(); renderDeckWants(); }
+
+function buildBuyList() {
+  // Aggregate cards with inStatus==='buy' AND out set, deduplicated by card name
+  const seen={};
+  for(const [deck,entries] of Object.entries(data.deckWants||{})){
+    for(const e of entries){
+      if(e.inStatus==='buy' && e.out){
+        const k=e.in.toLowerCase().trim();
+        if(!seen[k]) seen[k]={name:e.in,qty:0,decks:[]};
+        seen[k].qty++;
+        seen[k].decks.push(deck.split(',')[0]);
+      }
+    }
+  }
+  return Object.values(seen);
+}
+
+function priceLabel(name) {
+  const p = priceCache[name.toLowerCase()];
+  if (!p) return '<span class="buy-item-price loading">...</span>';
+  const seller = cfg().cardSeller||'cardmarket';
+  // Scryfall provides eur (Cardmarket) and usd (TCGplayer)
+  let val = null;
+  if (seller==='tcgplayer')  val = p.usd;
+  else                        val = p.eur; // cardmarket, scryfall, manapool, mtggoldfish
+  if (!val) return '<span class="buy-item-price loading">—</span>';
+  const sym = seller==='tcgplayer' ? '$' : '€';
+  return `<span class="buy-item-price">${sym}${parseFloat(val).toFixed(2)}</span>`;
+}
+
+function renderBuyList() {
+  const items=buildBuyList();
+  if(!items.length){
+    document.getElementById('buy-list').innerHTML='<div class="empty">No cards ready to buy — set a replacement card in By deck to add here.</div>';
+    return;
+  }
+  const artNames = items.map(i=>i.name);
+  document.getElementById('buy-list').innerHTML=items.map(item=>{
+    const key=scryfallKey(item.name);
+    const art=artCache[key];
+    return `<div class="buy-item-row">
+      <div class="buy-item-art${art?'':' loading'}" data-art="${key}">
+        ${art?`<img src="${art}" alt="${item.name}" loading="lazy">`:''}
+      </div>
+      <a class="buy-item-name" href="${cardLink(item.name)}" target="_blank" style="text-decoration:none;color:inherit">${item.name} <i class="ti ti-external-link" style="font-size:11px;opacity:.5;vertical-align:middle"></i></a>
+      <span class="buy-item-qty">${item.qty}x</span>
+      ${priceLabel(item.name)}
+      <button class="buy-item-del" onclick="removeBuyItem('${item.name.replace(/'/g,"\\'")}')"><i class="ti ti-x"></i></button>
+    </div>`;
+  }).join('');
+  fetchMissingArt(artNames);
+  fetchMissingPrices(items.map(i=>i.name));
+  updateBuyTotal();
+}
+
+async function fetchMissingPrices(names) {
+  for (const name of names) {
+    const key = name.toLowerCase();
+    // Cache prices for 24h
+    const cached = priceCache[key];
+    if (cached && (Date.now() - (cached.ts||0)) < 86400000) continue;
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+      if (!res.ok) { await sleep(80); continue; }
+      const card = await res.json();
+      priceCache[key] = {
+        eur: card.prices?.eur || null,
+        usd: card.prices?.usd || null,
+        ts: Date.now()
+      };
+      savePriceCache();
+      // Update the rendered price label live
+      renderBuyPrices();
+    } catch(e) {}
+    await sleep(80);
+  }
+}
+
+function renderBuyPrices() {
+  const items = buildBuyList();
+  items.forEach(item => {
+    const rows = document.querySelectorAll('.buy-item-row');
+    rows.forEach(row => {
+      const nameEl = row.querySelector('.buy-item-name');
+      if (nameEl && nameEl.textContent.trim().startsWith(item.name)) {
+        const priceEl = row.querySelector('.buy-item-price');
+        if (priceEl) priceEl.outerHTML = priceLabel(item.name);
+      }
+    });
+  });
+  updateBuyTotal();
+}
+
+function updateBuyTotal() {
+  const items = buildBuyList();
+  const seller = cfg().cardSeller||'cardmarket';
+  const sym = seller==='tcgplayer'?'$':'€';
+  let total = 0;
+  let allLoaded = true;
+  for (const item of items) {
+    const p = priceCache[item.name.toLowerCase()];
+    if (!p) { allLoaded=false; continue; }
+    const val = parseFloat(seller==='tcgplayer'?p.usd:p.eur)||0;
+    total += val * item.qty;
+  }
+  const el = document.getElementById('buy-total-price');
+  if (el) el.textContent = allLoaded ? `${sym}${total.toFixed(2)}` : `${sym}${total.toFixed(2)}+`;
+}
+
+function removeBuyItem(name) {
+  // Remove the 'out' from all entries matching this card name so it drops off buy list
+  for(const entries of Object.values(data.deckWants||{})){
+    for(const e of entries){
+      if(e.in.toLowerCase()===name.toLowerCase()&&e.inStatus==='buy'&&e.out){
+        e.out=null;
+      }
+    }
+  }
+  renderWants(); scheduleSync();
+}
+
+function copyBuyList() {
+  const items=buildBuyList();
+  if(!items.length){showToast('Nothing to copy');return;}
+  const text=items.map(i=>`${i.qty}x ${i.name}`).join('\n');
+  navigator.clipboard.writeText(text).then(()=>showToast('Copied!')).catch(()=>{
+    // Fallback for mobile
+    const ta=document.createElement('textarea');
+    ta.value=text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Copied!');
+  });
+}
+
+function renderDeckWants() {
+  const dw = data.deckWants||{};
+  const cd = data.colorDecks||[];
+  const ownedNames    = cd.filter(d=>d.name&&d.status==='Owned').map(d=>d.name).sort((a,b)=>a.localeCompare(b));
+  const buildingNames = cd.filter(d=>d.name&&d.status==='Building').map(d=>d.name).sort((a,b)=>a.localeCompare(b));
+  const extra = Object.keys(dw).filter(n=>!ownedNames.includes(n)&&!buildingNames.includes(n)&&dw[n].length>0);
+  const allDecks = [...ownedNames,...buildingNames,...extra];
+
+  // Build sections with group headers
+  let html = '';
+  let lastGroup = null;
+  for (const deck of allDecks) {
+    const group = ownedNames.includes(deck) ? 'Owned' : buildingNames.includes(deck) ? 'Building' : 'Other';
+    if (group !== lastGroup) {
+      lastGroup = group;
+      html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 4px 4px">${group}</div>`;
+    }
+    html += renderDeckWantsSection(deck, dw);
+  }
+  document.getElementById('deck-wants-list').innerHTML = html || '<div class="empty">No wants tracked yet.</div>';
+  fetchMissingArt(allDecks);
+  setTimeout(() => {
+    document.querySelectorAll('[id^="ain-"],[id^="aout-"]').forEach(el => {
+      if (!el._acInit) { el._acInit = true; initAC(el.id, null); }
+    });
+  }, 0);
+}
+
+function renderDeckWantsSection(deck, dw) {
+  const entries = (dw||{})[deck]||[];
+  const isOpen = deckSectionOpen[deck]===true;
+  const key = scryfallKey(deck);
+  const art = artCache[key];
+  const buyCount = entries.filter(e=>e.inStatus==='buy').length;
+  const allDecks = [deck]; // for fetchArt
+  return `<div class="deck-section">
+    <div class="deck-sec-header" data-deck="${deck.replace(/"/g,'&quot;')}" onclick="toggleWantsDeckSection(this.dataset.deck)">
+      <div class="deck-sec-art${art?'':' loading'}" data-art="${key}">
+        ${art?`<img src="${art}" alt="${deck}" loading="lazy">`:''}
+      </div>
+      <span class="deck-sec-name">${deck}</span>
+      <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
+      <i class="ti ti-chevron-down deck-sec-toggle${isOpen?' open':''}"></i>
+    </div>
+    <div class="deck-sec-body${isOpen?' open':''}">
+      ${entries.map((e,idx)=>`
+        <div class="want-card-row">
+          <div class="w-dot w-${e.inStatus}"></div>
+          <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
+          ${e.out?`<span class="w-card-out">${e.out}</span>`:`<span class="w-no-out">no replacement</span>`}
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="w-edit-status active-${e.inStatus}" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
+            <button class="w-del" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
+          </div>
+        </div>`).join('')}
+      <div class="add-card-form">
+        <div class="add-card-row">
+          <input type="text" placeholder="Card to add (IN)" id="ain-${key}">
+          <input type="text" placeholder="Replaces (OUT)" id="aout-${key}" style="margin:0">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+          <div class="add-status-row" id="astatus-${key}">
+            <button class="add-mini-pill active" onclick="setAddStatus('${key}','buy',this)">Buy</button>
+            <button class="add-mini-pill" onclick="setAddStatus('${key}','considering',this)">Considering</button>
+            <button class="add-mini-pill" onclick="setAddStatus('${key}','owned',this)">Own it</button>
+          </div>
+          <button class="add-submit" data-deck="${deck.replace(/"/g,'&quot;')}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleWantsDeckSection(deck) {
+  deckSectionOpen[deck] = !(deckSectionOpen[deck]===true);
+  renderDeckWants();
+}
+function cycleWantStatus(deck, idx) {
+  if(!data.deckWants[deck]||!data.deckWants[deck][idx]) return;
+  const order=['buy','considering','owned'];
+  const cur=data.deckWants[deck][idx].inStatus;
+  data.deckWants[deck][idx].inStatus=order[(order.indexOf(cur)+1)%order.length];
+  renderWants(); scheduleSync();
+}
+function deleteWantEntry(deck, idx) {
+  if(!data.deckWants[deck]) return;
+  data.deckWants[deck].splice(idx,1);
+  renderWants(); scheduleSync();
+}
+function setAddStatus(key, status, btn) {
+  const row=document.getElementById('astatus-'+key);
+  if(!row) return;
+  row.querySelectorAll('.add-mini-pill').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  row.dataset.status=status;
+}
+function addWantCard(deck, key) {
+  const inEl=document.getElementById('ain-'+key);
+  const outEl=document.getElementById('aout-'+key);
+  const statusRow=document.getElementById('astatus-'+key);
+  const inCard=(inEl?.value||'').trim();
+  const outCard=(outEl?.value||'').trim();
+  const status=statusRow?.dataset?.status||statusRow?.querySelector('.active')?.textContent==='Buy'?'buy':
+    statusRow?.querySelector('.active')?.textContent==='Considering'?'considering':'owned';
+  if(!inCard){showToast('Enter a card name');return;}
+  if(!data.deckWants) data.deckWants={};
+  if(!data.deckWants[deck]) data.deckWants[deck]=[];
+  data.deckWants[deck].push({in:inCard,inStatus:status||'buy',out:outCard||null});
+  if(inEl) inEl.value='';
+  if(outEl) outEl.value='';
+  renderWants(); scheduleSync();
+  showToast('Added: '+inCard);
+}
+
+// ============================================================
+// DECK MANAGER
+// ============================================================
+function populateColorDropdown(selectId, selectedValue) {
+  const sel=document.getElementById(selectId); if(!sel) return;
+  sel.innerHTML='<option value="">Select color...</option>'+
+    COLOR_OPTIONS.map(c=>`<option value="${c}"${c===selectedValue?' selected':''}>${c}</option>`).join('');
+}
+
+function renderDeckMgr() {
+  populateColorDropdown('new-deck-color','');
+  const decks=data.colorDecks||[];
+  const owned=decks.filter(d=>d.status==='Owned').length;
+  const building=decks.filter(d=>d.status==='Building').length;
+  // Count unique colors covered by Owned decks only
+  const ownedColors = new Set(decks.filter(d=>d.status==='Owned'&&d.name).map(d=>d.color));
+  const totalColors = COLOR_OPTIONS.length; // 32 combinations
+  document.getElementById('deck-mgr-summary').textContent=
+    `${owned} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`;
+
+  // Sort: Owned first, then Building, then Planned; alphabetically within each group
+  const statusOrder = {Owned:0,Building:1,Planned:2};
+  const sorted = decks
+    .map((d,i)=>({...d,_i:i}))
+    .sort((a,b)=>{
+      const so=(statusOrder[a.status]||0)-(statusOrder[b.status]||0);
+      if(so!==0) return so;
+      return (a.name||'').localeCompare(b.name||'');
+    });
+
+  let lastStatus='';
+  document.getElementById('deck-mgr-list').innerHTML=sorted.map(d=>{
+    const i=d._i; // actual data index
+    const key=d.name?scryfallKey(d.name):'';
+    const art=key&&artCache[key];
+    // Group header
+    let header='';
+    if(d.status!==lastStatus){
+      lastStatus=d.status;
+      header=`<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 14px 4px;background:var(--bg)">${d.status}</div>`;
+    }
+    const art2 = d.partner ? (d.partnerArtOverride || artCache[scryfallKey(d.partner)]) : null;
+    const artDisplay = art || d.artOverride;
+    const art2Display = art2;
+    return header+`<div class="deck-mgr-row">
+      <div class="deck-mgr-art${artDisplay?'':d.name?' loading':''}" data-art="${key}"
+           onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;position:relative;overflow:hidden">
+        ${artDisplay?`<img src="${artDisplay}" alt="${d.name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:''}
+        ${art2Display?`<img src="${art2Display}" alt="${d.partner}" loading="lazy" style="position:absolute;top:0;right:0;width:60%;height:100%;object-fit:cover;clip-path:polygon(30% 0,100% 0,100% 100%,0% 100%)">`:''}
+        <div style="position:absolute;bottom:1px;right:1px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
+      </div>
+      <div class="deck-mgr-fields">
+        <input type="text" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="Commander name"
+          style="margin:0 0 4px;font-size:13px;padding:5px 8px;font-weight:500"
+          id="dname-${i}"
+          onchange="updateDeckField(${i},'name',this.value)"
+          onblur="updateDeckField(${i},'name',this.value)">
+        <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
+          style="margin:0 0 5px;font-size:11px;padding:4px 8px;color:var(--text2)"
+          id="dpartner-${i}"
+          onchange="updateDeckField(${i},'partner',this.value)"
+          onblur="updateDeckField(${i},'partner',this.value)">
+        <div class="deck-mgr-selects">
+          <span style="font-size:11px;color:var(--text3);padding:0 4px">${d.color||'?'}</span>
+          <select onchange="updateDeckField(${i},'status',this.value)">
+            ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
+    </div>`;
+  }).join('')||'<div class="empty">No decks added yet.</div>';
+
+  const deckNames=decks.filter(d=>d.name).map(d=>d.name);
+  fetchMissingArt(deckNames);
+  // Wire autocomplete on each deck name + partner input
+  setTimeout(() => {
+    decks.forEach((d,i) => {
+      // Commander name
+      const inputId = 'dname-'+i;
+      const el = document.getElementById(inputId);
+      if (el && !el._acInit) {
+        el._acInit = true;
+        initAC(inputId, null);
+        acCallbacks[inputId] = async (name) => {
+          const colorLabel = await fetchColorIdentity(name);
+          if (!colorLabel) return;
+          updateDeckField(i, 'color', colorLabel);
+          // Flash the color span green
+          const row = el.closest('.deck-mgr-fields');
+          const span = row?.querySelector('span[style*="color"]');
+          if (span) { span.style.color='var(--green)'; setTimeout(()=>span.style.color='',1500); }
+        };
+      }
+      // Partner name — just autocomplete, no color update needed
+      const partnerId = 'dpartner-'+i;
+      const pel = document.getElementById(partnerId);
+      if (pel && !pel._acInit) {
+        pel._acInit = true;
+        initAC(partnerId, null);
+        acCallbacks[partnerId] = async (name) => {
+          updateDeckField(i, 'partner', name);
+        };
+      }
+    });
+  }, 0);
+}
+
+function updateDeckField(idx, field, value) {
+  if(!data.colorDecks[idx]) return;
+  const old = data.colorDecks[idx][field];
+  if(old===value) return; // no change, avoid re-render loop
+  data.colorDecks[idx][field]=value;
+  // If name changed, migrate score data to new key
+  if(field==='name'&&old&&value&&old!==value&&data.scores&&data.scores[old]){
+    data.scores[value]=data.scores[old];
+    delete data.scores[old];
+  }
+  renderDeckMgr();
+  renderScore();
+  scheduleSync();
+}
+
+function toggleDeckGroup(status) {
+  if (!window._deckGroupOpen) window._deckGroupOpen = {Owned:true,Building:true,Planned:true};
+  window._deckGroupOpen[status] = window._deckGroupOpen[status]===false ? true : false;
+  renderDeckMgr();
+}
+
+function deleteDeck(idx) {
+  if(!confirm('Remove this deck entry? Score data is kept.')) return;
+  data.colorDecks.splice(idx,1);
+  renderDeckMgr(); renderScore(); scheduleSync();
+}
+
+async function addDeck() {
+  const name=(document.getElementById('new-deck-name').value||'').trim();
+  const partner=(document.getElementById('new-deck-partner').value||'').trim();
+  const status=document.getElementById('new-deck-status').value;
+  if(!name){showToast('Enter a commander name');return;}
+  if(!data.colorDecks) data.colorDecks=[];
+  if(!data.scores) data.scores={};
+  // Auto-detect color identity from Scryfall
+  const color = (await fetchColorIdentity(name)) || '?';
+  const deckName = partner ? `${name} // ${partner}` : name;
+  if(!data.scores[deckName]) data.scores[deckName]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+  data.colorDecks.push({color, name, partner:partner||'', status});
+  document.getElementById('new-deck-name').value='';
+  document.getElementById('new-deck-partner').value='';
+  renderDeckMgr(); renderScore(); scheduleSync();
+  showToast('Added: '+deckName);
+}
+
+function openArtOverride(idx, isPartner) {
+  const query = prompt(isPartner
+    ? 'Enter card name to use for partner art:'
+    : 'Enter card name to use for commander art (or leave blank to reset):'
+  );
+  if (query === null) return;
+  if (!query.trim()) {
+    // Reset override
+    if (isPartner) delete data.colorDecks[idx].partnerArtOverride;
+    else delete data.colorDecks[idx].artOverride;
+    renderDeckMgr(); scheduleSync(); return;
+  }
+  fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(query.trim())}`)
+    .then(r=>r.json()).then(card=>{
+      const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop;
+      if (!url) { showToast('Card not found'); return; }
+      if (isPartner) data.colorDecks[idx].partnerArtOverride = url;
+      else data.colorDecks[idx].artOverride = url;
+      // Also cache it
+      const key = scryfallKey(query.trim());
+      artCache[key] = url; saveArtCache();
+      renderDeckMgr(); scheduleSync();
+      showToast('Art updated');
+    }).catch(()=>showToast('Scryfall error'));
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function saveSetting(key, val) {
+  if(!data.settings) data.settings=Object.assign({},INITIAL_DATA.settings);
+  data.settings[key]=parseFloat(val);
+  renderSettingsLegend();
+  renderScore();
+  scheduleSync();
+}
+function saveStrSetting(key, val) {
+  if(!data.settings) data.settings=Object.assign({},INITIAL_DATA.settings);
+  data.settings[key]=val;
+  scheduleSync();
+}
+function cardLink(cardName) {
+  const seller = cfg().cardSeller || 'cardmarket';
+  const enc = encodeURIComponent(cardName);
+  const urls = {
+    cardmarket: `https://www.cardmarket.com/en/Magic/Products/Search?searchString=${enc}`,
+    tcgplayer:  `https://www.tcgplayer.com/search/magic/product?q=${enc}`,
+    scryfall:   `https://scryfall.com/search?q=${enc}`,
+    manapool:   `https://manapool.com/search?q=${enc}`,
+    mtggoldfish:`https://www.mtggoldfish.com/price/${enc}`,
+  };
+  return urls[seller] || urls.cardmarket;
+}
+function renderSettings() {
+  const s=cfg();
+  document.getElementById('s-maxWin').value     = s.maxWin;
+  document.getElementById('s-strongWin').value  = s.strongWin;
+  document.getElementById('s-fallBehind').value = s.fallBehind;
+  document.getElementById('s-threshold').value  = s.threshold;
+  document.getElementById('s-historyLimit').value= s.historyLimit||500;
+  const sellerEl = document.getElementById('s-cardSeller');
+  if (sellerEl) sellerEl.value = s.cardSeller||'cardmarket';
+  renderSettingsLegend();
+}
+function renderSettingsLegend() {
+  const s=cfg();
+  const bands=[
+    {label:`≥ ${s.maxWin}% — too strong`,     color:'var(--red)',   bg:'var(--red-bg)'},
+    {label:`${s.strongWin}–${s.maxWin-0.1}% — strong`,color:'var(--amber)',bg:'var(--amber-bg)'},
+    {label:`${s.fallBehind+0.1}–${s.strongWin-0.1}% — just right`,color:'var(--green)',bg:'var(--green-bg)'},
+    {label:`≤ ${s.fallBehind}% — falling behind`,color:'var(--info)', bg:'var(--info-bg)'},
+    {label:`< ${s.threshold} games — not enough data`,color:'var(--text3)',bg:'var(--bg)'}
+  ];
+  document.getElementById('wr-legend').innerHTML=bands.map(b=>`
+    <div class="wr-legend-row" style="background:${b.bg}">
+      <div class="wr-legend-dot" style="background:${b.color}"></div>
+      <span style="color:${b.color};font-weight:500">${b.label}</span>
+    </div>`).join('');
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function showToast(msg) {
+  const t=document.getElementById('toast'); t.textContent=msg;
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500);
+}
+let graphOpen = true;
+let statGridOpen = true;
+
+function toggleStatGrid(forceClose) {
+  const wrap = document.getElementById('stat-grid-wrap');
+  const hint = document.getElementById('stat-collapser-hint');
+  if (!wrap) return;
+  if (forceClose === true) statGridOpen = false;
+  else statGridOpen = !statGridOpen;
+  wrap.style.maxHeight = statGridOpen ? '' : '0';
+  wrap.style.marginBottom = statGridOpen ? '' : '0';
+  if (hint) hint.textContent = statGridOpen ? '▲ tap to collapse' : '▼ tap to expand';
+}
+
+// Auto-collapse stat grid when scrolling down, re-expand when at top
+function initStatCollapse() {
+  const page = document.getElementById('page-score');
+  if (!page) return;
+  page.addEventListener('scroll', ()=>{
+    if (page.scrollTop > 60 && statGridOpen) toggleStatGrid(true);
+  }, {passive:true});
+  // Use window scroll too (page may not scroll independently)
+  window.addEventListener('scroll', ()=>{
+    if (window.scrollY > 80 && statGridOpen) toggleStatGrid(true);
+  }, {passive:true});
+}
+
+function toggleGraph() {
+  graphOpen = !graphOpen;
+  const body = document.getElementById('graph-body');
+  const icon = document.getElementById('graph-toggle-icon');
+  if (body) body.style.display = graphOpen ? '' : 'none';
+  if (icon) icon.style.transform = graphOpen ? '' : 'rotate(-90deg)';
+  if (graphOpen) setTimeout(renderGraph, 50);
+}
+
+function renderAll() {
+  renderScore(); renderHistory(); renderWants(); renderDeckMgr(); populateHistoryFilters();
+  setTimeout(()=>{
+    lastExpandedDeck = null;
+    populateHistoryFilters();
+    renderGraph();
+    initStaticAC();
+  }, 0);
+}
+
+// ── WIN RATE GRAPH ──
+let wrChart = null;
+
+function populateGraphSelect() {
+  const sel = document.getElementById('graph-deck-select');
+  if (!sel) return;
+  const owned = ownedDecks().map(d=>deckDisplayName(d));
+  sel.innerHTML = '<option value="ALL">All decks</option>' +
+    owned.map(n=>`<option value="${n}">${n.split(' // ')[0]}</option>`).join('');
+  // Set to last expanded deck if available
+  if (lastExpandedDeck && [...sel.options].some(o=>o.value===lastExpandedDeck)) {
+    sel.value = lastExpandedDeck;
+  } else {
+    sel.value = 'ALL';
+  }
+}
+
+function renderGraph() {
+  const canvas = document.getElementById('wr-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  populateGraphSelect();
+  const sel = document.getElementById('graph-deck-select');
+  // If no deck is expanded, always show ALL
+  const deckFilter = lastExpandedDeck || 'ALL';
+
+  // Build data points from history
+  const history = (data.history||[]).filter(h=>h.last && h.date);
+  let points = [];
+
+  if (deckFilter === 'ALL') {
+    // Running overall win rate across all games, grouped by date
+    const byDate = {};
+    for (const h of history) {
+      if (!byDate[h.date]) byDate[h.date] = {w:0,l:0};
+      if (h.last==='Win') byDate[h.date].w++; else byDate[h.date].l++;
+    }
+    let totalW=0, totalL=0;
+    for (const date of Object.keys(byDate).sort()) {
+      totalW += byDate[date].w; totalL += byDate[date].l;
+      const total = totalW+totalL;
+      if (total>0) points.push({x:date, y:parseFloat((totalW/total*100).toFixed(1))});
+    }
+  } else {
+    // Running win rate for selected deck
+    const deckHist = history.filter(h=>h.deck===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
+    for (const h of deckHist) {
+      const total = h.wins+h.losses;
+      if (total>0) points.push({x:h.date, y:parseFloat((h.wins/total*100).toFixed(1))});
+    }
+  }
+
+  if (points.length < 2) {
+    if (wrChart) { wrChart.destroy(); wrChart=null; }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text2').trim();
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Not enough history to show a graph', canvas.width/2, 90);
+    return;
+  }
+
+  // Thin out to max 80 points for readability
+  const step = Math.ceil(points.length/80);
+  const thinned = points.filter((_,i)=>i%step===0||i===points.length-1);
+
+  const isDark = window.matchMedia('(prefers-color-scheme:dark)').matches;
+  const textCol  = isDark ? '#aaa' : '#666';
+  const gridCol  = isDark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
+  const lineCol  = '#2d6bcb';
+  const fillCol  = isDark ? 'rgba(45,107,203,.18)' : 'rgba(45,107,203,.10)';
+  const s = cfg();
+
+  if (wrChart) wrChart.destroy();
+  wrChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: thinned.map(p=>p.x),
+      datasets: [{
+        data: thinned.map(p=>p.y),
+        borderColor: lineCol,
+        backgroundColor: fillCol,
+        fill: true,
+        tension: 0.3,
+        pointRadius: thinned.length < 30 ? 3 : 0,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toFixed(1)+'%',
+            title: ctx => fmtDate(ctx[0].label)
+          }
+        },
+        // Draw threshold lines
+        annotation: undefined
+      },
+      scales: {
+        x: {
+          ticks: { color:textCol, maxTicksLimit:6, maxRotation:0,
+            callback: (_,i,all) => {
+              const d = thinned[i]?.x;
+              if (!d) return '';
+              return d.slice(0,7); // YYYY-MM
+            }
+          },
+          grid: { color:gridCol }
+        },
+        y: {
+          min: 0, max: 100,
+          ticks: { color:textCol, callback: v=>v+'%', maxTicksLimit:5 },
+          grid: { color:gridCol }
+        }
+      }
+    }
+  });
+
+  // Draw threshold lines manually after render
+  // (Chart.js annotation plugin not loaded — draw on canvas)
+  Chart.register({
+    id:'thresholds',
+    afterDraw(chart) {
+      const {ctx:cx, chartArea:{left,right,top,bottom}, scales:{y}} = chart;
+      const lines = [
+        {val:s.maxWin,    col:'rgba(224,96,96,.7)'},
+        {val:s.strongWin, col:'rgba(212,146,31,.7)'},
+        {val:s.fallBehind,col:'rgba(91,163,232,.7)'},
+      ];
+      cx.save();
+      lines.forEach(({val,col})=>{
+        const yPos = y.getPixelForValue(val);
+        cx.beginPath(); cx.moveTo(left,yPos); cx.lineTo(right,yPos);
+        cx.strokeStyle=col; cx.lineWidth=1; cx.setLineDash([4,3]);
+        cx.stroke();
+      });
+      cx.restore();
+    }
+  });
+}
+
+// ============================================================
+// CARD NAME AUTOCOMPLETE (Scryfall)
+// ============================================================
+let acTimers = {};
+let acSelected = {}; // track which input has which selected index
+
+function initAC(inputId, onSelect) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  // Wrap in ac-wrap if not already
+  if (!input.parentElement.classList.contains('ac-wrap')) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ac-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const dd = document.createElement('div');
+    dd.className = 'ac-dropdown';
+    dd.id = 'ac-dd-' + inputId;
+    wrap.appendChild(dd);
+  }
+  input.setAttribute('autocomplete','off');
+  input.addEventListener('input', () => acOnInput(inputId, onSelect));
+  input.addEventListener('keydown', (e) => acOnKey(e, inputId, onSelect));
+  input.addEventListener('blur', () => setTimeout(() => acClose(inputId), 150));
+}
+
+async function acOnInput(inputId, onSelect) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const q = input.value.trim();
+  clearTimeout(acTimers[inputId]);
+  acClose(inputId);
+  input.classList.remove('ac-valid','ac-invalid');
+  if (q.length < 2) return;
+  acTimers[inputId] = setTimeout(async () => {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      const names = json.data || [];
+      if (!names.length) { acMarkInvalid(inputId); return; }
+      // Exact match = valid
+      const exact = names.some(n => n.toLowerCase() === q.toLowerCase());
+      if (exact) { input.classList.add('ac-valid'); }
+      acShowDropdown(inputId, names, onSelect);
+    } catch(e) {}
+  }, 250);
+}
+
+function acShowDropdown(inputId, names, onSelect) {
+  const dd = document.getElementById('ac-dd-' + inputId);
+  if (!dd) return;
+  acSelected[inputId] = -1;
+  dd.innerHTML = names.slice(0,10).map((n,i) =>
+    `<div class="ac-item" data-idx="${i}" onmousedown="acPick('${inputId}','${n.replace(/'/g,"\'")}',event)">${n}</div>`
+  ).join('');
+  dd.classList.add('open');
+}
+
+// Callbacks fired when a name is picked from autocomplete
+const acCallbacks = {};
+
+function acPick(inputId, name, evt) {
+  if (evt) evt.preventDefault();
+  const input = document.getElementById(inputId);
+  if (input) { input.value = name; input.classList.add('ac-valid'); input.classList.remove('ac-invalid'); }
+  acClose(inputId);
+  if (acCallbacks[inputId]) acCallbacks[inputId](name);
+}
+
+// Map Scryfall color_identity array → our COLOR_OPTIONS label
+function colorIdentityToLabel(ci) {
+  const s = (ci||[]).slice().sort().join('');
+  const map = {
+    '':       'Colorless',
+    'W':      'Mono White',
+    'U':      'Mono Blue',
+    'B':      'Mono Black',
+    'R':      'Mono Red',
+    'G':      'Mono Green',
+    'UW':     'Azorius',
+    'BU':     'Dimir',
+    'BR':     'Rakdos',
+    'GR':     'Gruul',
+    'GW':     'Selesnya',
+    'BW':     'Orzhov',
+    'RU':     'Izzet',  // UR sorted
+    'BG':     'Golgari',
+    'RW':     'Boros',
+    'GU':     'Simic',
+    'BUW':    'Esper',
+    'BGR':    'Jund',
+    'GRW':    'Naya',
+    'BGW':    'Abzan',  // note: two Abzan decks possible
+    'GUW':    'Bant',
+    'BRW':    'Mardu',
+    'GRU':    'Temur',  // RUG
+    'RUW':    'Jeskai',
+    'BGU':    'Sultai',
+    'BGRU':   'Glint -W',
+    'BGRW':   'Dune -B',
+    'BGUW':   'Ink -B',
+    'GRUW':   'Temur',  // fallback
+    'BRUW':   'Yore - G',
+    'BGUW':   'Ink -B',
+    'BGRUW':  'WURBG',
+    'GRUW':   'Witch -R',
+  };
+  // Also handle some unsorted variants
+  const sorted = (ci||[]).sort().join('');
+  return map[sorted] || null;
+}
+
+async function fetchColorIdentity(cardName) {
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+    if (!res.ok) return null;
+    const card = await res.json();
+    return colorIdentityToLabel(card.color_identity);
+  } catch(e) { return null; }
+}
+
+function acClose(inputId) {
+  const dd = document.getElementById('ac-dd-' + inputId);
+  if (dd) dd.classList.remove('open');
+}
+
+function acMarkInvalid(inputId) {
+  const input = document.getElementById(inputId);
+  if (input) { input.classList.add('ac-invalid'); input.classList.remove('ac-valid'); }
+}
+
+function acOnKey(e, inputId, onSelect) {
+  const dd = document.getElementById('ac-dd-' + inputId);
+  if (!dd || !dd.classList.contains('open')) return;
+  const items = dd.querySelectorAll('.ac-item');
+  let idx = acSelected[inputId] ?? -1;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    idx = Math.min(idx+1, items.length-1);
+    acSelected[inputId] = idx;
+    items.forEach((el,i) => el.classList.toggle('focused', i===idx));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    idx = Math.max(idx-1, 0);
+    acSelected[inputId] = idx;
+    items.forEach((el,i) => el.classList.toggle('focused', i===idx));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    if (idx >= 0 && items[idx]) {
+      e.preventDefault();
+      acPick(inputId, items[idx].textContent, null);
+    }
+  } else if (e.key === 'Escape') {
+    acClose(inputId);
+  }
+}
+
+// ── Spell-check existing wants entries ──
+async function spellCheckWants() {
+  const dw = data.deckWants || {};
+  for (const entries of Object.values(dw)) {
+    for (const entry of entries) {
+      if (!entry.in) continue;
+      try {
+        const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(entry.in)}`);
+        if (!res.ok) {
+          // Try fuzzy to get the correct name
+          const res2 = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(entry.in)}`);
+          if (res2.ok) {
+            const card = await res2.json();
+            if (card.name && card.name.toLowerCase() !== entry.in.toLowerCase()) {
+              entry._suggestion = card.name;
+            }
+          } else {
+            entry._notFound = true;
+          }
+        } else {
+          const card = await res.json();
+          // Correct capitalisation
+          if (card.name !== entry.in) entry.in = card.name;
+          delete entry._suggestion;
+          delete entry._notFound;
+        }
+        await sleep(80);
+      } catch(e) {}
+    }
+  }
+  renderDeckWants();
+  showToast('Spell check complete');
+}
+
+function applyWantSuggestion(deck, idx) {
+  if (!data.deckWants[deck]||!data.deckWants[deck][idx]) return;
+  const entry = data.deckWants[deck][idx];
+  entry.in = entry._suggestion;
+  delete entry._suggestion;
+  renderDeckWants(); scheduleSync();
+}
+function applyWantSuggestionEl(el) {
+  const deck = el.dataset.deck;
+  const idx  = parseInt(el.dataset.idx);
+  applyWantSuggestion(deck, idx);
+}
+
+// Initialise AC on static inputs after render
+function initStaticAC() {
+  // Commander name — auto-detect color on pick
+  acCallbacks['new-deck-name'] = async (name) => {
+    // Color is now auto-detected silently on addDeck(), no dropdown to update
+    // But show a subtle indicator
+    const input = document.getElementById('new-deck-name');
+    if (input) { input.style.borderColor='var(--green)'; setTimeout(()=>input.style.borderColor='',1500); }
+  };
+  initAC('new-deck-name', null);
+  // Partner name — just autocomplete
+  if (!document.getElementById('new-deck-partner')?._acInit) {
+    const pel = document.getElementById('new-deck-partner');
+    if (pel) { pel._acInit = true; initAC('new-deck-partner', null); }
+  }
+}
+
+// ============================================================
+// BOOT
+window.onerror = function(msg, src, line) {
+  setSyncStatus('red', 'Error line ' + line + ': ' + msg);
+};
+loadLocal();
+renderAll();
+updateSignInBtn();
+if (accessToken) {
+  loadFromDrive();
+} else {
+  setSyncStatus('red', 'Not signed in — tap to connect Google Drive');
+}
+</script>
+</body>
+</html>
