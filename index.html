@@ -1165,6 +1165,25 @@ function deleteHistoryEntry(idx) {
   toggleHistorySelect(idx, null);
 }
 
+function rebuildAllScoresFromHistory() {
+  // Called when scores are missing/empty but history exists
+  if (!data.scores) data.scores = {};
+  for (const h of (data.history||[])) {
+    if (!h.last || !h.deck) continue;
+    if (!data.scores[h.deck]) data.scores[h.deck] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    const s = data.scores[h.deck];
+    // Use cumulative values stored in each history entry
+    s.wins   = h.wins;
+    s.losses = h.losses;
+    s.total  = h.wins + h.losses;
+    s.winRate = s.total > 0 ? parseFloat((h.wins/s.total*100).toFixed(1)) : 0;
+    if (!s.lastDate || h.date > s.lastDate) {
+      s.lastDate   = h.date;
+      s.lastResult = h.last;
+    }
+  }
+}
+
 function rebuildScoreForDeck(deckName) {
   // Find the most recent history entry for this deck and use its cumulative values
   // History entries already store cumulative wins/losses at that point in time
