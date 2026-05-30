@@ -516,20 +516,14 @@ function loadLocal() {
     const s = localStorage.getItem('mtg_data');
     if (s) {
       const loaded = JSON.parse(s);
-      // Always merge on top of INITIAL_DATA so missing keys get defaults
       data = Object.assign({}, INITIAL_DATA, loaded);
-      if (!data.settings)   data.settings   = INITIAL_DATA.settings;
-      if (!data.colorDecks || !data.colorDecks.length)
-                            data.colorDecks  = INITIAL_DATA.colorDecks;
-      if (!data.scores)     data.scores     = INITIAL_DATA.scores;
-      if (!data.deckWants)  data.deckWants  = INITIAL_DATA.deckWants;
-      if (!data.history)    data.history    = INITIAL_DATA.history;
-      if (!data.undoStack)  data.undoStack  = [];
-      // Validate score totals — reset if inflated
-      const loadedTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
-      const correctTotal = Object.values(INITIAL_DATA.scores).reduce((s,d)=>s+(d.total||0),0);
-      if (loadedTotal > correctTotal + 10) {
-        data.scores = JSON.parse(JSON.stringify(INITIAL_DATA.scores));
+      if (!data.settings)   data.settings  = INITIAL_DATA.settings;
+      if (!data.deckWants)  data.deckWants = INITIAL_DATA.deckWants;
+      if (!data.history)    data.history   = INITIAL_DATA.history;
+      if (!data.undoStack)  data.undoStack = [];
+      // Rebuild scores from history
+      if ((data.history||[]).filter(h=>h.last).length > 0) {
+        rebuildAllScoresFromHistory();
       }
     }
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
@@ -655,12 +649,9 @@ async function loadFromDrive() {
       if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
       if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
       if (!data.undoStack) data.undoStack = [];
-      // Validate scores: if loaded total exceeds the known correct total, reset to INITIAL_DATA
-      // Validate score totals
-      const loadedTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
-      const correctTotal = Object.values(INITIAL_DATA.scores).reduce((s,d)=>s+(d.total||0),0);
-      if (!data.scores || loadedTotal > correctTotal + 10) {
-        data.scores = JSON.parse(JSON.stringify(INITIAL_DATA.scores));
+      // Always rebuild scores from history to ensure consistency
+      if ((data.history||[]).filter(h=>h.last).length > 0) {
+        rebuildAllScoresFromHistory();
       }
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
