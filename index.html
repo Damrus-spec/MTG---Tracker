@@ -200,6 +200,20 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
 /* DECK EXPAND PANEL */
 .deck-expand{display:none;background:var(--bg);border-bottom:.5px solid var(--border);padding:10px 12px}
+.issues-row{margin-top:10px;border-top:.5px solid var(--border);padding-top:8px}
+.issues-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
+.issues-toggle:hover{color:var(--text2)}
+.issues-grid{display:none;margin-top:8px}
+.issues-grid.open{display:block}
+.issue-cols{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px}
+.issue-col-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);text-align:center;margin-bottom:4px}
+.issue-btn{padding:6px 4px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-size:11px;color:var(--text2);text-align:center;width:100%;position:relative;transition:background .1s}
+.issue-btn:hover{background:var(--surface-hover,rgba(255,255,255,.05))}
+.issue-btn.selected-win{border-color:var(--green);color:var(--green);background:rgba(80,180,80,.1)}
+.issue-btn.selected-loss{border-color:var(--red);color:var(--red);background:rgba(224,96,96,.1)}
+.issue-badge{position:absolute;top:-5px;right:-5px;background:var(--info);color:#fff;border-radius:8px;font-size:9px;padding:1px 4px;min-width:14px;text-align:center;display:none}
+.issue-badge.show{display:block}
+.issue-summary{margin-top:8px;padding:6px 8px;background:var(--surface);border-radius:var(--radius-sm);font-size:11px;color:var(--text2)}
 .deck-expand.open{display:block}
 .log-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .log-col-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:6px}
@@ -955,6 +969,40 @@ function renderScore() {
           </div>
         </div>
         <div class="log-pending-preview" id="${pid}"></div>
+        <!-- Issues tracking -->
+        <div class="issues-row">
+          <button class="issues-toggle" id="it-${eid}" onclick="toggleIssueGrid('${eid}')">
+            <i class="ti ti-tag" style="font-size:12px"></i> Issues
+            <i class="ti ti-chevron-down" style="font-size:11px"></i>
+          </button>
+          <div class="issues-grid" id="ig-${eid}">
+            <div class="issue-cols">
+              <div class="issue-col-label" style="color:var(--text3);font-size:9px">TOO LITTLE</div>
+              <div class="issue-col-label" style="color:var(--text3);font-size:9px">TOO MUCH</div>
+            </div>
+            ${ISSUE_PAIRS.map(([left,right])=>`
+            <div class="issue-cols" style="margin-bottom:3px">
+              <button class="issue-btn" data-issue="${left}" data-result="Win"
+                onclick="toggleIssue('${eid}','${sn}','${left}','Win')" title="Win">
+                ${left}<span class="issue-badge"></span>
+              </button>
+              <button class="issue-btn" data-issue="${right}" data-result="Loss"
+                onclick="toggleIssue('${eid}','${sn}','${right}','Loss')" title="Loss">
+                ${right}<span class="issue-badge"></span>
+              </button>
+            </div>`).join('')}
+            <div class="issue-summary" id="is-${eid}" style="display:none"></div>
+            <!-- Historical issues -->
+            <div id="ih-${eid}" style="margin-top:8px;display:none">
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Past issues</div>
+              <div id="ihd-${eid}"></div>
+            </div>
+            <button onclick="showHistoricalIssues('${eid}','${sn}')" 
+              style="margin-top:6px;background:none;border:none;cursor:pointer;font-size:10px;color:var(--text3);padding:0;text-decoration:underline">
+              view past issues
+            </button>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1931,6 +1979,105 @@ function toggleGraph() {
   if (graphOpen) setTimeout(renderGraph, 50);
 }
 
+
+const ISSUE_PAIRS = [
+  ['Mana screwed',       'Mana flooded'],
+  ['Color screwed',      'Color overloaded'],
+  ['Low card advantage', 'Low ramp'],
+  ['Low interaction',    'High interaction'],
+  ['Low recursion',      'High recursion'],
+  ['Few win cons',       'Too many win cons'],
+  ['Low synergy',        'Fragile synergy'],
+  ['Inconsistent',       'Predictable'],
+  ['Weak early game',    'Weak late game'],
+  ['Commander independent', 'Commander dependent'],
+  ['Low threat density', 'High threat perception'],
+  ['Low life gain',      'Life gain bloat'],
+];
+
+// pendingIssues[deckName] = [{issue, result, count}]
+const pendingIssues = {};
+
+function showHistoricalIssues(eid, deckName) {
+  const container = document.getElementById('ih-'+eid);
+  const dataEl = document.getElementById('ihd-'+eid);
+  if (!container||!dataEl) return;
+  container.style.display = container.style.display==='none' ? '' : 'none';
+  if (container.style.display==='none') return;
+
+  // Aggregate issues from history for this deck
+  const uuid = uuidForName(deckName);
+  const entries = (data.history||[]).filter(h=>
+    (h.deck===deckName||h.deckUuid===uuid) && h.issues?.length
+  );
+  const counts = {}; // issue -> {win:0, loss:0}
+  for (const h of entries) {
+    for (const {issue, count} of (h.issues||[])) {
+      if (!counts[issue]) counts[issue]={win:0,loss:0};
+      if (h.last==='Win') counts[issue].win += count;
+      else counts[issue].loss += count;
+    }
+  }
+  const sorted = Object.entries(counts).sort((a,b)=>(b[1].win+b[1].loss)-(a[1].win+a[1].loss));
+  if (!sorted.length) { dataEl.innerHTML='<div style="font-size:11px;color:var(--text3)">No issues logged yet</div>'; return; }
+  dataEl.innerHTML = sorted.map(([issue,{win,loss}])=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:.5px solid var(--border);font-size:12px">
+      <span style="color:var(--text)">${issue}</span>
+      <span style="display:flex;gap:8px;font-size:11px">
+        ${win?`<span style="color:var(--green)">${win}×W</span>`:''}
+        ${loss?`<span style="color:var(--red)">${loss}×L</span>`:''}
+      </span>
+    </div>`).join('');
+}
+
+function toggleIssueGrid(eid) {
+  const grid = document.getElementById('ig-'+eid);
+  if (!grid) return;
+  grid.classList.toggle('open');
+  const btn = document.getElementById('it-'+eid);
+  if (btn) btn.querySelector('i').className = grid.classList.contains('open')
+    ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+}
+
+function toggleIssue(eid, deckName, issue, result) {
+  if (!pendingIssues[deckName]) pendingIssues[deckName] = [];
+  const existing = pendingIssues[deckName].find(x=>x.issue===issue&&x.result===result);
+  if (existing) {
+    existing.count++;
+  } else {
+    pendingIssues[deckName].push({issue, result, count:1});
+  }
+  renderIssueButtons(eid, deckName);
+  renderIssueSummary(eid, deckName);
+}
+
+function renderIssueButtons(eid, deckName) {
+  const issues = pendingIssues[deckName] || [];
+  document.querySelectorAll(`#ig-${eid} .issue-btn`).forEach(btn => {
+    const issue = btn.dataset.issue;
+    const result = btn.dataset.result;
+    const entry = issues.find(x=>x.issue===issue&&x.result===result);
+    const badge = btn.querySelector('.issue-badge');
+    btn.classList.remove('selected-win','selected-loss');
+    if (entry && entry.count > 0) {
+      btn.classList.add(result==='Win'?'selected-win':'selected-loss');
+      if (badge) { badge.textContent=entry.count; badge.classList.add('show'); }
+    } else {
+      if (badge) { badge.textContent=''; badge.classList.remove('show'); }
+    }
+  });
+}
+
+function renderIssueSummary(eid, deckName) {
+  const el = document.getElementById('is-'+eid);
+  if (!el) return;
+  const issues = pendingIssues[deckName] || [];
+  if (!issues.length) { el.style.display='none'; return; }
+  el.style.display='';
+  el.innerHTML = issues.map(x=>
+    `<span style="margin-right:8px">${x.issue} <span style="color:${x.result==='Win'?'var(--green)':'var(--red)'}">${x.count}×${x.result==='Win'?'W':'L'}</span></span>`
+  ).join('');
+}
 
 // Migrate legacy name-keyed data to UUID-keyed
 function migrateDataToUuids() {
