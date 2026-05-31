@@ -145,6 +145,16 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-sec-name{flex:1;font-size:13px;font-weight:500}
 .deck-sec-count{font-size:11px;color:var(--text2)}
 .deck-buylist-toggle{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);flex-shrink:0;cursor:pointer;padding:2px 4px;border-radius:4px;-webkit-tap-highlight-color:transparent}
+.mox-bar{display:flex;align-items:center;gap:8px;padding:8px 0 4px;border-top:.5px solid var(--border);margin-top:6px;flex-wrap:wrap}
+.mox-url-input{flex:1;min-width:0;font-size:11px;padding:4px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)}
+.mox-btn{font-size:11px;padding:4px 10px;border:none;border-radius:var(--radius-sm);background:var(--blue);color:#fff;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.mox-btn:disabled{opacity:.4;cursor:default}
+.mox-btn.secondary{background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)}
+.want-card-row.mox-not-in-deck{opacity:.4}
+.want-card-row.mox-in-deck .w-card-name{color:var(--green)}
+.mox-badge{font-size:9px;padding:1px 5px;border-radius:6px;font-weight:600;flex-shrink:0}
+.mox-badge.found{background:var(--green-bg);color:var(--green)}
+.mox-badge.missing{background:var(--red-bg);color:var(--red)}
 .deck-buylist-toggle:hover{color:var(--text2)}
 .deck-buylist-toggle input[type=checkbox]{accent-color:var(--green);width:13px;height:13px;cursor:pointer;margin:0}
 .deck-sec-header.buy-excluded{opacity:.55}
@@ -614,6 +624,12 @@ let wantsTab = 'buy';
 let deckSectionOpen = {};
 // UUIDs of Building decks excluded from the buy list (default: all included)
 let deckBuylistExcluded = new Set();
+// Moxfield deck URLs per deck UUID: { uuid -> url }
+// Stored in data.moxUrls
+// Fetched decklists cache: { uuid -> { cards: Map<lowercaseName, qty>, raw: [...] } }
+let moxDecklists = {};
+// Per-deck filter: only show replacements confirmed in deck
+let moxFilterEnabled = new Set();
 // log game selections: {deckName: 'Win'|'Loss'|null}
 let logSelections = {};
 // pending: { deckName: { wins: N, losses: N } }
@@ -1226,7 +1242,7 @@ function renderScore() {
                 onclick="toggleIssue('${eid}','${sn}','${right}','Loss')" title="Toggle: Mana too much (loss)">
                 ${right}<span class="issue-badge"></span>
               </button>
-            </div>`).join('')}
+            </div>`; }).join('')}
             <div class="issue-summary" id="is-${eid}" style="display:none"></div>
           </div>
         </div>
@@ -2003,12 +2019,41 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       <i class="ti ti-chevron-down deck-sec-toggle${isOpen?' open':''}"></i>
     </div>
     <div class="deck-sec-body${isOpen?' open':''}">
-      ${entries.map((e,idx)=>`
-        <div class="want-card-row">
+      <!-- Moxfield bar -->
+      <div class="mox-bar">
+        <input class="mox-url-input" type="text" placeholder="Moxfield deck URL…"
+          value="${(data.moxUrls||{})[uuid]||''}"
+          onchange="saveMoxUrl('${uuid}',this.value)"
+          onclick="event.stopPropagation()">
+        <button class="mox-btn secondary" onclick="fetchMoxDecklist('${uuid}')" id="mox-fetch-${uuid}">
+          <i class="ti ti-refresh" style="font-size:11px"></i> Fetch
+        </button>
+        ${moxDecklists[uuid]?`
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);cursor:pointer;flex-shrink:0">
+          <input type="checkbox" ${moxFilterEnabled.has(uuid)?'checked':''} onchange="toggleMoxFilter('${uuid}',this.checked)" style="accent-color:var(--green);margin:0">
+          confirmed only
+        </label>
+        <button class="mox-btn" onclick="copyMoxUpdate('${uuid}','${deck.replace(/'/g,"\'")}')" id="mox-copy-${uuid}">
+          <i class="ti ti-clipboard" style="font-size:11px"></i> Copy update
+        </button>`:''}
+      </div>
+      ${entries.map((e,idx)=>{
+        const dl = moxDecklists[uuid];
+        const hasReplacement = !!e.out;
+        const inDeck = dl ? dl.cards.has((e.out||'').toLowerCase().trim()) : null;
+        const hide = moxFilterEnabled.has(uuid) && hasReplacement && inDeck === false;
+        if (hide) return '';
+        const badge = dl && hasReplacement
+          ? (inDeck ? '<span class="mox-badge found">✓ in deck</span>' : '<span class="mox-badge missing">✕ not in deck</span>')
+          : '';
+        const rowClass = dl && hasReplacement ? (inDeck ? ' mox-in-deck' : ' mox-not-in-deck') : '';
+        return `
+        <div class="want-card-row${rowClass}">
           <div class="w-card-art${artCache[scryfallKey(e.in)]?'':' loading'}" data-art="${scryfallKey(e.in)}">
             ${artCache[scryfallKey(e.in)]?`<img src="${artCache[scryfallKey(e.in)]}" alt="${e.in}" loading="lazy">`:''}
           </div>
-          <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
+          <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>
+          ${badge}${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
           <input type="text"
             id="wout-${uuid}-${idx}"
             value="${e.out||''}"
@@ -2051,6 +2096,129 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       </div>
     </div>
   </div>`;
+}
+
+function saveMoxUrl(uuid, url) {
+  if (!data.moxUrls) data.moxUrls = {};
+  data.moxUrls[uuid] = url.trim();
+  scheduleSync();
+}
+
+function moxDeckIdFromUrl(url) {
+  // Accepts: https://www.moxfield.com/decks/DECKID or just the ID
+  const m = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/);
+  return m ? m[1] : url.trim();
+}
+
+async function fetchMoxDecklist(uuid) {
+  const url = (data.moxUrls||{})[uuid];
+  if (!url) { showToast('Paste a Moxfield URL first'); return; }
+  const deckId = moxDeckIdFromUrl(url);
+  const btn = document.getElementById('mox-fetch-'+uuid);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="font-size:11px;animation:spin 1s linear infinite"></i> Fetching…'; }
+  try {
+    const res = await fetch(`https://api2.moxfield.com/v3/decks/all/${deckId}`, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'MTGTracker/1.0' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const deck = await res.json();
+    // Build flat card map: lowercaseName -> qty, and raw list
+    const cards = new Map();
+    const raw = []; // [{qty, name, zone}]
+    const zones = ['mainboard','commanders','sideboard','companion'];
+    for (const zone of zones) {
+      const board = deck.boards?.[zone]?.cards || {};
+      for (const entry of Object.values(board)) {
+        const name = entry.card?.name || entry.name || '';
+        const qty  = entry.quantity || 1;
+        if (!name) continue;
+        cards.set(name.toLowerCase(), (cards.get(name.toLowerCase())||0) + qty);
+        raw.push({ qty, name, zone });
+      }
+    }
+    moxDecklists[uuid] = { cards, raw };
+    showToast(`Loaded ${raw.length} cards from Moxfield`);
+  } catch(e) {
+    showToast('Failed to fetch: ' + e.message);
+  }
+  renderWants();
+}
+
+function toggleMoxFilter(uuid, enabled) {
+  if (enabled) moxFilterEnabled.add(uuid);
+  else moxFilterEnabled.delete(uuid);
+  renderWants();
+}
+
+async function copyMoxUpdate(uuid, deckName) {
+  const dl = moxDecklists[uuid];
+  if (!dl) { showToast('Fetch the Moxfield decklist first'); return; }
+  const entries = (data.deckWants||{})[uuid] || [];
+  const replacements = entries.filter(e => e.out && e.inStatus !== 'owned');
+
+  // Check which replacements are valid (out card found in deck)
+  const valid   = replacements.filter(e => dl.cards.has(e.out.toLowerCase().trim()));
+  const missing = replacements.filter(e => !dl.cards.has(e.out.toLowerCase().trim()));
+
+  if (missing.length) {
+    const names = missing.map(e => `• ${e.out} → ${e.in}`).join('\n');
+    showModal(
+      'Some cards not found in deck',
+      `These replacements were skipped because the card to remove wasn't found in the Moxfield decklist:\n\n${names}\n\nContinue with the ${valid.length} confirmed swap${valid.length!==1?'s':''}?`,
+      () => _doMoxCopy(dl, valid, deckName)
+    );
+    return;
+  }
+  _doMoxCopy(dl, valid, deckName);
+}
+
+function _doMoxCopy(dl, swaps, deckName) {
+  if (!swaps.length) { showToast('No confirmed swaps to apply'); return; }
+
+  // Build working card map (copy)
+  const cards = new Map(dl.cards);
+
+  // Apply swaps: remove "out", add "in"
+  for (const swap of swaps) {
+    const outKey = swap.out.toLowerCase().trim();
+    const inKey  = swap.in.toLowerCase().trim();
+    const outQty = cards.get(outKey) || 0;
+    if (outQty <= 1) cards.delete(outKey);
+    else cards.set(outKey, outQty - 1);
+    cards.set(inKey, (cards.get(inKey)||0) + 1);
+  }
+
+  // Rebuild list — restore original casing from raw where possible
+  const caseMap = new Map();
+  for (const {name} of dl.raw) caseMap.set(name.toLowerCase(), name);
+  for (const swap of swaps) caseMap.set(swap.in.toLowerCase().trim(), swap.in.trim());
+
+  // Sort: commanders first, then rest alphabetically
+  const commanderKeys = new Set(
+    (dl.raw.filter(r=>r.zone==='commanders')).map(r=>r.name.toLowerCase())
+  );
+  // After swaps, removed commanders stay gone, added ones go to mainboard
+  const lines = [];
+  const sorted = [...cards.entries()].sort((a,b)=>{
+    const ac = commanderKeys.has(a[0]) ? 0 : 1;
+    const bc = commanderKeys.has(b[0]) ? 0 : 1;
+    if (ac!==bc) return ac-bc;
+    return a[0].localeCompare(b[0]);
+  });
+  for (const [key, qty] of sorted) {
+    const name = caseMap.get(key) || key;
+    lines.push(`${qty} ${name}`);
+  }
+
+  const text = lines.join('\n');
+  const total = [...cards.values()].reduce((s,v)=>s+v,0);
+
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast(`Copied! ${total} cards (${swaps.length} swap${swaps.length!==1?'s':''} applied)`);
+  }).catch(()=>{
+    // Fallback: show in modal
+    showModal('Moxfield update — copy this', text, ()=>{});
+  });
 }
 
 function toggleDeckBuylist(uuid, include) {
