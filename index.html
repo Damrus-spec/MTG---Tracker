@@ -1453,8 +1453,10 @@ function renderHistory() {
   const limit = parseInt(cfg().historyLimit)||500;
 
   // Build absolute game numbers
-  // Use scores (rebuilt from history) as the true total — reliable even with mixed entry formats
-  const allWithResult = (data.history||[]).filter(h=>h.last&&h.deck);
+  // Sort chronologically first so numbering is correct regardless of insertion order
+  const allWithResult = (data.history||[])
+    .filter(h=>h.last&&h.deck)
+    .sort((a,b)=> (a.date||'').localeCompare(b.date||''));
   const historyCount = allWithResult.length;
   // Sum all deck totals from scores (already rebuilt from history at render time)
   const trueTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0), 0);
