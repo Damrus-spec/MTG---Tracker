@@ -1925,6 +1925,8 @@ function copyBuyList() {
 }
 
 function renderDeckWants() {
+  // Sync exclusion set from persisted data
+  deckBuylistExcluded = new Set(data.buylistExcluded || []);
   const dw = data.deckWants||{};
   const cd = data.colorDecks||[];
   // Sort by display name within each group
@@ -2000,7 +2002,6 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       <i class="ti ti-chevron-down deck-sec-toggle${isOpen?' open':''}"></i>
     </div>
     <div class="deck-sec-body${isOpen?' open':''}">
-      </div>
       ${(()=>{ const rows=[]; for(let idx=0;idx<entries.length;idx++){ const e=entries[idx];
         const artUrl=artCache[scryfallKey(e.in)]||'';
         rows.push(`<div class="want-card-row">
@@ -2055,12 +2056,18 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
 }
 
 function toggleDeckBuylist(uuid, include) {
+  if (!data.buylistExcluded) data.buylistExcluded = [];
+  const arr = data.buylistExcluded;
   if (include) {
-    deckBuylistExcluded.delete(uuid);
+    const i = arr.indexOf(uuid);
+    if (i > -1) arr.splice(i, 1);
   } else {
-    deckBuylistExcluded.add(uuid);
+    if (!arr.includes(uuid)) arr.push(uuid);
   }
+  // Keep the Set in sync
+  deckBuylistExcluded = new Set(arr);
   renderWants();
+  scheduleSync();
 }
 
 function toggleWantsDeckSection(uuidOrDeck) {
