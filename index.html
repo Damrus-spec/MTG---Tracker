@@ -2038,7 +2038,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
             <div class="add-status-row" id="astatus-${key}">
               <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
               <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Considering</button>
-              <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Own it</button>
+              <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Owned</button>
             </div>
             <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
             <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">bulk import</button>
@@ -2206,7 +2206,7 @@ function addWantCard(deck, key) {
     const activePill = statusRow?.querySelector('.add-mini-pill.active');
     const t = (activePill?.textContent||'').trim().toLowerCase();
     if (t==='considering') status='considering';
-    else if (t==='own it') status='owned';
+    else if (t==='owned') status='owned';
     else status='buy';
   }
   if(!inCard){showToast('Enter a card name');return;}
