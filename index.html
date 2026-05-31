@@ -2165,14 +2165,14 @@ async function copyMoxUpdate(uuid, deckName) {
     showModal(
       'Some cards not found in deck',
       `These replacements were skipped because the card to remove wasn't found in the Moxfield decklist:\n\n${names}\n\nContinue with the ${valid.length} confirmed swap${valid.length!==1?'s':''}?`,
-      () => _doMoxCopy(dl, valid, deckName)
+      () => _doMoxCopy(dl, valid, deckName, uuid)
     );
     return;
   }
-  _doMoxCopy(dl, valid, deckName);
+  _doMoxCopy(dl, valid, deckName, uuid);
 }
 
-function _doMoxCopy(dl, swaps, deckName) {
+function _doMoxCopy(dl, swaps, deckName, uuid) {
   if (!swaps.length) { showToast('No confirmed swaps to apply'); return; }
 
   // Build working card map (copy)
@@ -2213,11 +2213,17 @@ function _doMoxCopy(dl, swaps, deckName) {
   const text = lines.join('\n');
   const total = [...cards.values()].reduce((s,v)=>s+v,0);
 
+  const moxUrl = (data.moxUrls||{})[uuid] || '';
+  const deckId = moxUrl ? moxDeckIdFromUrl(moxUrl) : null;
+  const editUrl = deckId ? `https://www.moxfield.com/decks/${deckId}/edit` : null;
+
   navigator.clipboard.writeText(text).then(()=>{
-    showToast(`Copied! ${total} cards (${swaps.length} swap${swaps.length!==1?'s':''} applied)`);
+    showToast(`Copied! ${total} cards — opening Moxfield…`);
+    if (editUrl) setTimeout(()=> window.open(editUrl, '_blank'), 400);
   }).catch(()=>{
-    // Fallback: show in modal
-    showModal('Moxfield update — copy this', text, ()=>{});
+    showModal('Moxfield update — copy this', text, ()=>{
+      if (editUrl) window.open(editUrl, '_blank');
+    });
   });
 }
 
