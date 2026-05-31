@@ -66,7 +66,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .deck-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:68px}
 .deck-row:last-child{border-bottom:none}
 .deck-art{position:relative;width:80px;height:68px;flex-shrink:0;overflow:hidden;background:var(--bg)}
-.deck-art img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
+.deck-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
 .deck-art-overlay{display:none}
 .deck-rate{display:none}
 .deck-rate-bar{display:none}
@@ -671,6 +671,17 @@ function loadLocal() {
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
 }
 function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artCache));}catch(e){} }
+
+// Render split art HTML for a container that already has position:relative;overflow:hidden
+// art1 = primary commander, art2 = partner (optional)
+function splitArtHtml(art1, art2, altText) {
+  if (!art1 && !art2) return '';
+  if (art1 && art2) {
+    return `<img src="${art1}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">
+            <img src="${art2}" alt="${altText}" loading="lazy" style="position:absolute;top:0;right:0;width:60%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(30% 0,100% 0,100% 100%,0% 100%)">`;
+  }
+  return `<img src="${art1||art2}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
+}
 function savePriceCache() { try{localStorage.setItem('mtg_prices',JSON.stringify(priceCache));}catch(e){} }
 
 // ============================================================
@@ -1029,13 +1040,15 @@ function renderScore() {
 
     const key  = scryfallKey(d.name);
     const art  = artCache[key];
+    const prtKey = d._deck?.partner ? scryfallKey(d._deck.partner) : null;
+    const prtArt = prtKey ? artCache[prtKey] : null;
     const eid  = 'exp-'+key;
     const pid  = 'prev-'+key;
     const sn   = d.name.replace(/'/g,"\\'");
     return `<div>
       <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
-        <div class="deck-art${art?'':' loading'}" data-art="${key}">
-          ${art?`<img src="${art}" alt="${d.name}" loading="lazy">`:''}
+        <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
+          ${splitArtHtml(art, prtArt, d.name)}
         </div>
         <div class="deck-left">
           <div class="deck-name">${d.name}</div>
@@ -1121,9 +1134,11 @@ function renderScore() {
       const fill=WR_FILL[cls];
       const key=scryfallKey(cleanN.split(' // ')[0]);
       const art=artCache[key];
+      const cleanNPrt = cleanN.includes(' // ') ? cleanN.split(' // ')[1].trim() : null;
+      const prtArt2 = cleanNPrt ? artCache[scryfallKey(cleanNPrt)] : null;
       return `<div class="deck-row">
-        <div class="deck-art${art?'':' loading'}" data-art="${key}">
-          ${art?`<img src="${art}" alt="${cleanN}" loading="lazy">`:''}
+        <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
+          ${splitArtHtml(art, prtArt2, cleanN)}
         </div>
         <div class="deck-left">
           <div class="deck-name">${cleanN}</div>
@@ -1388,8 +1403,8 @@ function renderHistory() {
       : '';
     return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
-      <div class="h-art${art?'':' loading'}" data-art="${key}">
-        ${art?`<img src="${art}" alt="${h.deck}" loading="lazy">`:''}
+      <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
+        ${(()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,h.deck);})()}
       </div>
       <div class="h-main">
         <div class="h-deck">${h.deck}</div>
@@ -1754,8 +1769,8 @@ function renderDeckWantsSection(uuid, deck, dw) {
   const buyCount = entries.filter(e=>e.inStatus==='buy').length;
   return `<div class="deck-section">
     <div class="deck-sec-header" data-deck="${uuid}" onclick="toggleWantsDeckSection(this.dataset.deck)">
-      <div class="deck-sec-art${art?'':' loading'}" data-art="${key}">
-        ${art?`<img src="${art}" alt="${deck}" loading="lazy">`:''}
+      <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
+        ${(()=>{const pp=deck.includes(' // ')?deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,deck);})()}
       </div>
       <span class="deck-sec-name">${deck}</span>
       <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
