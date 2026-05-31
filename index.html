@@ -2087,15 +2087,23 @@ function renderGraph() {
         y: {
           min: (() => {
             const dataMin = Math.min(...thinned.map(p=>p.y));
-            // Floor: lowest of (fallBehind-10, dataMin-10), rounded down to nearest 5
-            const floor = Math.floor(Math.min(s.fallBehind - 5, dataMin - 10) / 5) * 5;
-            return Math.max(0, floor); // never below 0
+            // Start 20% below lowest data point
+            const fromData = dataMin - 20;
+            // But must show lowest threshold with 5% buffer below it
+            const lowestThreshold = Math.min(s.fallBehind, s.strongWin, s.maxWin);
+            const fromThreshold = lowestThreshold - 5;
+            // Take the lower of the two, rounded down to nearest 5, min 0
+            return Math.max(0, Math.floor(Math.min(fromData, fromThreshold) / 5) * 5);
           })(),
           max: (() => {
             const dataMax = Math.max(...thinned.map(p=>p.y));
-            // Ceiling: highest of (maxWin+10, dataMax+10), rounded up to nearest 5
-            const ceil = Math.ceil(Math.max(s.maxWin + 10, dataMax + 10) / 5) * 5;
-            return Math.min(100, ceil); // never above 100
+            // End 20% above highest data point
+            const fromData = dataMax + 20;
+            // But must show highest threshold with 5% buffer above it
+            const highestThreshold = Math.max(s.fallBehind, s.strongWin, s.maxWin);
+            const fromThreshold = highestThreshold + 5;
+            // Take the higher of the two, rounded up to nearest 5, max 100
+            return Math.min(100, Math.ceil(Math.max(fromData, fromThreshold) / 5) * 5);
           })(),
           ticks: { color:textCol, callback: v=>v+'%', maxTicksLimit:5 },
           grid: { color:gridCol }
