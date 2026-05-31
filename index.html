@@ -1495,6 +1495,8 @@ function renderScore() {
   } else { legacySec.style.display='none'; }
 
   fetchMissingArt(artNames);
+  // Draw graph after score list renders — canvas must be in DOM and visible
+  if (graphOpen) setTimeout(renderGraph, 50);
 }
 
 // ============================================================
