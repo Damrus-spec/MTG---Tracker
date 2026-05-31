@@ -195,8 +195,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-mgr-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;padding:8px;flex-shrink:0}
 
 /* ── SETTINGS ── */
-.settings-section{margin-bottom:18px}
-.settings-label{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.settings-section{margin-bottom:4px}
+.settings-label{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;padding:10px 2px 8px;cursor:pointer;user-select:none}
+.settings-label:hover{color:var(--text)}
+.settings-label .s-chevron{font-size:13px;color:var(--text3);transition:transform .2s;flex-shrink:0}
+.settings-label.collapsed .s-chevron{transform:rotate(-90deg)}
+.settings-body{overflow:hidden;transition:max-height .25s ease,opacity .2s ease;max-height:1000px;opacity:1}
+.settings-body.collapsed{max-height:0;opacity:0}
 .setting-block{padding:10px 0;border-bottom:.5px solid var(--border)}
 .setting-block:last-child{border-bottom:none}
 .setting-name{font-size:14px;font-weight:500;margin-bottom:2px}
@@ -450,80 +455,90 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
 <!-- SETTINGS -->
 <div id="page-settings" class="page">
+
   <div class="settings-section">
-    <div class="settings-label">Score — win rate thresholds</div>
-    <div class="card">
-      <div class="setting-block">
-        <div class="setting-name">Max win rate</div>
-        <div class="setting-desc">At or above this % → too strong (red)</div>
-        <input type="number" class="setting-input" id="s-maxWin" min="0" max="100" step="1" oninput="saveSetting('maxWin',this.value)">
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Strong win rate</div>
-        <div class="setting-desc">At or above this % → strong (amber)</div>
-        <input type="number" class="setting-input" id="s-strongWin" min="0" max="100" step="1" oninput="saveSetting('strongWin',this.value)">
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Fall behind</div>
-        <div class="setting-desc">At or below this % → underperforming (blue)</div>
-        <input type="number" class="setting-input" id="s-fallBehind" min="0" max="100" step="0.5" oninput="saveSetting('fallBehind',this.value)">
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Threshold</div>
-        <div class="setting-desc">Min games before colour applies (grey below)</div>
-        <input type="number" class="setting-input" id="s-threshold" min="0" max="100" step="1" oninput="saveSetting('threshold',this.value)">
-      </div>
-      <div style="margin-top:12px">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Current colour bands</div>
-        <div class="wr-legend" id="wr-legend"></div>
-      </div>
+    <div class="settings-label" onclick="toggleSettingsSection(this)">
+      Score — win rate thresholds<i class="ti ti-chevron-down s-chevron"></i>
     </div>
-  </div>
-  <div class="settings-section">
-    <div class="settings-label">App</div>
-    <div class="card">
-      <div class="setting-block">
-        <div class="setting-name">History limit</div>
-        <div class="setting-desc">Max entries shown in history view</div>
-        <input type="number" class="setting-input" id="s-historyLimit" min="10" max="1000" step="10" oninput="saveSetting('historyLimit',this.value)">
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Card art preference</div>
-        <div class="setting-desc">Which printing to use for card images</div>
-        <select class="setting-input" id="s-artPref" onchange="saveStrSetting('artPref',this.value);localStorage.removeItem('mtg_art');artCache={};fetchMissingArt((data.colorDecks||[]).map(d=>d.name))" style="font-size:14px;padding:8px 11px">
-          <option value="oldest">Oldest print (default)</option>
-          <option value="newest">Newest print</option>
-        </select>
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Card marketplace</div>
-        <div class="setting-desc">Used for card links throughout the app</div>
-        <select class="setting-input" id="s-cardSeller" onchange="saveStrSetting('cardSeller',this.value)" style="font-size:14px;padding:8px 11px">
-          <option value="cardmarket">Cardmarket (EU)</option>
-          <option value="tcgplayer">TCGplayer (US)</option>
-          <option value="scryfall">Scryfall</option>
-          <option value="manapool">ManaPool (UK)</option>
-          <option value="mtggoldfish">MTGGoldfish</option>
-        </select>
+    <div class="settings-body">
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Max win rate</div>
+          <div class="setting-desc">At or above this % → too strong (red)</div>
+          <input type="number" class="setting-input" id="s-maxWin" min="0" max="100" step="1" oninput="saveSetting('maxWin',this.value)">
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Strong win rate</div>
+          <div class="setting-desc">At or above this % → strong (amber)</div>
+          <input type="number" class="setting-input" id="s-strongWin" min="0" max="100" step="1" oninput="saveSetting('strongWin',this.value)">
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Fall behind</div>
+          <div class="setting-desc">At or below this % → underperforming (blue)</div>
+          <input type="number" class="setting-input" id="s-fallBehind" min="0" max="100" step="0.5" oninput="saveSetting('fallBehind',this.value)">
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Threshold</div>
+          <div class="setting-desc">Min games before colour applies (grey below)</div>
+          <input type="number" class="setting-input" id="s-threshold" min="0" max="100" step="1" oninput="saveSetting('threshold',this.value)">
+        </div>
+        <div style="margin-top:12px">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Current colour bands</div>
+          <div class="wr-legend" id="wr-legend"></div>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="settings-section">
-    <div class="settings-label">Database</div>
-    <div class="card">
-      <div class="setting-block">
-        <div class="setting-name">Clean up duplicate score entries</div>
-        <div class="setting-desc">Removes stale name-keyed score records that are duplicated by UUID entries (fixes retired decks showing twice or with wrong data)</div>
-        <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" onclick="runDbCleanup()">Clean up now</button>
-      </div>
-      <div class="setting-block">
-        <div class="setting-name">Rebuild scores from history</div>
-        <div class="setting-desc">Recalculates all win/loss records from raw history data. Use if scores look wrong.</div>
-        <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text);border:.5px solid var(--border-md)" onclick="runRebuildScores()">Rebuild scores</button>
+    <div class="settings-label" onclick="toggleSettingsSection(this)">
+      App<i class="ti ti-chevron-down s-chevron"></i>
+    </div>
+    <div class="settings-body">
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">History limit</div>
+          <div class="setting-desc">Max entries shown in history view</div>
+          <input type="number" class="setting-input" id="s-historyLimit" min="10" max="1000" step="10" oninput="saveSetting('historyLimit',this.value)">
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Card art preference</div>
+          <div class="setting-desc">Which printing to use for card images</div>
+          <select class="setting-input" id="s-artPref" onchange="saveStrSetting('artPref',this.value);localStorage.removeItem('mtg_art');artCache={};fetchMissingArt((data.colorDecks||[]).map(d=>d.name))" style="font-size:14px;padding:8px 11px">
+            <option value="oldest">Oldest print (default)</option>
+            <option value="newest">Newest print</option>
+          </select>
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Card marketplace</div>
+          <div class="setting-desc">Used for card links throughout the app</div>
+          <select class="setting-input" id="s-cardSeller" onchange="saveStrSetting('cardSeller',this.value)" style="font-size:14px;padding:8px 11px">
+            <option value="cardmarket">Cardmarket (EU)</option>
+            <option value="tcgplayer">TCGplayer (US)</option>
+            <option value="scryfall">Scryfall</option>
+            <option value="manapool">ManaPool (UK)</option>
+            <option value="mtggoldfish">MTGGoldfish</option>
+          </select>
+        </div>
       </div>
     </div>
   </div>
+
+  <div class="settings-section">
+    <div class="settings-label" onclick="toggleSettingsSection(this)">
+      Database<i class="ti ti-chevron-down s-chevron"></i>
+    </div>
+    <div class="settings-body">
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Clean up duplicate entries</div>
+          <div class="setting-desc">Removes duplicate score and history entries. Fixes retired decks showing twice, stale UUID records, and manually-added history duplicates.</div>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" onclick="runDbCleanup()">Clean up now</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 </div><!-- /app -->
@@ -2357,6 +2372,12 @@ function cardLink(cardName) {
   };
   return urls[seller] || urls.cardmarket;
 }
+function toggleSettingsSection(labelEl) {
+  labelEl.classList.toggle('collapsed');
+  const body = labelEl.nextElementSibling;
+  if (body) body.classList.toggle('collapsed');
+}
+
 function renderSettings() {
   const s=cfg();
   document.getElementById('s-maxWin').value     = s.maxWin;
