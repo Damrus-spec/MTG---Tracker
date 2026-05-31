@@ -1618,12 +1618,10 @@ function renderDeckMgr() {
         <input type="text" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="Commander name"
           style="margin:0 0 4px;font-size:13px;padding:5px 8px;font-weight:500"
           id="dname-${i}"
-          onchange="updateDeckField(${i},'name',this.value)"
           onblur="updateDeckField(${i},'name',this.value)">
         <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
           style="margin:0 0 5px;font-size:11px;padding:4px 8px;color:var(--text2)"
           id="dpartner-${i}"
-          onchange="updateDeckField(${i},'partner',this.value)"
           onblur="updateDeckField(${i},'partner',this.value)">
         <div class="deck-mgr-selects">
           <span style="font-size:11px;color:var(--text3);padding:0 4px">${d.color||'?'}</span>
