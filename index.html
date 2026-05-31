@@ -288,6 +288,16 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:100;white-space:nowrap}
 .toast.show{opacity:1}
 .empty{padding:12px;color:var(--text2);font-size:13px}
+.editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
+.editor-row:last-child td{border-bottom:none}
+.editor-input{width:100%;background:transparent;border:none;border-bottom:.5px solid transparent;color:var(--text);font-size:12px;padding:2px 4px;font-family:inherit;border-radius:0}
+.editor-input:focus{outline:none;border-bottom-color:var(--blue);background:var(--surface)}
+.editor-input.date-input{width:100px}
+.editor-input.num-input{width:36px;text-align:center}
+.editor-select{background:transparent;border:none;color:var(--text);font-size:12px;padding:2px 4px;font-family:inherit;cursor:pointer}
+.editor-select:focus{outline:none}
+.editor-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;font-size:13px}
+.editor-del:hover{color:var(--red)}
 #quick-stats-card{display:none}
 </style>
 </head>
@@ -317,6 +327,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
   <button class="nav-btn" onclick="showPage('wants',this)"><i class="ti ti-cards"></i><span>Wants</span><div class="nav-bar"></div></button>
   <button class="nav-btn" onclick="showPage('decks',this)"><i class="ti ti-layout-grid"></i><span>Decks</span><div class="nav-bar"></div></button>
   <button class="nav-btn" onclick="showPage('settings',this)"><i class="ti ti-settings"></i><span>Settings</span><div class="nav-bar"></div></button>
+  <button class="nav-btn" onclick="showPage('editor',this)"><i class="ti ti-database-edit"></i><span>Editor</span><div class="nav-bar"></div></button>
 </nav>
 
 <!-- SCORE -->
@@ -547,6 +558,37 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     </div>
   </div>
 
+</div>
+
+<!-- EDITOR -->
+<div id="page-editor" class="page">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+    <div style="font-size:13px;font-weight:600;flex:1">History editor</div>
+    <input class="search-bar" type="text" id="editor-search" placeholder="Filter by deck…" oninput="renderEditor()" style="width:160px;flex:none;margin:0">
+    <select id="editor-result" onchange="renderEditor()" style="padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px;margin:0">
+      <option value="">All results</option>
+      <option value="Win">Win</option>
+      <option value="Loss">Loss</option>
+    </select>
+    <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" onclick="editorAddRow()"><i class="ti ti-plus"></i> Add entry</button>
+  </div>
+  <div class="card no-pad">
+    <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="border-bottom:.5px solid var(--border-md)">
+          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
+          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
+          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
+          <th style="padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">W</th>
+          <th style="padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">L</th>
+          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
+          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)"></th>
+        </tr>
+      </thead>
+      <tbody id="editor-body"></tbody>
+    </table>
+  </div>
+  <div style="font-size:11px;color:var(--text3);margin-top:8px;padding:0 2px">Changes save to Drive automatically. Scores rebuild on next Score tab visit.</div>
 </div>
 
 </div><!-- /app -->
@@ -1062,6 +1104,7 @@ function showPage(id, btn) {
   if(id==='wants')    renderWants();
   if(id==='decks')    { renderDeckMgr(); initAddDeckAC(); }
   if(id==='settings') renderSettings();
+  if(id==='editor')   renderEditor();
 }
 
 // ============================================================
@@ -2482,6 +2525,77 @@ function toggleSettingsSection(labelEl) {
   labelEl.classList.toggle('collapsed');
   const body = labelEl.nextElementSibling;
   if (body) body.classList.toggle('collapsed');
+}
+
+function renderEditor() {
+  const q      = (document.getElementById('editor-search')?.value||'').toLowerCase();
+  const resF   = document.getElementById('editor-result')?.value||'';
+  const tbody  = document.getElementById('editor-body');
+  if (!tbody) return;
+
+  const history = (data.history||[]);
+  // Sort chronologically for display, preserve original index for edits
+  const indexed = history
+    .map((h,i)=>({h,i}))
+    .filter(({h})=> h.last && h.deck)
+    .sort((a,b)=>(a.h.date||'').localeCompare(b.h.date||''))
+    .filter(({h})=>!q || h.deck.toLowerCase().includes(q))
+    .filter(({h})=>!resF || h.last===resF);
+
+  tbody.innerHTML = indexed.map(({h,i}, rowNum)=>`
+    <tr class="editor-row" data-idx="${i}">
+      <td style="color:var(--text3);padding-left:12px;white-space:nowrap">#${rowNum+1}</td>
+      <td><input class="editor-input date-input" value="${h.date||''}"
+        onchange="editorUpdate(${i},'date',this.value)"></td>
+      <td style="min-width:140px"><input class="editor-input" value="${(h.deck||'').replace(/"/g,'&quot;')}"
+        onchange="editorUpdate(${i},'deck',this.value)" style="width:100%;min-width:130px"></td>
+      <td><input class="editor-input num-input" type="number" min="0" value="${h.wins!=null?h.wins:''}"
+        placeholder="—" onchange="editorUpdate(${i},'wins',this.value)"></td>
+      <td><input class="editor-input num-input" type="number" min="0" value="${h.losses!=null?h.losses:''}"
+        placeholder="—" onchange="editorUpdate(${i},'losses',this.value)"></td>
+      <td><select class="editor-select" onchange="editorUpdate(${i},'last',this.value)">
+        <option value="Win" ${h.last==='Win'?'selected':''}>Win</option>
+        <option value="Loss" ${h.last==='Loss'?'selected':''}>Loss</option>
+      </select></td>
+      <td><button class="editor-del" onclick="editorDelete(${i})" title="Delete"><i class="ti ti-trash"></i></button></td>
+    </tr>`).join('');
+}
+
+function editorUpdate(idx, field, value) {
+  if (!data.history[idx]) return;
+  if (field==='wins' || field==='losses') {
+    const n = parseInt(value);
+    data.history[idx][field] = isNaN(n) ? undefined : n;
+    // Remove the field entirely if blank
+    if (value==='' || value==null) delete data.history[idx][field];
+  } else {
+    data.history[idx][field] = value;
+  }
+  scheduleSync();
+}
+
+function editorDelete(idx) {
+  if (!data.history[idx]) return;
+  const h = data.history[idx];
+  showModal('Delete entry', `Delete this entry?\n\n${h.deck} — ${h.date} — ${h.last}`, () => {
+    data.history.splice(idx, 1);
+    renderEditor();
+    scheduleSync();
+    showToast('Entry deleted');
+  });
+}
+
+function editorAddRow() {
+  const today = new Date().toISOString().slice(0,10);
+  data.history.push({ date: today, deck: '', last: 'Win' });
+  renderEditor();
+  scheduleSync();
+  // Focus the new row's deck input
+  setTimeout(()=>{
+    const rows = document.querySelectorAll('#editor-body tr');
+    const last = rows[rows.length-1];
+    if (last) last.querySelector('input[type=text]')?.focus();
+  }, 50);
 }
 
 function renderSettings() {
