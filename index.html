@@ -167,7 +167,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-card-row input{flex:1;margin:0}
 .add-status-row{display:flex;gap:5px}
 .add-mini-pill{padding:4px 9px;border:.5px solid var(--border-md);border-radius:12px;background:none;font-size:11px;cursor:pointer;color:var(--text2)}
-.add-mini-pill.active{background:var(--info-bg);color:var(--info);border-color:transparent}
+.add-mini-pill.active[data-s="buy"]{background:rgba(91,163,232,.15);color:var(--info);border-color:transparent}
+.add-mini-pill.active[data-s="considering"]{background:rgba(212,146,31,.15);color:var(--amber);border-color:transparent}
+.add-mini-pill.active[data-s="owned"]{background:rgba(80,180,80,.15);color:var(--green);border-color:transparent}
+.add-mini-pill.active{background:rgba(91,163,232,.15);color:var(--info);border-color:transparent}
 .add-submit{padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;white-space:nowrap}
 
 /* ── DECKS TAB ── */
@@ -1524,7 +1527,7 @@ function renderDeckWantsSection(uuid, deck, dw) {
             style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
           <div style="display:flex;gap:4px;flex-shrink:0">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
-            <button class="w-del" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
+            <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
           </div>
         </div>`).join('')}
       <div class="add-card-form">
@@ -1534,9 +1537,9 @@ function renderDeckWantsSection(uuid, deck, dw) {
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
           <div class="add-status-row" id="astatus-${key}">
-            <button class="add-mini-pill active" onclick="setAddStatus('${key}','buy',this)">Buy</button>
-            <button class="add-mini-pill" onclick="setAddStatus('${key}','considering',this)">Considering</button>
-            <button class="add-mini-pill" onclick="setAddStatus('${key}','owned',this)">Own it</button>
+            <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
+            <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Considering</button>
+            <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Own it</button>
           </div>
           <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
         </div>
@@ -1582,12 +1585,19 @@ function addWantCard(deck, key) {
   const statusRow=document.getElementById('astatus-'+key);
   const inCard=(inEl?.value||'').trim();
   const outCard=(outEl?.value||'').trim();
-  const status=statusRow?.dataset?.status||statusRow?.querySelector('.active')?.textContent==='Buy'?'buy':
-    statusRow?.querySelector('.active')?.textContent==='Considering'?'considering':'owned';
+  // Read status from dataset (set by setAddStatus) or from active pill text
+  let status = statusRow?.dataset?.status || 'buy';
+  if (!statusRow?.dataset?.status) {
+    const activePill = statusRow?.querySelector('.add-mini-pill.active');
+    const t = (activePill?.textContent||'').trim().toLowerCase();
+    if (t==='considering') status='considering';
+    else if (t==='own it') status='owned';
+    else status='buy';
+  }
   if(!inCard){showToast('Enter a card name');return;}
   if(!data.deckWants) data.deckWants={};
   if(!data.deckWants[deck]) data.deckWants[deck]=[];
-  data.deckWants[deck].push({in:inCard,inStatus:status||'buy',out:outCard||null});
+  data.deckWants[deck].push({in:inCard,inStatus:status,out:outCard||null});
   if(inEl) inEl.value='';
   if(outEl) outEl.value='';
   renderWants(); scheduleSync();
