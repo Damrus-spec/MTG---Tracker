@@ -907,7 +907,11 @@ function renderScore() {
   const lastH=data.history?.[data.history.length-1];
   document.getElementById('last-played').textContent  = lastH?fmtDate(lastH.date):'—';
 
-  const artNames = list.flatMap(d=>d.partner?[d.name,d.partner]:[d.name]);
+  const artNames = list.flatMap(d=>{
+    const cmd = d._deck?.name || d.name.split(' // ')[0];
+    const prt = d._deck?.partner || '';
+    return prt ? [cmd, prt] : [cmd];
+  });
 
   document.getElementById('deck-list').innerHTML = list.map(d=>{
     const cls  = wrClass(d.winRate||0, d.total||0);
