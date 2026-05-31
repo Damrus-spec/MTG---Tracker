@@ -2016,21 +2016,42 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
     <div class="deck-sec-body${isOpen?' open':''}">
       <!-- Moxfield bar -->
       <div class="mox-bar">
-        <input class="mox-url-input" type="text" placeholder="Moxfield deck URL…"
-          value="${(data.moxUrls||{})[uuid]||''}"
-          onchange="saveMoxUrl('${uuid}',this.value)"
-          onclick="event.stopPropagation()">
-        <button class="mox-btn secondary" onclick="fetchMoxDecklist('${uuid}')" id="mox-fetch-${uuid}">
-          <i class="ti ti-refresh" style="font-size:11px"></i> Fetch
-        </button>
-        ${moxDecklists[uuid]?`
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);cursor:pointer;flex-shrink:0">
-          <input type="checkbox" ${moxFilterEnabled.has(uuid)?'checked':''} onchange="toggleMoxFilter('${uuid}',this.checked)" style="accent-color:var(--green);margin:0">
-          confirmed only
-        </label>
-        <button class="mox-btn" onclick="copyMoxUpdate('${uuid}','${deck.replace(/'/g,"\'")}')" id="mox-copy-${uuid}">
-          <i class="ti ti-clipboard" style="font-size:11px"></i> Copy update
-        </button>`:''}
+        ${moxDecklists[uuid] ? `
+          <div style="display:flex;align-items:center;gap:8px;width:100%;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--green)"><i class="ti ti-check"></i> ${moxDecklists[uuid].raw.length} cards loaded</span>
+            <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);cursor:pointer">
+              <input type="checkbox" ${moxFilterEnabled.has(uuid)?'checked':''} onchange="toggleMoxFilter('${uuid}',this.checked)" style="accent-color:var(--green);margin:0">
+              confirmed only
+            </label>
+            <button class="mox-btn" onclick="copyMoxUpdate('${uuid}','${deck.replace(/'/g,"\'")}')">
+              <i class="ti ti-clipboard" style="font-size:11px"></i> Copy update
+            </button>
+            <button class="mox-btn secondary" onclick="clearMoxDecklist('${uuid}')">Clear</button>
+          </div>
+        ` : `
+          <div style="width:100%">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:5px">
+              Paste your Moxfield decklist to enable swap generation.
+              <a href="${(data.moxUrls||{})[uuid]||'https://www.moxfield.com'}" target="_blank" style="color:var(--blue);text-decoration:none">
+                Open deck <i class="ti ti-external-link" style="font-size:10px"></i>
+              </a>
+              → Export → Copy to clipboard → paste below.
+              <input class="mox-url-input" type="text" placeholder="Moxfield deck URL (for the Open link)…"
+                value="${(data.moxUrls||{})[uuid]||''}"
+                onchange="saveMoxUrl('${uuid}',this.value)"
+                onclick="event.stopPropagation()"
+                style="margin-top:5px;width:100%">
+            </div>
+            <div style="display:flex;gap:6px">
+              <textarea class="bulk-area" id="mox-paste-${uuid}" rows="3"
+                placeholder="1 Lightning Greaves&#10;1 Sol Ring&#10;…"
+                style="min-height:60px"></textarea>
+              <button class="mox-btn" onclick="parseMoxPaste('${uuid}')" style="align-self:flex-end;padding:6px 12px">
+                Load
+              </button>
+            </div>
+          </div>
+        `}
       </div>
       ${(()=>{ const rows=[]; for(let idx=0;idx<entries.length;idx++){ const e=entries[idx];
         const dl=moxDecklists[uuid];
@@ -2103,37 +2124,34 @@ function moxDeckIdFromUrl(url) {
   return m ? m[1] : url.trim();
 }
 
-async function fetchMoxDecklist(uuid) {
-  const url = (data.moxUrls||{})[uuid];
-  if (!url) { showToast('Paste a Moxfield URL first'); return; }
-  const deckId = moxDeckIdFromUrl(url);
-  const btn = document.getElementById('mox-fetch-'+uuid);
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="font-size:11px;animation:spin 1s linear infinite"></i> Fetching…'; }
-  try {
-    const res = await fetch(`https://api2.moxfield.com/v3/decks/all/${deckId}`, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'MTGTracker/1.0' }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const deck = await res.json();
-    // Build flat card map: lowercaseName -> qty, and raw list
-    const cards = new Map();
-    const raw = []; // [{qty, name, zone}]
-    const zones = ['mainboard','commanders','sideboard','companion'];
-    for (const zone of zones) {
-      const board = deck.boards?.[zone]?.cards || {};
-      for (const entry of Object.values(board)) {
-        const name = entry.card?.name || entry.name || '';
-        const qty  = entry.quantity || 1;
-        if (!name) continue;
-        cards.set(name.toLowerCase(), (cards.get(name.toLowerCase())||0) + qty);
-        raw.push({ qty, name, zone });
-      }
-    }
-    moxDecklists[uuid] = { cards, raw };
-    showToast(`Loaded ${raw.length} cards from Moxfield`);
-  } catch(e) {
-    showToast('Failed to fetch: ' + e.message);
+function parseMoxPaste(uuid) {
+  const ta = document.getElementById('mox-paste-'+uuid);
+  if (!ta || !ta.value.trim()) { showToast('Paste a decklist first'); return; }
+  const lines = ta.value.trim().split('\n');
+  const cards = new Map();
+  const raw = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || /^(SIDEBOARD|COMMANDER|COMPANION|MAYBEBOARD)/i.test(trimmed)) continue;
+    if (trimmed.startsWith('//')) continue;
+    // Parse "N Card Name" or "Card Name"
+    const m = trimmed.match(/^(?:(?:SB|MB):\s*)?(\d+)\s+(.+?)(?:\s*[\(\[].*)?$/);
+    if (!m) continue;
+    const qty  = parseInt(m[1]) || 1;
+    const name = m[2].trim();
+    if (!name) continue;
+    cards.set(name.toLowerCase(), (cards.get(name.toLowerCase())||0) + qty);
+    raw.push({ qty, name });
   }
+  if (!raw.length) { showToast('No cards found — check the format'); return; }
+  moxDecklists[uuid] = { cards, raw };
+  showToast(`Loaded ${raw.reduce((s,c)=>s+c.qty,0)} cards`);
+  renderWants();
+}
+
+function clearMoxDecklist(uuid) {
+  delete moxDecklists[uuid];
+  moxFilterEnabled.delete(uuid);
   renderWants();
 }
 
