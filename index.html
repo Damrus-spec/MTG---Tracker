@@ -729,15 +729,53 @@ function scryfallKey(name) {
 async function fetchArt(name) {
   const key = scryfallKey(name);
   if (artCache[key]) return artCache[key];
-  const searchName = name.split(/[\/,]/)[0].trim();
+  const pref = cfg().artPref || 'oldest';
+
+  // Helper to extract art_crop from a card object (handles double-faced cards)
+  function artUrl(card) {
+    if (!card) return null;
+    return card.image_uris?.art_crop
+      || card.card_faces?.[0]?.image_uris?.art_crop
+      || null;
+  }
+
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(searchName)}`,
-      {headers:{Accept:'application/json'}});
-    if (!res.ok) return null;
-    const card = await res.json();
-    const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || null;
-    if (url) { artCache[key]=url; saveArtCache(); }
-    return url;
+    // Use exact name search first — avoids fuzzy matching wrong cards (e.g. Liberator -> Liberate)
+    const exactRes = await fetch(
+      `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`,
+      {headers:{Accept:'application/json'}}
+    );
+    if (exactRes.ok) {
+      const card = await exactRes.json();
+      // If oldest/newest pref, fetch specific printing via prints search
+      if (pref === 'oldest' || pref === 'newest') {
+        const dir = pref === 'oldest' ? 'asc' : 'desc';
+        const printRes = await fetch(
+          `https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+name+'"')}&order=released&dir=${dir}&unique=prints`,
+          {headers:{Accept:'application/json'}}
+        );
+        if (printRes.ok) {
+          const prints = await printRes.json();
+          const url = artUrl(prints.data?.[0]);
+          if (url) { artCache[key]=url; saveArtCache(); return url; }
+        }
+      }
+      // Fallback to default printing
+      const url = artUrl(card);
+      if (url) { artCache[key]=url; saveArtCache(); return url; }
+    }
+
+    // If exact fails, try fuzzy with the full name
+    const fuzzyRes = await fetch(
+      `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`,
+      {headers:{Accept:'application/json'}}
+    );
+    if (fuzzyRes.ok) {
+      const card = await fuzzyRes.json();
+      const url = artUrl(card);
+      if (url) { artCache[key]=url; saveArtCache(); return url; }
+    }
+    return null;
   } catch(e){ return null; }
 }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
