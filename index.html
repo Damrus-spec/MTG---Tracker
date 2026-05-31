@@ -229,8 +229,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-hist-date{font-size:11px;color:var(--text3);margin-bottom:4px}
 .issue-hist-tags{display:flex;flex-wrap:wrap;gap:5px}
 .issue-hist-tag{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500}
-.issue-hist-tag.win{background:var(--green-bg);color:var(--green)}
-.issue-hist-tag.loss{background:var(--red-bg);color:var(--red)}
+.issue-hist-tag.win,.issue-hist-tag.loss{background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)}
+.h-issues{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.h-issue-tag{font-size:10px;padding:1px 7px;border-radius:8px;background:var(--surface);color:var(--text3);border:.5px solid var(--border-md)}
+.h-has-issues .h-issue-tag{color:var(--amber);border-color:var(--amber)}
 .issue-hist-agg{margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--border-md)}
 .issue-hist-agg-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px}
 .issue-hist-agg-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px}
@@ -952,7 +954,18 @@ function renderScore() {
   const L=list.reduce((s,d)=>s+(d.losses||0),0);
   const G=W+L;
   // Include ALL decks (owned + retired) in total games count
-  const totalAllGames = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0),0);
+  // De-duplicate: if a deck has BOTH a UUID key and a name key in scores, only count UUID
+  const allScoreKeys = Object.keys(data.scores||{});
+  const allKnownUuids = new Set((data.colorDecks||[]).map(d=>d.uuid).filter(Boolean));
+  const allKnownNames = new Set((data.colorDecks||[]).map(d=>deckDisplayName(d)));
+  // A name key is redundant if there's a UUID key for the same deck
+  const dedupedScores = allScoreKeys.filter(k => {
+    if (allKnownUuids.has(k)) return true; // UUID key — always include
+    // Name key — only include if there's no UUID key for this deck
+    const uuid = uuidForName(k);
+    return !uuid || !data.scores[uuid];
+  });
+  const totalAllGames = dedupedScores.reduce((s,k)=>s+(data.scores[k].total||0),0);
   document.getElementById('total-games').textContent  = totalAllGames||G;
   document.getElementById('overall-wr').textContent   = G>0?(W/G*100).toFixed(1)+'%':'—';
   // Dynamic: count all owned decks from colorDecks
@@ -1040,25 +1053,39 @@ function renderScore() {
   }).join('');
 
   // Legacy: score entries not matching any owned deck UUID
-  const legacyNames = Object.keys(data.scores||{}).filter(key=>
+  // Legacy = score keys that don't match any owned deck UUID
+  // Also exclude name-keyed entries if a UUID key for the same deck exists (avoid double)
+  const legacyRaw = Object.keys(data.scores||{}).filter(key=>
     !ownedUuids.has(key) && data.scores[key].total>0
   );
+  const legacyNames = legacyRaw.filter(key => {
+    // If this is a plain name and there's a UUID key for it, skip (already counted)
+    if (!allKnownUuids.has(key)) {
+      const uuid = uuidForName(key);
+      if (uuid && data.scores[uuid]) return false;
+    }
+    return true;
+  });
   const legacySec = document.getElementById('legacy-section');
   if (legacyNames.length>0) {
     legacySec.style.display='';
     document.getElementById('legacy-list').innerHTML = legacyNames.map(uuidOrName=>{
       const s=data.scores[uuidOrName];
-      const n=displayNameForUuid(uuidOrName)||uuidOrName;
+      // Resolve display name: try UUID lookup, then name lookup, then raw value
+      const n = displayNameForUuid(uuidOrName) || uuidOrName;
+      const cleanN = (allKnownUuids.has(uuidOrName) && n===uuidOrName)
+        ? uuidOrName  // couldn't resolve — show as-is
+        : n;
       const cls=wrClass(s.winRate,s.total);
       const fill=WR_FILL[cls];
-      const key=scryfallKey(n.split(' // ')[0]);
+      const key=scryfallKey(cleanN.split(' // ')[0]);
       const art=artCache[key];
       return `<div class="deck-row">
         <div class="deck-art${art?'':' loading'}" data-art="${key}">
-          ${art?`<img src="${art}" alt="${n}" loading="lazy">`:''}
+          ${art?`<img src="${art}" alt="${cleanN}" loading="lazy">`:''}
         </div>
         <div class="deck-left">
-          <div class="deck-name">${n}</div>
+          <div class="deck-name">${cleanN}</div>
           <div class="deck-meta">${s.total} games · ${s.wins}W · ${s.losses}L · Last played: ${fmtDate(s.lastDate)}</div>
         </div>
         <div class="deck-wr ${cls}">${s.winRate}%</div>
@@ -1105,6 +1132,15 @@ function toggleDeckExpand(eid) {
 function adjustPending(evt, name, type, delta) {
   evt.stopPropagation();
   if (!pending[name]) pending[name] = {wins:0, losses:0};
+  // If issues are tagged for this deck, cap at 1 total game
+  const ci = pendingIssues[name] || {};
+  if (Object.keys(ci).length > 0 && delta > 0) {
+    const cur = pending[name];
+    if ((cur.wins + cur.losses) >= 1) {
+      showToast('⚠ Issues tagged — limit 1 game per submission');
+      return;
+    }
+  }
   if (type==='Win') {
     pending[name].wins = Math.max(0, pending[name].wins + delta);
   } else {
@@ -1129,7 +1165,13 @@ function renderPendingBar() {
   const bar = document.getElementById('pending-bar');
   if (!bar) return;
   const entries = Object.entries(pending).filter(([,v])=>v.wins>0||v.losses>0);
-  if (!entries.length) { bar.style.display='none'; return; }
+  const hasPending = entries.length > 0;
+  // Hide/show stat grid, graph, and last-game section when pending active
+  const statGrid   = document.querySelector('.stat-grid');
+  const scoreSticky = document.getElementById('score-sticky');
+  if (statGrid)    statGrid.style.display    = hasPending ? 'none' : '';
+  if (scoreSticky) scoreSticky.style.display = hasPending ? 'none' : '';
+  if (!hasPending) { bar.style.display='none'; return; }
   bar.style.display='';
   const pl = document.getElementById('pending-list');
   if (pl) pl.innerHTML = entries.map(([name,v])=>{
@@ -1300,7 +1342,10 @@ function renderHistory() {
     const art = artCache[key];
     const gameNum = absNum;
     const isSel = historySelected.has(i);
-    return `<div class="h-row${isSel?' h-selected':''}" style="cursor:pointer">
+    const issueHtml = (h.issues && h.issues.length)
+      ? `<div class="h-issues">${h.issues.map(iss=>`<span class="h-issue-tag">${iss.issue}</span>`).join('')}</div>`
+      : '';
+    return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
       <div class="h-art${art?'':' loading'}" data-art="${key}">
         ${art?`<img src="${art}" alt="${h.deck}" loading="lazy">`:''}
@@ -1308,6 +1353,7 @@ function renderHistory() {
       <div class="h-main">
         <div class="h-deck">${h.deck}</div>
         <div class="h-submeta">${fmtDate(h.date)} · ${h.wins}W ${h.losses}L</div>
+        ${issueHtml}
       </div>
       <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
       <button class="h-del-btn${isSel?' h-del-active':''}" onclick="toggleHistorySelect(${i},event)" title="Select to delete">
@@ -1318,6 +1364,58 @@ function renderHistory() {
 
   fetchMissingArt(artNames);
   updateHistoryDeleteBar();
+}
+
+function onHistoryRowClick(deckName, uuid, evt) {
+  // Don't open panel when clicking trash button
+  if (evt && evt.target.closest('.h-del-btn')) return;
+  // Open issue panel with ALL history (no last-10 limit) from history tab
+  openIssuePanelFull(deckName, uuid);
+}
+
+function openIssuePanelFull(deckName, uuid) {
+  const resolvedUuid = uuid || uuidForName(deckName);
+  // Show ALL issues, no limit
+  const entries = (data.history||[])
+    .filter(h => (h.deckUuid === resolvedUuid || h.deck === deckName) && h.issues && h.issues.length > 0)
+    .slice().reverse();
+
+  const title = document.getElementById('issue-hist-panel-title');
+  const body  = document.getElementById('issue-hist-panel-body');
+  if (title) title.textContent = deckName;
+
+  if (!entries.length) {
+    body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues logged for this deck.</p>';
+  } else {
+    const agg = {};
+    for (const h of entries) {
+      for (const iss of (h.issues||[])) {
+        if (!agg[iss.issue]) agg[iss.issue] = 0;
+        agg[iss.issue]++;
+      }
+    }
+    const aggSorted = Object.entries(agg).sort((a,b)=>b[1]-a[1]);
+    const aggHtml = `
+      <div class="issue-hist-agg">
+        <div class="issue-hist-agg-title">All-time totals (${entries.length} games with issues)</div>
+        ${aggSorted.map(([iss,count])=>`
+          <div class="issue-hist-agg-row">
+            <span style="color:var(--text)">${iss}</span>
+            <span style="color:var(--text3);font-size:11px">${count}×</span>
+          </div>`).join('')}
+      </div>`;
+    const entriesHtml = entries.map(h => {
+      const tags = (h.issues||[]).map(iss=>`<span class="issue-hist-tag">${iss.issue}</span>`).join('');
+      return `<div class="issue-hist-entry">
+        <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
+        <div class="issue-hist-tags">${tags}</div>
+      </div>`;
+    }).join('');
+    body.innerHTML = aggHtml + entriesHtml;
+  }
+
+  document.getElementById('issue-hist-panel').classList.add('open');
+  document.getElementById('issue-hist-overlay').classList.add('open');
 }
 
 function toggleHistorySelect(realIdx, evt) {
@@ -1636,7 +1734,7 @@ function renderDeckWantsSection(uuid, deck, dw) {
             onchange="updateWantOut(this.dataset.deck, parseInt(this.dataset.idx), this.value)"
             style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
           <div style="display:flex;gap:4px;flex-shrink:0">
-            <button class="w-edit-status active-${e.inStatus}" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
+            <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
             <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
           </div>
         </div>`).join('')}
@@ -2047,9 +2145,15 @@ const ISSUE_PAIRS = [
 const pendingIssues = {};
 
 function hasHistoricalIssues(uuid, deckName) {
-  return (data.history||[]).some(h =>
-    (h.deckUuid === uuid || h.deck === deckName) && h.issues && h.issues.length > 0
-  );
+  // Only consider last 10 games for the score tab indicator
+  const hist = (data.history||[]).filter(h => h.deckUuid === uuid || h.deck === deckName);
+  const last10 = hist.slice(-10);
+  return last10.some(h => h.issues && h.issues.length > 0);
+}
+
+function getIssuesLast10(uuid, deckName) {
+  const hist = (data.history||[]).filter(h => h.deckUuid === uuid || h.deck === deckName);
+  return hist.slice(-10).filter(h => h.issues && h.issues.length > 0);
 }
 
 function openIssuePanel(deckName, uuid) {
@@ -2230,9 +2334,14 @@ function renderGraph() {
   let points = [];
 
   if (deckFilter === 'ALL') {
-    // Running overall win rate across all games, grouped by date
+    // Running overall win rate — deduplicate entries that exist under both UUID and name
+    const seen = new Set();
     const byDate = {};
     for (const h of history) {
+      const deckKey = h.deckUuid || uuidForName(h.deck) || h.deck;
+      const sig = `${deckKey}|${h.date}|${h.last}|${h.wins}|${h.losses}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
       if (!byDate[h.date]) byDate[h.date] = {w:0,l:0};
       if (h.last==='Win') byDate[h.date].w++; else byDate[h.date].l++;
     }
