@@ -290,6 +290,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:100;white-space:nowrap}
 .toast.show{opacity:1}
 .empty{padding:12px;color:var(--text2);font-size:13px}
+.art-thumb{aspect-ratio:4/3;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;border:2px solid transparent;transition:border-color .15s}
+.art-thumb:hover{border-color:var(--blue)}
+.art-thumb.selected{border-color:var(--green)}
+.art-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
+.art-thumb-label{position:absolute;bottom:0;left:0;right:0;padding:3px 5px;font-size:9px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
 .editor-row td:nth-child(2){padding:0;height:1px;width:52px}
 .editor-row td:nth-child(2) .editor-art{height:100%;min-height:44px;align-self:unset}
@@ -609,6 +614,23 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     </table>
   </div>
   <div style="font-size:11px;color:var(--text3);margin-top:8px;padding:0 2px">Changes save to Drive automatically. Scores rebuild on next Score tab visit.</div>
+</div>
+
+<!-- ART PICKER OVERLAY -->
+<div id="art-picker-overlay" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);overflow-y:auto;padding:16px 12px">
+  <div style="background:var(--surface);border-radius:var(--radius);max-width:480px;margin:0 auto;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:.5px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1">
+      <div id="art-picker-title" style="flex:1;font-size:14px;font-weight:600">Choose art</div>
+      <button onclick="closeArtPicker()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:2px 4px;line-height:1"><i class="ti ti-x"></i></button>
+    </div>
+    <div style="padding:10px 12px 6px">
+      <input id="art-picker-search" type="text" placeholder="Card name…" autocomplete="off"
+        style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px;margin:0"
+        oninput="artPickerSearch(this.value)">
+    </div>
+    <div id="art-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 12px 16px"></div>
+    <div id="art-picker-status" style="padding:0 12px 14px;font-size:12px;color:var(--text3);text-align:center"></div>
+  </div>
 </div>
 
 </div><!-- /app -->
@@ -2554,77 +2576,187 @@ async function addDeck() {
   showToast('Added: '+deckName);
 }
 
+// ── Art picker state ──
+let _artPickerCallback = null; // fn(url, cardName)
+let _artPickerTimer = null;
+
+function openArtPicker(title, initialName, onSelect) {
+  _artPickerCallback = onSelect;
+  const overlay = document.getElementById('art-picker-overlay');
+  const titleEl = document.getElementById('art-picker-title');
+  const search  = document.getElementById('art-picker-search');
+  if (!overlay || !titleEl || !search) return;
+  titleEl.textContent = title;
+  search.value = initialName || '';
+  document.getElementById('art-picker-grid').innerHTML = '';
+  document.getElementById('art-picker-status').textContent = '';
+  overlay.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => search.focus(), 50);
+  if (initialName) artPickerSearch(initialName);
+}
+
+function closeArtPicker() {
+  const overlay = document.getElementById('art-picker-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+  _artPickerCallback = null;
+}
+
+async function artPickerSearch(name) {
+  clearTimeout(_artPickerTimer);
+  const grid   = document.getElementById('art-picker-grid');
+  const status = document.getElementById('art-picker-status');
+  if (!name || name.trim().length < 2) { grid.innerHTML = ''; status.textContent = ''; return; }
+  _artPickerTimer = setTimeout(async () => {
+    status.textContent = 'Searching…';
+    grid.innerHTML = '';
+    try {
+      const res = await fetch(
+        `https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+name.trim()+'"')}&order=released&dir=asc&unique=prints`,
+        {headers:{Accept:'application/json'}}
+      );
+      if (!res.ok) {
+        // Try fuzzy if exact fails
+        const fres = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name.trim())}`);
+        if (!fres.ok) { status.textContent = 'No results found'; return; }
+        const card = await fres.json();
+        // Search by canonical name
+        const res2 = await fetch(
+          `https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+card.name+'"')}&order=released&dir=asc&unique=prints`,
+          {headers:{Accept:'application/json'}}
+        );
+        if (!res2.ok) { status.textContent = 'No results found'; return; }
+        artPickerRender(await res2.json(), card.name);
+        return;
+      }
+      artPickerRender(await res.json(), name.trim());
+    } catch(e) { status.textContent = 'Error loading results'; }
+  }, 400);
+}
+
+function artPickerRender(data, cardName) {
+  const grid   = document.getElementById('art-picker-grid');
+  const status = document.getElementById('art-picker-status');
+  const cards  = (data.data||[]).filter(c => {
+    const url = c.image_uris?.art_crop || c.card_faces?.[0]?.image_uris?.art_crop;
+    return !!url;
+  });
+  status.textContent = `${cards.length} printing${cards.length!==1?'s':''} found`;
+  grid.innerHTML = cards.map((c,i) => {
+    const url = c.image_uris?.art_crop || c.card_faces?.[0]?.image_uris?.art_crop;
+    const label = [c.set_name, c.collector_number ? `#${c.collector_number}` : '', c.artist ? `· ${c.artist}` : ''].filter(Boolean).join(' ');
+    return `<div class="art-thumb" onclick="artPickerSelect('${url.replace(/'/g,"\'")}','${cardName.replace(/'/g,"\'")}',this)">
+      <img src="${url}" alt="${c.set_name}" loading="lazy">
+      <div class="art-thumb-label">${label}</div>
+    </div>`;
+  }).join('');
+}
+
+function artPickerSelect(url, cardName, el) {
+  document.querySelectorAll('.art-thumb').forEach(t => t.classList.remove('selected'));
+  el.classList.add('selected');
+  if (_artPickerCallback) _artPickerCallback(url, cardName);
+  setTimeout(closeArtPicker, 300);
+}
+
+// Wire autocomplete to the search input
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('art-picker-search');
+  if (el) initAC('art-picker-search', null);
+});
+
 function openArtOverride(idx, isPartner) {
   const deck = data.colorDecks[idx];
   if (!deck) return;
   const hasPartner = !!deck.partner;
 
+  // Helper to apply a selected art URL to a deck field
+  const applyArt = (fieldKey, nameKey, url, cardName) => {
+    data.colorDecks[idx][fieldKey] = url;
+    data.colorDecks[idx][nameKey]  = cardName;
+    artCache[scryfallKey(cardName)] = url; saveArtCache();
+    renderDeckMgr(); scheduleSync();
+    showToast('Art updated');
+  };
+
+  const clearArt = (fieldKey, nameKey, defaultName) => {
+    delete data.colorDecks[idx][fieldKey];
+    delete data.colorDecks[idx][nameKey];
+    delete artCache[scryfallKey(defaultName)];
+    renderDeckMgr(); scheduleSync();
+    showToast('Reset to default art');
+  };
+
+  // Show a small choice modal: pick which slot to edit (or just open picker for commander if no partner)
+  if (!hasPartner) {
+    openArtPicker(
+      `${deck.name} — choose art`,
+      deck.artOverrideName || deck.name,
+      (url, cardName) => applyArt('artOverride', 'artOverrideName', url, cardName)
+    );
+    return;
+  }
+
+  // Partner deck: show which slot to edit
   showModal(
-    'Custom art',
+    'Which art to change?',
     '',
-    () => {
-      const doOverride = (fieldKey, nameKey, inputId) => {
-        const val = (document.getElementById(inputId)?.value||'').trim();
-        if (!val) {
-          delete data.colorDecks[idx][fieldKey];
-          delete data.colorDecks[idx][nameKey];
-          // Also clear art cache so it re-fetches with correct artPref on next render
-          const defaultName = fieldKey === 'artOverride' ? deck.name : (deck.partner||'');
-          if (defaultName) delete artCache[scryfallKey(defaultName)];
-          renderDeckMgr(); scheduleSync();
-          return Promise.resolve();
-        }
-        // Use fetchArt so artPref (oldest/newest) is respected
-        // Clear cache first so fetchArt doesn't return stale URL
-        const cacheKey = scryfallKey(val);
-        delete artCache[cacheKey];
-        return fetchArt(val).then(url => {
-          if (!url) { showToast('Card not found: '+val); return; }
-          data.colorDecks[idx][fieldKey] = url;
-          data.colorDecks[idx][nameKey]  = val;
-        }).catch(()=>showToast('Scryfall error'));
-      };
-      const p1 = doOverride('artOverride', 'artOverrideName', 'ao-main');
-      const p2 = hasPartner ? doOverride('partnerArtOverride', 'partnerArtOverrideName', 'ao-partner') : Promise.resolve();
-      Promise.all([p1,p2]).then(()=>{ renderDeckMgr(); scheduleSync(); showToast('Art updated'); });
-    }
+    null
   );
-  setTimeout(()=>{
+  setTimeout(() => {
     const body = document.getElementById('modal-body');
     if (!body) return;
-    const currentMain    = deck.artOverrideName         || '';
-    const currentPartner = deck.partnerArtOverrideName  || '';
     body.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
-            Commander art — <span style="color:var(--text3)">blank = default (${deck.name})</span>
-          </div>
-          <input id="ao-main" type="text" value="${currentMain.replace(/"/g,'&quot;')}"
-            placeholder="${deck.name}"
-            style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <button onclick="closeModal();setTimeout(()=>openArtPicker('${deck.name.replace(/'/g,"\'")} — choose art','${(deck.artOverrideName||deck.name).replace(/'/g,"\'")}',function(url,name){applyArtSlot(${idx},'artOverride','artOverrideName',url,name)}),50)"
+          style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
+          <div style="font-weight:500">${deck.name}</div>
+          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
+        </button>
+        <button onclick="closeModal();setTimeout(()=>openArtPicker('${deck.partner.replace(/'/g,"\'")} — choose art','${(deck.partnerArtOverrideName||deck.partner).replace(/'/g,"\'")}',function(url,name){applyArtSlot(${idx},'partnerArtOverride','partnerArtOverrideName',url,name)}),50)"
+          style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
+          <div style="font-weight:500">${deck.partner}</div>
+          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
+        </button>
+        <div style="display:flex;gap:6px">
+          <button onclick="closeModal();applyArtSlot(${idx},'artOverride','artOverrideName',null,'${deck.name.replace(/'/g,"\'")}')"
+            style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
+            Reset commander
+          </button>
+          <button onclick="closeModal();applyArtSlot(${idx},'partnerArtOverride','partnerArtOverrideName',null,'${deck.partner.replace(/'/g,"\'")}')"
+            style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
+            Reset partner
+          </button>
         </div>
-        ${hasPartner?`
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
-            Partner art — <span style="color:var(--text3)">blank = default (${deck.partner})</span>
-          </div>
-          <input id="ao-partner" type="text" value="${currentPartner.replace(/"/g,'&quot;')}"
-            placeholder="${deck.partner}"
-            style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-        </div>`:''}
-        <div style="font-size:11px;color:var(--text3)">Enter any card name to use its art. Clear to reset to default.</div>
       </div>`;
-    setTimeout(()=>{
-      ['ao-main','ao-partner'].forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        acCommanderMode.delete(id);
-        initAC(id, null);
-      });
-      document.getElementById('ao-main')?.focus();
-    }, 30);
+    // Remove the confirm button from modal since we handle actions ourselves
+    const confirmBtn = document.querySelector('#modal-overlay .modal-confirm');
+    if (confirmBtn) confirmBtn.style.display = 'none';
   }, 20);
+}
+
+function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
+  if (!url) {
+    // Reset
+    delete data.colorDecks[idx][fieldKey];
+    delete data.colorDecks[idx][nameKey];
+    delete artCache[scryfallKey(defaultName)];
+    renderDeckMgr(); scheduleSync();
+    showToast('Reset to default art');
+  } else {
+    data.colorDecks[idx][fieldKey] = url;
+    data.colorDecks[idx][nameKey]  = defaultName;
+    artCache[scryfallKey(defaultName)] = url; saveArtCache();
+    renderDeckMgr(); scheduleSync();
+    showToast('Art updated');
+  }
+}
+
+function closeModal() {
+  const ov = document.getElementById('modal-overlay');
+  if (ov) ov.style.display = 'none';
+  modalCallback = null;
 }
 // ============================================================
 // SETTINGS
