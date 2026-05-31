@@ -426,6 +426,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <input type="text" id="new-deck-name" placeholder="e.g. Marchesa, the Black Rose">
     <label class="field-label">Partner commander (optional)</label>
     <input type="text" id="new-deck-partner" placeholder="e.g. Tymna the Weaver">
+    <label class="field-label">Display name <span style="font-size:11px;color:var(--text3)">(optional — overrides commander names)</span></label>
+    <input type="text" id="new-deck-label" placeholder="e.g. Blood Pod, Stax Machine...">
     <label class="field-label">Status</label>
     <select id="new-deck-status">
       <option value="Owned">Owned</option>
@@ -595,6 +597,14 @@ function genUUID() {
   });
 }
 function deckDisplayName(d) {
+  if (!d) return '';
+  if (d.label) return d.label;          // custom display name takes priority
+  if (d.partner) return d.name + ' // ' + d.partner;
+  return d.name || '';
+}
+// The commander identity string — always the raw name(s), never the label.
+// Used for Scryfall lookups and history matching.
+function deckCommanderName(d) {
   if (!d) return '';
   if (d.partner) return d.name + ' // ' + d.partner;
   return d.name || '';
@@ -1061,23 +1071,28 @@ function renderScore() {
     const prt = d._deck?.partner || '';
     return prt ? [cmd, prt] : [cmd];
   });
+  // Also queue partner art for split display
+
 
   document.getElementById('deck-list').innerHTML = list.map(d=>{
     const cls  = wrClass(d.winRate||0, d.total||0);
     const fill = WR_FILL[cls]||'rgba(255,255,255,.35)';
     const lp   = fmtDate(d.lastDate);
 
-    const key  = scryfallKey(d.name);
+    // Art key always uses the raw commander name, never the label
+    const cmdName = d._deck?.name || d.name.split(' // ')[0];
+    const key  = scryfallKey(cmdName);
     const art  = artCache[key];
     const prtKey = d._deck?.partner ? scryfallKey(d._deck.partner) : null;
     const prtArt = prtKey ? artCache[prtKey] : null;
     const eid  = 'exp-'+key;
-    const pid  = 'prev-'+key;
-    const sn   = d.name.replace(/'/g,"\\'");
+    const pid  = 'prev-'+(d._uuid||key);
+    // Use UUID as pending key — stable even when label or commander name changes
+    const sn   = d._uuid || d.name.replace(/'/g,"\\'");
     return `<div>
       <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-          ${splitArtHtml(art, prtArt, d.name)}
+          ${splitArtHtml(art, prtArt, cmdName)}
         </div>
         <div class="deck-left">
           <div class="deck-name">${d.name}</div>
@@ -1232,7 +1247,8 @@ function adjustPending(evt, name, type, delta) {
   renderPendingBar();
   // Update preview under this deck
   const key = scryfallKey(name);
-  const prev = document.getElementById('prev-'+key);
+  // name may be a UUID (preferred) or a display name; try UUID-direct first
+  const prev = document.getElementById('prev-'+name) || document.getElementById('prev-'+key);
   if (prev) {
     const p = pending[name];
     if (!p) { prev.textContent=''; return; }
@@ -1951,9 +1967,13 @@ function renderDeckMgr() {
           id="dname-${i}"
           onblur="updateDeckField(${i},'name',this.value)">
         <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
-          style="margin:0 0 5px;font-size:11px;padding:4px 8px;color:var(--text2)"
+          style="margin:0 0 4px;font-size:11px;padding:4px 8px;color:var(--text2)"
           id="dpartner-${i}"
           onblur="updateDeckField(${i},'partner',this.value)">
+        <input type="text" value="${(d.label||'').replace(/"/g,'&quot;')}" placeholder="Display name (optional)"
+          style="margin:0 0 5px;font-size:11px;padding:4px 8px;color:var(--text2);font-style:italic"
+          id="dlabel-${i}"
+          onblur="updateDeckField(${i},'label',this.value)">
         <div class="deck-mgr-selects">
           <span style="font-size:11px;color:var(--text3);padding:0 4px">${d.color||'?'}</span>
           <select onchange="updateDeckField(${i},'status',this.value)">
@@ -2074,6 +2094,7 @@ function deleteDeck(idx) {
 async function addDeck() {
   const name=(document.getElementById('new-deck-name').value||'').trim();
   const partner=(document.getElementById('new-deck-partner').value||'').trim();
+  const label=(document.getElementById('new-deck-label')?.value||'').trim();
   const status=document.getElementById('new-deck-status').value;
   if(!name){showToast('Enter a commander name');return;}
   if(!data.colorDecks) data.colorDecks=[];
@@ -2083,9 +2104,11 @@ async function addDeck() {
   const deckName = partner ? `${name} // ${partner}` : name;
   if(!data.scores[deckName]) data.scores[deckName]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
   const uuid = genUUID();
-  data.colorDecks.push({uuid, color, name, partner:partner||'', status});
+  data.colorDecks.push({uuid, color, name, partner:partner||'', label:label||'', status});
   document.getElementById('new-deck-name').value='';
   document.getElementById('new-deck-partner').value='';
+  const labelEl = document.getElementById('new-deck-label');
+  if (labelEl) labelEl.value='';
   renderDeckMgr(); renderScore(); scheduleSync();
   showToast('Added: '+deckName);
 }
