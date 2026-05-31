@@ -190,7 +190,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:90px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-mgr-art{width:110px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -634,6 +634,52 @@ const COLOR_OPTIONS = [
   'Ink -B','Dune -B','Glint -W','Witch -R','Yore - G',
   'WURBG'
 ];
+
+// Map color identity labels to mana symbol characters for Scryfall SVG
+const COLOR_TO_MANA = {
+  'Colorless':    ['C'],
+  'Mono White':   ['W'],
+  'Mono Blue':    ['U'],
+  'Mono Black':   ['B'],
+  'Mono Red':     ['R'],
+  'Mono Green':   ['G'],
+  'Azorius':      ['W','U'],
+  'Dimir':        ['U','B'],
+  'Rakdos':       ['B','R'],
+  'Gruul':        ['R','G'],
+  'Selesnya':     ['G','W'],
+  'Orzhov':       ['W','B'],
+  'Izzet':        ['U','R'],
+  'Golgari':      ['B','G'],
+  'Boros':        ['R','W'],
+  'Simic':        ['G','U'],
+  'Esper':        ['W','U','B'],
+  'Grixis':       ['U','B','R'],
+  'Jund':         ['B','R','G'],
+  'Naya':         ['R','G','W'],
+  'Bant':         ['G','W','U'],
+  'Abzan':        ['W','B','G'],
+  'Jeskai':       ['U','R','W'],
+  'Sultai':       ['B','G','U'],
+  'Mardu':        ['R','W','B'],
+  'Temur':        ['G','U','R'],
+  'Ink -B':       ['W','U','R','G'],
+  'Dune -B':      ['W','B','R','G'],
+  'Glint -W':     ['U','B','R','G'],
+  'Witch -R':     ['W','U','B','G'],
+  'Yore - G':     ['W','U','B','R'],
+  'WURBG':        ['W','U','B','R','G'],
+};
+
+function colorManaHtml(colorLabel) {
+  const symbols = COLOR_TO_MANA[colorLabel];
+  if (!symbols) return `<span style="font-size:11px;color:var(--text3)">${colorLabel||'?'}</span>`;
+  return symbols.map(s =>
+    `<img src="https://svgs.scryfall.io/card-symbols/${s}.svg" alt="${s}"
+      style="width:16px;height:16px;border-radius:50%;vertical-align:middle"
+      onerror="this.style.display='none'">`
+  ).join('');
+}
 
 // ============================================================
 // INITIAL DATA
@@ -2339,7 +2385,7 @@ function renderDeckMgr() {
     return header+`<div class="deck-mgr-row">
       <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;align-self:stretch;position:relative">
         <div class="deck-mgr-art${art1Show?'':d.name?' loading':''}" data-art="${key}"
-             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:90px">
+             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:110px">
           ${splitArtHtml(art1Show, art2Show, d.name)}
           ${d.partner&&!art2?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
           <div style="position:absolute;bottom:2px;right:2px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
@@ -2350,20 +2396,20 @@ function renderDeckMgr() {
         </label>`:''}
       </div>
       <div class="deck-mgr-fields">
+        <input type="text" value="${(d.label||'').replace(/"/g,'&quot;')}" placeholder="Display name (optional)"
+          style="margin:0 0 3px;font-size:13px;padding:5px 8px;font-weight:600;font-style:italic;color:var(--text)"
+          id="dlabel-${i}"
+          onblur="updateDeckField(${i},'label',this.value)">
         <input type="text" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="Commander name"
-          style="margin:0 0 4px;font-size:13px;padding:5px 8px;font-weight:500"
+          style="margin:0 0 3px;font-size:12px;padding:4px 8px"
           id="dname-${i}"
           onblur="updateDeckField(${i},'name',this.value)">
         <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
-          style="margin:0 0 4px;font-size:13px;padding:5px 8px;font-weight:500"
+          style="margin:0 0 5px;font-size:12px;padding:4px 8px;color:var(--text2)"
           id="dpartner-${i}"
           onblur="updateDeckField(${i},'partner',this.value)">
-        <input type="text" value="${(d.label||'').replace(/"/g,'&quot;')}" placeholder="Display name (optional)"
-          style="margin:0 0 5px;font-size:11px;padding:4px 8px;color:var(--text2);font-style:italic"
-          id="dlabel-${i}"
-          onblur="updateDeckField(${i},'label',this.value)">
-        <div class="deck-mgr-selects">
-          <span style="font-size:11px;color:var(--text3);padding:0 4px">${d.color||'?'}</span>
+        <div class="deck-mgr-selects" style="align-items:center">
+          <div style="display:flex;align-items:center;gap:3px;padding:0 4px">${colorManaHtml(d.color)}</div>
           <select onchange="updateDeckField(${i},'status',this.value)">
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
