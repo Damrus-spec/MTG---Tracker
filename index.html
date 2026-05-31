@@ -610,7 +610,9 @@ function uuidForName(name) {
 }
 function displayNameForUuid(uuid) {
   const d = deckByUuid(uuid);
-  return d ? deckDisplayName(d) : uuid; // fallback to uuid if not found
+  if (d) return deckDisplayName(d);
+  // Orphan UUID (deck deleted) — check for stamped name on score entry
+  return data.scores?.[uuid]?._name || null;
 }
 // Migrate name-keyed object to UUID-keyed
 function migrateToUuids(obj) {
@@ -1125,11 +1127,8 @@ function renderScore() {
     legacySec.style.display='';
     document.getElementById('legacy-list').innerHTML = legacyNames.map(uuidOrName=>{
       const s=data.scores[uuidOrName];
-      // Resolve display name: try UUID lookup, then name lookup, then raw value
-      const n = displayNameForUuid(uuidOrName) || uuidOrName;
-      const cleanN = (allKnownUuids.has(uuidOrName) && n===uuidOrName)
-        ? uuidOrName  // couldn't resolve — show as-is
-        : n;
+      // Resolve display name: stamped _name, UUID lookup, plain name, or raw value
+      const cleanN = s._name || displayNameForUuid(uuidOrName) || uuidOrName;
       const cls=wrClass(s.winRate,s.total);
       const fill=WR_FILL[cls];
       const key=scryfallKey(cleanN.split(' // ')[0]);
@@ -2031,6 +2030,16 @@ function toggleDeckGroup(status) {
 
 function deleteDeck(idx) {
   if(!confirm('Remove this deck entry? Score data is kept.')) return;
+  const deck = data.colorDecks[idx];
+  if (deck) {
+    // Stamp the human-readable name onto the score entry before removing from colorDecks
+    // so it can be displayed in the retired list even though it's no longer in colorDecks
+    const displayName = deckDisplayName(deck);
+    const uuid = deck.uuid;
+    if (uuid && data.scores?.[uuid]) {
+      data.scores[uuid]._name = displayName;
+    }
+  }
   data.colorDecks.splice(idx,1);
   renderDeckMgr(); renderScore(); scheduleSync();
 }
