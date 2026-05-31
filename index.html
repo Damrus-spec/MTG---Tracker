@@ -2571,14 +2571,12 @@ function openArtOverride(idx, isPartner) {
           renderDeckMgr(); scheduleSync();
           return Promise.resolve();
         }
-        return fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(val)}`)
-          .then(r=>r.json()).then(card=>{
-            const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop;
-            if (!url) { showToast('Card not found: '+val); return; }
-            data.colorDecks[idx][fieldKey] = url;
-            data.colorDecks[idx][nameKey]  = card.name;
-            artCache[scryfallKey(card.name)] = url; saveArtCache();
-          }).catch(()=>showToast('Scryfall error'));
+        // Use fetchArt so artPref (oldest/newest) is respected
+        return fetchArt(val).then(url => {
+          if (!url) { showToast('Card not found: '+val); return; }
+          data.colorDecks[idx][fieldKey] = url;
+          data.colorDecks[idx][nameKey]  = val;
+        }).catch(()=>showToast('Scryfall error'));
       };
       const p1 = doOverride('artOverride', 'artOverrideName', 'ao-main');
       const p2 = hasPartner ? doOverride('partnerArtOverride', 'partnerArtOverrideName', 'ao-partner') : Promise.resolve();
