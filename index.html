@@ -612,9 +612,16 @@ function signIn() {
 }
 function signOut() {
   if (accessToken) google.accounts.oauth2.revoke(accessToken, ()=>{});
-  accessToken = null; driveFileId = null;
-  try { localStorage.removeItem('mtg_token'); localStorage.removeItem('mtg_file_id'); } catch(e) {}
-  setSyncStatus('red','Not signed in'); updateSignInBtn();
+  accessToken = null; driveFileId = null; hasFetchedFromDrive = false;
+  try {
+    localStorage.removeItem('mtg_token');
+    localStorage.removeItem('mtg_file_id');
+    localStorage.removeItem('mtg_data');
+  } catch(e) {}
+  data = JSON.parse(JSON.stringify(INITIAL_DATA));
+  setSyncStatus('red', 'Not signed in — tap to connect Google Drive');
+  updateSignInBtn();
+  renderAll();
 }
 function updateSignInBtn() {
   const btn = document.getElementById('signin-btn');
@@ -663,7 +670,7 @@ async function syncDrive(silent) {
     if (res.ok) {
       setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
       if (!silent) showToast('Saved to Drive');
-    } else if (res.status===401) { accessToken=null; setSyncStatus('red','Session expired'); updateSignInBtn(); }
+    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
     else setSyncStatus('red','Sync error');
   } catch(e){ setSyncStatus('red','Offline — saved locally'); }
   syncing=false;
@@ -690,7 +697,7 @@ async function loadFromDrive() {
       hasFetchedFromDrive = true;
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } else if (res.status===401) { accessToken=null; setSyncStatus('red','Session expired'); updateSignInBtn(); renderAll(); }
+    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
     else { setSyncStatus('red','Load error'); renderAll(); }
   } catch(e){ setSyncStatus('red','Offline — using local'); renderAll(); }
 }
@@ -804,12 +811,13 @@ function renderScore() {
     p.textContent = labels[k] + (sortKey===k ? (sortDir===-1?' ↓':' ↑') : '');
   });
   const owned = ownedDecks();
-  const ownedNames = new Set(owned.map(d=>d.name));
+  const ownedNames = new Set(owned.map(d=>deckDisplayName(d)));
 
-  // Build score display list
+  // Build score display list using display name as score key
   let list = owned.map(d=>{
-    const s = data.scores?.[d.name] || {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
-    return {...s, name:d.name};
+    const key = deckDisplayName(d);
+    const s = data.scores?.[key] || {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    return {...s, name:key, _deck:d};
   }).filter(d=>d.total>0 || true); // show all owned even with 0 games
 
   list.sort((a,b)=>{
