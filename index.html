@@ -2427,27 +2427,61 @@ function migrateDataToUuids() {
 function cleanStaleScores() {
   if (!data.scores) return;
   const knownUuids = new Set((data.colorDecks||[]).map(d=>d.uuid).filter(Boolean));
-  const toDelete = [];
-  for (const key of Object.keys(data.scores)) {
-    // If this key is a plain name (not a UUID) and a UUID key exists for it, remove the name key
-    if (!knownUuids.has(key)) {
-      const uuid = uuidForName(key);
-      if (uuid && data.scores[uuid]) {
-        toDelete.push(key);
-      }
+
+  // ── Step 1: Stamp _name onto every UUID-keyed score entry using history ──
+  // For each history entry that has both a deckUuid and a deck name, stamp it.
+  for (const h of (data.history||[])) {
+    if (h.deckUuid && h.deck && data.scores[h.deckUuid] && !data.scores[h.deckUuid]._name) {
+      data.scores[h.deckUuid]._name = h.deck;
     }
   }
+
+  // ── Step 2: Build a map from resolved name → UUID key ──
+  // So we can detect when a plain-name key duplicates a UUID key
+  const nameToUuid = {}; // resolvedName (lowercase) → uuid key in scores
+  for (const key of Object.keys(data.scores)) {
+    if (!knownUuids.has(key) && !isPlainName(key)) {
+      // Looks like a UUID — get its resolved name
+      const resolvedName = data.scores[key]._name || displayNameForUuid(key);
+      if (resolvedName) nameToUuid[resolvedName.toLowerCase()] = key;
+    }
+  }
+
+  const toDelete = [];
+  for (const key of Object.keys(data.scores)) {
+    if (key === nameToUuid[key.toLowerCase()]) continue; // it's the UUID entry itself
+    if (!knownUuids.has(key) && isPlainName(key)) {
+      // Plain name key — remove if a UUID key exists for the same deck
+      const uuid = uuidForName(key); // still-active deck
+      if (uuid && data.scores[uuid]) { toDelete.push(key); continue; }
+      // Orphan name — check if a UUID entry has the same _name
+      if (nameToUuid[key.toLowerCase()]) { toDelete.push(key); }
+    }
+  }
+
   for (const k of toDelete) delete data.scores[k];
-  if (toDelete.length) saveLocal();
+  if (toDelete.length) { saveLocal(); return true; }
+  return false;
+}
+
+// A key looks like a UUID if it matches the UUID format (8-4-4-4-12 hex)
+function isPlainName(key) {
+  return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
 }
 
 function runDbCleanup() {
+  // First stamp names from history onto all UUID score entries
+  for (const h of (data.history||[])) {
+    if (h.deckUuid && h.deck && data.scores?.[h.deckUuid] && !data.scores[h.deckUuid]._name) {
+      data.scores[h.deckUuid]._name = h.deck;
+    }
+  }
   migrateDataToUuids();
-  cleanStaleScores();
+  const cleaned = cleanStaleScores();
   saveLocal();
   syncDrive(true);
   renderScore();
-  showToast('Database cleaned — syncing to Drive');
+  showToast(cleaned ? 'Duplicates removed — syncing to Drive' : 'Already clean — syncing to Drive');
 }
 
 function runRebuildScores() {
