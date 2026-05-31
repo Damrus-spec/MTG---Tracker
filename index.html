@@ -806,7 +806,7 @@ async function syncDrive(silent) {
   if (!silent) setSyncStatus('busy','Syncing...');
   try {
     const fid = await getOrCreateFile();
-    const body = JSON.stringify(data);
+    const body = JSON.stringify(data, null, 2);
     let res;
     if (fid) {
       res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fid}?uploadType=media`,
