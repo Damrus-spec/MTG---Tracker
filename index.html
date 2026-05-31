@@ -2246,24 +2246,20 @@ function colorIdentityToLabel(ci) {
 }
 
 async function fetchColorIdentity(cardName, partnerName) {
-  try {
-    const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}`);
-    if (!res.ok) return null;
+  async function getCI(name) {
+    if (!name) return [];
+    // Try exact first, fall back to fuzzy
+    let res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
+    if (!res.ok) res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+    if (!res.ok) return [];
     const card = await res.json();
-    let ci = card.color_identity || [];
-
-    // If partner provided, combine both color identities
-    if (partnerName) {
-      const res2 = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(partnerName)}`);
-      if (res2.ok) {
-        const card2 = await res2.json();
-        const ci2 = card2.color_identity || [];
-        // Union of both color identities, deduplicated and sorted
-        ci = [...new Set([...ci, ...ci2])].sort();
-      }
-    }
-
-    return colorIdentityToLabel(ci);
+    return card.color_identity || [];
+  }
+  try {
+    const ci1 = await getCI(cardName);
+    const ci2 = partnerName ? await getCI(partnerName) : [];
+    const combined = [...new Set([...ci1, ...ci2])].sort();
+    return colorIdentityToLabel(combined) || (combined.length ? combined.join('') : null);
   } catch(e) { return null; }
 }
 
