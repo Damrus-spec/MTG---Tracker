@@ -1491,8 +1491,22 @@ function renderDeckWants() {
   document.getElementById('deck-wants-list').innerHTML = html || '<div class="empty">No wants tracked yet.</div>';
   fetchMissingArt(allDecks.map(d=>d.displayName.split(' // ')[0]));
   setTimeout(() => {
+    // AC on add-card inputs
     document.querySelectorAll('[id^="ain-"],[id^="aout-"]').forEach(el => {
       if (!el._acInit) { el._acInit = true; initAC(el.id, null); }
+    });
+    // AC on replacement (out) inputs for existing entries
+    document.querySelectorAll('[id^="wout-"]').forEach(el => {
+      if (!el._acInit) {
+        el._acInit = true;
+        initAC(el.id, null);
+        // When a card is picked, save it
+        acCallbacks[el.id] = (name) => {
+          updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), name);
+          el.value = name;
+          el.style.color = 'var(--red)';
+        };
+      }
     });
   }, 0);
 }
@@ -1519,9 +1533,10 @@ function renderDeckWantsSection(uuid, deck, dw) {
           <div class="w-dot w-${e.inStatus}"></div>
           <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
           <input type="text"
+            id="wout-${uuid}-${idx}"
             value="${e.out||''}"
             placeholder="replacement..."
-            data-deck="${deck.replace(/"/g,'&quot;')}"
+            data-deck="${uuid}"
             data-idx="${idx}"
             onchange="updateWantOut(this.dataset.deck, parseInt(this.dataset.idx), this.value)"
             style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
