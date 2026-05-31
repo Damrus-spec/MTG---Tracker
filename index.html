@@ -1764,17 +1764,40 @@ function buildBuyList() {
   //   considering → only show if a replacement (out) is set
   //   owned      → never show
   const seen={};
-  for(const [deck,entries] of Object.entries(data.deckWants||{})){
-    for(const e of entries){
+  for(const [deckUuid,entries] of Object.entries(data.deckWants||{})){
+    for(let idx=0; idx<entries.length; idx++){
+      const e = entries[idx];
       const include = e.inStatus==='buy' || (e.inStatus==='considering' && e.out);
       if(!include) continue;
       const k=e.in.toLowerCase().trim();
-      if(!seen[k]) seen[k]={name:e.in,qty:0,decks:[]};
+      if(!seen[k]) seen[k]={name:e.in, qty:0, sources:[]};
       seen[k].qty++;
-      seen[k].decks.push(deck.split(',')[0]);
+      seen[k].sources.push({deckUuid, idx, inStatus:e.inStatus, out:e.out});
     }
   }
   return Object.values(seen);
+}
+
+// Step down each deck entry for this card:
+//   buy (no replacement)   → considering
+//   buy (with replacement) → considering  (replacement already set — will appear if considering+out)
+//   considering + out      → owned        (already promoted once, now mark as obtained)
+function removeBuyItem(cardName) {
+  const k = cardName.toLowerCase().trim();
+  let changed = false;
+  for(const [deckUuid, entries] of Object.entries(data.deckWants||{})){
+    for(const e of entries){
+      if(e.in.toLowerCase().trim() !== k) continue;
+      if(e.inStatus === 'buy'){
+        e.inStatus = 'considering';
+        changed = true;
+      } else if(e.inStatus === 'considering' && e.out){
+        e.inStatus = 'owned';
+        changed = true;
+      }
+    }
+  }
+  if(changed){ renderWants(); scheduleSync(); }
 }
 
 function priceLabel(name) {
