@@ -282,7 +282,18 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
   <button class="signin-btn" id="signin-btn" onclick="signIn()">Sign in with Google</button>
 </div>
 
-<nav class="nav">
+<!-- LOGIN GATE — shown when not signed in -->
+<div id="login-gate" style="display:none;position:fixed;inset:0;z-index:500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:32px;text-align:center">
+  <div style="font-size:32px">🧙</div>
+  <div style="font-size:20px;font-weight:700;color:var(--text)">MTG Tracker</div>
+  <div style="font-size:14px;color:var(--text2);max-width:280px">Sign in with Google to load your decks, scores, and history from Drive.</div>
+  <button onclick="signIn()" style="background:var(--blue);color:#fff;border:none;border-radius:var(--radius);padding:13px 28px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+    <i class="ti ti-brand-google"></i> Sign in with Google
+  </button>
+  <div style="font-size:11px;color:var(--text3)">Your data is stored privately in your Google Drive</div>
+</div>
+
+<nav class="nav" id="main-nav">
   <button class="nav-btn active" onclick="showPage('score',this)"><i class="ti ti-trophy"></i><span>Score</span><div class="nav-bar"></div></button>
   <button class="nav-btn" onclick="showPage('history',this)"><i class="ti ti-history"></i><span>History</span><div class="nav-bar"></div></button>
   <button class="nav-btn" onclick="showPage('wants',this)"><i class="ti ti-cards"></i><span>Wants</span><div class="nav-bar"></div></button>
@@ -291,7 +302,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 </nav>
 
 <!-- SCORE -->
-<div id="page-score" class="page active">
+<div id="page-score" class="page active" style="visibility:hidden">
 
   <!-- Stats — scroll away naturally -->
   <div class="stat-grid">
@@ -488,6 +499,22 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       </div>
     </div>
   </div>
+
+  <div class="settings-section">
+    <div class="settings-label">Database</div>
+    <div class="card">
+      <div class="setting-block">
+        <div class="setting-name">Clean up duplicate score entries</div>
+        <div class="setting-desc">Removes stale name-keyed score records that are duplicated by UUID entries (fixes retired decks showing twice or with wrong data)</div>
+        <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" onclick="runDbCleanup()">Clean up now</button>
+      </div>
+      <div class="setting-block">
+        <div class="setting-name">Rebuild scores from history</div>
+        <div class="setting-desc">Recalculates all win/loss records from raw history data. Use if scores look wrong.</div>
+        <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text);border:.5px solid var(--border-md)" onclick="runRebuildScores()">Rebuild scores</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 </div><!-- /app -->
@@ -640,6 +667,7 @@ function loadLocal() {
         rebuildAllScoresFromHistory();
       }
       migrateDataToUuids();
+      cleanStaleScores();
     }
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
 }
@@ -701,9 +729,22 @@ function signOut() {
   renderAll();
 }
 function updateSignInBtn() {
-  const btn = document.getElementById('signin-btn');
+  const btn  = document.getElementById('signin-btn');
+  const gate = document.getElementById('login-gate');
+  const nav  = document.getElementById('main-nav');
+  const isSignedIn = !!accessToken;
+
+  // Toggle login gate
+  if (gate) gate.style.display = isSignedIn ? 'none' : 'flex';
+  // Hide/show nav
+  if (nav)  nav.style.display  = isSignedIn ? ''     : 'none';
+  // Hide/show all pages when not signed in
+  document.querySelectorAll('.page').forEach(p => {
+    p.style.visibility = isSignedIn ? '' : 'hidden';
+  });
+
   if (!btn) return;
-  if (accessToken) { btn.textContent='Sign out'; btn.onclick=signOut; }
+  if (isSignedIn) { btn.textContent='Sign out'; btn.onclick=signOut; }
   else { btn.textContent='Sign in with Google'; btn.onclick=signIn; }
 }
 function setSyncStatus(state, msg) {
@@ -780,6 +821,7 @@ async function loadFromDrive(force) {
       hasFetchedFromDrive = true;
       lastFetchTime = Date.now();
       migrateDataToUuids();
+      cleanStaleScores();
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
     } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
@@ -2273,26 +2315,78 @@ function migrateDataToUuids() {
   for (const d of (data.colorDecks||[])) {
     if (!d.uuid) d.uuid = genUUID();
   }
-  // Migrate scores
+
+  // Build lookup: all known UUIDs and all known display names → uuid
+  const knownUuids = new Set((data.colorDecks||[]).map(d=>d.uuid).filter(Boolean));
+
+  // ── Migrate & deduplicate scores ──
+  // Step 1: convert all name-keyed scores to UUID-keyed
   const newScores = {};
   for (const [key, val] of Object.entries(data.scores||{})) {
-    const uuid = uuidForName(key) || key;
-    newScores[uuid] = val;
+    const uuid = knownUuids.has(key) ? key : (uuidForName(key) || key);
+    if (!newScores[uuid]) {
+      newScores[uuid] = val;
+    } else {
+      // Merge: keep whichever has more total games
+      const existing = newScores[uuid];
+      if ((val.total||0) > (existing.total||0)) newScores[uuid] = val;
+    }
   }
   data.scores = newScores;
-  // Migrate deckWants
+
+  // ── Migrate & deduplicate deckWants ──
   const newWants = {};
   for (const [key, val] of Object.entries(data.deckWants||{})) {
-    const uuid = uuidForName(key) || key;
-    newWants[uuid] = val;
+    const uuid = knownUuids.has(key) ? key : (uuidForName(key) || key);
+    if (!newWants[uuid]) newWants[uuid] = val;
   }
   data.deckWants = newWants;
-  // Add deckUuid to history entries
+
+  // ── Add deckUuid to history entries ──
   for (const h of (data.history||[])) {
     if (!h.deckUuid && h.deck) {
       h.deckUuid = uuidForName(h.deck) || null;
     }
   }
+}
+
+// ── Clean up stale/duplicate score entries ──
+// Call after migrateDataToUuids. Removes score keys that are:
+//   1. Plain names where a UUID key for the same deck now exists
+//   2. UUID-looking strings not matching any known deck (true orphans — kept for display)
+function cleanStaleScores() {
+  if (!data.scores) return;
+  const knownUuids = new Set((data.colorDecks||[]).map(d=>d.uuid).filter(Boolean));
+  const toDelete = [];
+  for (const key of Object.keys(data.scores)) {
+    // If this key is a plain name (not a UUID) and a UUID key exists for it, remove the name key
+    if (!knownUuids.has(key)) {
+      const uuid = uuidForName(key);
+      if (uuid && data.scores[uuid]) {
+        toDelete.push(key);
+      }
+    }
+  }
+  for (const k of toDelete) delete data.scores[k];
+  if (toDelete.length) saveLocal();
+}
+
+function runDbCleanup() {
+  migrateDataToUuids();
+  cleanStaleScores();
+  saveLocal();
+  syncDrive(true);
+  renderScore();
+  showToast('Database cleaned — syncing to Drive');
+}
+
+function runRebuildScores() {
+  rebuildAllScoresFromHistory();
+  cleanStaleScores();
+  saveLocal();
+  syncDrive(true);
+  renderScore();
+  showToast('Scores rebuilt from history');
 }
 
 function renderAll() {
