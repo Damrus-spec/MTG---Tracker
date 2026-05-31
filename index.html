@@ -2088,7 +2088,7 @@ function renderGraph() {
           min: (() => {
             const dataMin = Math.min(...thinned.map(p=>p.y));
             // Floor: lowest of (fallBehind-10, dataMin-10), rounded down to nearest 5
-            const floor = Math.floor(Math.min(s.fallBehind - 10, dataMin - 10) / 5) * 5;
+            const floor = Math.floor(Math.min(s.fallBehind - 5, dataMin - 10) / 5) * 5;
             return Math.max(0, floor); // never below 0
           })(),
           max: (() => {
