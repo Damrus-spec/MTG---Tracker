@@ -214,6 +214,32 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-badge{position:absolute;top:-5px;right:-5px;background:var(--info);color:#fff;border-radius:8px;font-size:9px;padding:1px 4px;min-width:14px;text-align:center;display:none}
 .issue-badge.show{display:block}
 .issue-summary{margin-top:8px;padding:6px 8px;background:var(--surface);border-radius:var(--radius-sm);font-size:11px;color:var(--text2)}
+
+/* ISSUE HISTORY SIDE PANEL */
+.issue-hist-panel{position:fixed;top:0;right:-320px;width:300px;max-width:92vw;height:100dvh;background:var(--surface);border-left:.5px solid var(--border-md);z-index:300;transition:right .25s ease;overflow-y:auto;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.18)}
+.issue-hist-panel.open{right:0}
+.issue-hist-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:299;display:none}
+.issue-hist-overlay.open{display:block}
+.issue-hist-header{display:flex;align-items:center;gap:10px;padding:14px 14px 10px;border-bottom:.5px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1}
+.issue-hist-title{font-size:14px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.issue-hist-close{background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:2px 4px;line-height:1}
+.issue-hist-body{padding:12px 14px;flex:1}
+.issue-hist-entry{padding:8px 0;border-bottom:.5px solid var(--border)}
+.issue-hist-entry:last-child{border-bottom:none}
+.issue-hist-date{font-size:11px;color:var(--text3);margin-bottom:4px}
+.issue-hist-tags{display:flex;flex-wrap:wrap;gap:5px}
+.issue-hist-tag{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500}
+.issue-hist-tag.win{background:var(--green-bg);color:var(--green)}
+.issue-hist-tag.loss{background:var(--red-bg);color:var(--red)}
+.issue-hist-agg{margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--border-md)}
+.issue-hist-agg-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px}
+.issue-hist-agg-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px}
+
+/* Issues vertical side button on deck row */
+.deck-issues-btn{writing-mode:vertical-rl;text-orientation:mixed;background:var(--surface);border:none;border-left:.5px solid var(--border);cursor:pointer;font-size:9px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase;padding:8px 5px;flex-shrink:0;transition:color .15s,background .15s;display:flex;align-items:center;justify-content:center;gap:4px;min-height:68px;min-width:24px}
+.deck-issues-btn:hover,.deck-issues-btn.has-issues{color:var(--amber);background:var(--amber-bg)}
+.deck-issues-btn .idot{width:6px;height:6px;border-radius:50%;background:var(--amber);display:none;flex-shrink:0;margin-bottom:3px}
+.deck-issues-btn.has-issues .idot{display:block}
 .deck-expand.open{display:block}
 .log-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .log-col-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:6px}
@@ -463,6 +489,18 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 </div>
 
 </div><!-- /app -->
+<!-- ISSUE HISTORY SIDE PANEL -->
+<div class="issue-hist-overlay" id="issue-hist-overlay" onclick="closeIssuePanel()"></div>
+<div class="issue-hist-panel" id="issue-hist-panel">
+  <div class="issue-hist-header">
+    <span class="issue-hist-title" id="issue-hist-panel-title">Issue history</span>
+    <button class="issue-hist-close" onclick="closeIssuePanel()"><i class="ti ti-x"></i></button>
+  </div>
+  <div class="issue-hist-body" id="issue-hist-panel-body">
+    <p style="color:var(--text3);font-size:13px">No issues logged yet.</p>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -950,6 +988,9 @@ function renderScore() {
           <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · Last played: ${lp}</div>
         </div>
         <div class="deck-wr ${cls}">${d.winRate||0}%</div>
+        <button class="deck-issues-btn${hasHistoricalIssues(d._uuid,d.name)?' has-issues':''}" onclick="event.stopPropagation();openIssuePanel('${sn}','${d._uuid||''}')" title="View issue history">
+          <span class="idot"></span>Issues
+        </button>
       </div>
       <div class="deck-expand" id="${eid}">
         <div class="log-cols">
@@ -983,24 +1024,15 @@ function renderScore() {
             ${ISSUE_PAIRS.map(([left,right])=>`
             <div class="issue-cols" style="margin-bottom:3px">
               <button class="issue-btn" data-issue="${left}" data-result="Win"
-                onclick="toggleIssue('${eid}','${sn}','${left}','Win')" title="Win">
+                onclick="toggleIssue('${eid}','${sn}','${left}','Win')" title="Toggle: Mana too little (win)">
                 ${left}<span class="issue-badge"></span>
               </button>
               <button class="issue-btn" data-issue="${right}" data-result="Loss"
-                onclick="toggleIssue('${eid}','${sn}','${right}','Loss')" title="Loss">
+                onclick="toggleIssue('${eid}','${sn}','${right}','Loss')" title="Toggle: Mana too much (loss)">
                 ${right}<span class="issue-badge"></span>
               </button>
             </div>`).join('')}
             <div class="issue-summary" id="is-${eid}" style="display:none"></div>
-            <!-- Historical issues -->
-            <div id="ih-${eid}" style="margin-top:8px;display:none">
-              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Past issues</div>
-              <div id="ihd-${eid}"></div>
-            </div>
-            <button onclick="showHistoricalIssues('${eid}','${sn}')" 
-              style="margin-top:6px;background:none;border:none;cursor:pointer;font-size:10px;color:var(--text3);padding:0;text-decoration:underline">
-              view past issues
-            </button>
           </div>
         </div>
       </div>
@@ -1144,16 +1176,31 @@ function commitPending() {
       s.wins++; s.total=s.wins+s.losses;
       s.winRate=parseFloat((s.wins/s.total*100).toFixed(1));
       s.lastResult='Win'; s.lastDate=today;
-      data.history.push({date:today,deck:name,wins:s.wins,losses:s.losses,last:'Win'});
+      const entry = {date:today,deck:name,wins:s.wins,losses:s.losses,last:'Win'};
+      // Attach issues only to the last win entry for this deck
+      if (i===p.wins-1 && p.losses===0) {
+        const ci = pendingIssues[name] || {};
+        const issArr = Object.entries(ci).map(([issue,result])=>({issue,result}));
+        if (issArr.length) entry.issues = issArr;
+      }
+      data.history.push(entry);
       totalLogged++;
     }
     for (let i=0; i<p.losses; i++) {
       s.losses++; s.total=s.wins+s.losses;
       s.winRate=parseFloat((s.wins/s.total*100).toFixed(1));
       s.lastResult='Loss'; s.lastDate=today;
-      data.history.push({date:today,deck:name,wins:s.wins,losses:s.losses,last:'Loss'});
+      const entry = {date:today,deck:name,wins:s.wins,losses:s.losses,last:'Loss'};
+      // Attach issues only to the last loss entry for this deck
+      if (i===p.losses-1) {
+        const ci = pendingIssues[name] || {};
+        const issArr = Object.entries(ci).map(([issue,result])=>({issue,result}));
+        if (issArr.length) entry.issues = issArr;
+      }
+      data.history.push(entry);
       totalLogged++;
     }
+    delete pendingIssues[name];
     data.undoStack.unshift({date:today,deck:name,result:`${p.wins}W/${p.losses}L`,before:{...data.scores[name]}});
     if(data.undoStack.length>3) data.undoStack.pop();
   }
@@ -1995,39 +2042,71 @@ const ISSUE_PAIRS = [
   ['Low life gain',      'Life gain bloat'],
 ];
 
-// pendingIssues[deckName] = [{issue, result, count}]
+// pendingIssues[deckName] = { issueName: result }
+// Each issue is a toggle — click once to select, click again to deselect
 const pendingIssues = {};
 
-function showHistoricalIssues(eid, deckName) {
-  const container = document.getElementById('ih-'+eid);
-  const dataEl = document.getElementById('ihd-'+eid);
-  if (!container||!dataEl) return;
-  container.style.display = container.style.display==='none' ? '' : 'none';
-  if (container.style.display==='none') return;
-
-  // Aggregate issues from history for this deck
-  const uuid = uuidForName(deckName);
-  const entries = (data.history||[]).filter(h=>
-    (h.deck===deckName||h.deckUuid===uuid) && h.issues?.length
+function hasHistoricalIssues(uuid, deckName) {
+  return (data.history||[]).some(h =>
+    (h.deckUuid === uuid || h.deck === deckName) && h.issues && h.issues.length > 0
   );
-  const counts = {}; // issue -> {win:0, loss:0}
-  for (const h of entries) {
-    for (const {issue, count} of (h.issues||[])) {
-      if (!counts[issue]) counts[issue]={win:0,loss:0};
-      if (h.last==='Win') counts[issue].win += count;
-      else counts[issue].loss += count;
+}
+
+function openIssuePanel(deckName, uuid) {
+  const resolvedUuid = uuid || uuidForName(deckName);
+  const entries = (data.history||[])
+    .filter(h => (h.deckUuid === resolvedUuid || h.deck === deckName) && h.issues && h.issues.length > 0)
+    .slice().reverse();
+
+  const title = document.getElementById('issue-hist-panel-title');
+  const body  = document.getElementById('issue-hist-panel-body');
+  if (title) title.textContent = deckName;
+
+  if (!entries.length) {
+    body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues logged yet for this deck.</p>';
+  } else {
+    const agg = {};
+    for (const h of entries) {
+      for (const iss of (h.issues||[])) {
+        if (!agg[iss.issue]) agg[iss.issue] = {win:0,loss:0};
+        if (iss.result==='Win') agg[iss.issue].win++;
+        else agg[iss.issue].loss++;
+      }
     }
+    const aggSorted = Object.entries(agg).sort((a,b)=>(b[1].win+b[1].loss)-(a[1].win+a[1].loss));
+    const aggHtml = `
+      <div class="issue-hist-agg">
+        <div class="issue-hist-agg-title">All-time totals</div>
+        ${aggSorted.map(([iss,c])=>`
+          <div class="issue-hist-agg-row">
+            <span style="color:var(--text)">${iss}</span>
+            <span style="display:flex;gap:8px;font-size:11px">
+              ${c.win?`<span style="color:var(--green)">${c.win}×W</span>`:''}
+              ${c.loss?`<span style="color:var(--red)">${c.loss}×L</span>`:''}
+            </span>
+          </div>`).join('')}
+      </div>`;
+
+    const entriesHtml = entries.map(h => {
+      const tags = (h.issues||[]).map(iss =>
+        `<span class="issue-hist-tag ${(iss.result||'').toLowerCase()}">${iss.issue}</span>`
+      ).join('');
+      return `<div class="issue-hist-entry">
+        <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
+        <div class="issue-hist-tags">${tags}</div>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = aggHtml + entriesHtml;
   }
-  const sorted = Object.entries(counts).sort((a,b)=>(b[1].win+b[1].loss)-(a[1].win+a[1].loss));
-  if (!sorted.length) { dataEl.innerHTML='<div style="font-size:11px;color:var(--text3)">No issues logged yet</div>'; return; }
-  dataEl.innerHTML = sorted.map(([issue,{win,loss}])=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:.5px solid var(--border);font-size:12px">
-      <span style="color:var(--text)">${issue}</span>
-      <span style="display:flex;gap:8px;font-size:11px">
-        ${win?`<span style="color:var(--green)">${win}×W</span>`:''}
-        ${loss?`<span style="color:var(--red)">${loss}×L</span>`:''}
-      </span>
-    </div>`).join('');
+
+  document.getElementById('issue-hist-panel').classList.add('open');
+  document.getElementById('issue-hist-overlay').classList.add('open');
+}
+
+function closeIssuePanel() {
+  document.getElementById('issue-hist-panel').classList.remove('open');
+  document.getElementById('issue-hist-overlay').classList.remove('open');
 }
 
 function toggleIssueGrid(eid) {
@@ -2035,33 +2114,36 @@ function toggleIssueGrid(eid) {
   if (!grid) return;
   grid.classList.toggle('open');
   const btn = document.getElementById('it-'+eid);
-  if (btn) btn.querySelector('i').className = grid.classList.contains('open')
-    ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  if (btn) {
+    const icons = btn.querySelectorAll('i');
+    const last = icons[icons.length-1];
+    if (last) last.className = grid.classList.contains('open') ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  }
 }
 
 function toggleIssue(eid, deckName, issue, result) {
-  if (!pendingIssues[deckName]) pendingIssues[deckName] = [];
-  const existing = pendingIssues[deckName].find(x=>x.issue===issue&&x.result===result);
-  if (existing) {
-    existing.count++;
+  if (!pendingIssues[deckName]) pendingIssues[deckName] = {};
+  const ci = pendingIssues[deckName];
+  // Toggle: clicking the same button again deselects it
+  if (ci[issue] === result) {
+    delete ci[issue];
   } else {
-    pendingIssues[deckName].push({issue, result, count:1});
+    ci[issue] = result;
   }
   renderIssueButtons(eid, deckName);
   renderIssueSummary(eid, deckName);
 }
 
 function renderIssueButtons(eid, deckName) {
-  const issues = pendingIssues[deckName] || [];
+  const ci = pendingIssues[deckName] || {};
   document.querySelectorAll(`#ig-${eid} .issue-btn`).forEach(btn => {
-    const issue = btn.dataset.issue;
+    const issue  = btn.dataset.issue;
     const result = btn.dataset.result;
-    const entry = issues.find(x=>x.issue===issue&&x.result===result);
-    const badge = btn.querySelector('.issue-badge');
+    const badge  = btn.querySelector('.issue-badge');
     btn.classList.remove('selected-win','selected-loss');
-    if (entry && entry.count > 0) {
-      btn.classList.add(result==='Win'?'selected-win':'selected-loss');
-      if (badge) { badge.textContent=entry.count; badge.classList.add('show'); }
+    if (ci[issue] === result) {
+      btn.classList.add(result==='Win' ? 'selected-win' : 'selected-loss');
+      if (badge) { badge.textContent='✓'; badge.classList.add('show'); }
     } else {
       if (badge) { badge.textContent=''; badge.classList.remove('show'); }
     }
@@ -2071,14 +2153,16 @@ function renderIssueButtons(eid, deckName) {
 function renderIssueSummary(eid, deckName) {
   const el = document.getElementById('is-'+eid);
   if (!el) return;
-  const issues = pendingIssues[deckName] || [];
-  if (!issues.length) { el.style.display='none'; return; }
+  const ci = pendingIssues[deckName] || {};
+  const keys = Object.keys(ci);
+  if (!keys.length) { el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='';
-  el.innerHTML = issues.map(x=>
-    `<span style="margin-right:8px">${x.issue} <span style="color:${x.result==='Win'?'var(--green)':'var(--red)'}">${x.count}×${x.result==='Win'?'W':'L'}</span></span>`
-  ).join('');
+  el.innerHTML = keys.map(issue => {
+    const res = ci[issue];
+    const col = res==='Win' ? 'var(--green)' : 'var(--red)';
+    return `<span style="margin-right:8px">${issue} <span style="color:${col}">×${res==='Win'?'W':'L'}</span></span>`;
+  }).join('');
 }
-
 // Migrate legacy name-keyed data to UUID-keyed
 function migrateDataToUuids() {
   // Ensure all colorDecks have UUIDs
