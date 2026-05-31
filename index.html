@@ -1626,16 +1626,19 @@ function switchWantsTab(tab, btn) {
 function renderWants() { renderBuyList(); renderDeckWants(); }
 
 function buildBuyList() {
-  // Aggregate cards with inStatus==='buy' AND out set, deduplicated by card name
+  // Rules:
+  //   buy        → always show, regardless of replacement
+  //   considering → only show if a replacement (out) is set
+  //   owned      → never show
   const seen={};
   for(const [deck,entries] of Object.entries(data.deckWants||{})){
     for(const e of entries){
-      if(e.inStatus==='buy' && e.out){
-        const k=e.in.toLowerCase().trim();
-        if(!seen[k]) seen[k]={name:e.in,qty:0,decks:[]};
-        seen[k].qty++;
-        seen[k].decks.push(deck.split(',')[0]);
-      }
+      const include = e.inStatus==='buy' || (e.inStatus==='considering' && e.out);
+      if(!include) continue;
+      const k=e.in.toLowerCase().trim();
+      if(!seen[k]) seen[k]={name:e.in,qty:0,decks:[]};
+      seen[k].qty++;
+      seen[k].decks.push(deck.split(',')[0]);
     }
   }
   return Object.values(seen);
@@ -1657,7 +1660,7 @@ function priceLabel(name) {
 function renderBuyList() {
   const items=buildBuyList();
   if(!items.length){
-    document.getElementById('buy-list').innerHTML='<div class="empty">No cards ready to buy — set a replacement card in By deck to add here.</div>';
+    document.getElementById('buy-list').innerHTML='<div class="empty">No cards to buy — add cards with Buy status in the By deck tab.</div>';
     return;
   }
   const artNames = items.map(i=>i.name);
