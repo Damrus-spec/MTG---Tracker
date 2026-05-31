@@ -839,10 +839,10 @@ function splitArtHtml(art1, art2, altText, flipped) {
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
   if (a && b) {
-    // Diagonal divider: a thin dark line along the clip edge (polygon ~47.5% midpoint)
+    // Diagonal cut at 55% top → 40% bottom. Divider line sits exactly on that edge.
     return `<img src="${a}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">
             <img src="${b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">
-            <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(calc(47.5% - 1px) 0,calc(47.5% + 1px) 0,calc(42.5% + 1px) 100%,calc(42.5% - 1px) 100%);background:rgba(0,0,0,.75)"></div>`;
+            <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
   return `<img src="${a||b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
 }
@@ -2568,10 +2568,16 @@ function openArtOverride(idx, isPartner) {
         if (!val) {
           delete data.colorDecks[idx][fieldKey];
           delete data.colorDecks[idx][nameKey];
+          // Also clear art cache so it re-fetches with correct artPref on next render
+          const defaultName = fieldKey === 'artOverride' ? deck.name : (deck.partner||'');
+          if (defaultName) delete artCache[scryfallKey(defaultName)];
           renderDeckMgr(); scheduleSync();
           return Promise.resolve();
         }
         // Use fetchArt so artPref (oldest/newest) is respected
+        // Clear cache first so fetchArt doesn't return stale URL
+        const cacheKey = scryfallKey(val);
+        delete artCache[cacheKey];
         return fetchArt(val).then(url => {
           if (!url) { showToast('Card not found: '+val); return; }
           data.colorDecks[idx][fieldKey] = url;
