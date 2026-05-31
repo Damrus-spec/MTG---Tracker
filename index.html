@@ -620,17 +620,50 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 <!-- ART PICKER OVERLAY -->
 <div id="art-picker-overlay" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);align-items:center;justify-content:center;padding:16px 12px">
   <div style="background:var(--surface);border-radius:var(--radius);width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
-    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:.5px solid var(--border);flex-shrink:0">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px 0;flex-shrink:0">
       <div id="art-picker-title" style="flex:1;font-size:14px;font-weight:600">Choose art</div>
       <button onclick="closeArtPicker()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:2px 4px;line-height:1"><i class="ti ti-x"></i></button>
     </div>
-    <div style="padding:10px 12px 6px;flex-shrink:0">
-      <input id="art-picker-search" type="text" placeholder="Card name…" autocomplete="off"
-        style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px;margin:0"
-        oninput="artPickerSearch(this.value)">
+    <!-- Tabs -->
+    <div style="display:flex;gap:0;padding:10px 16px 0;flex-shrink:0;border-bottom:.5px solid var(--border)">
+      <button id="ap-tab-choose" onclick="artPickerTab('choose')" style="padding:6px 14px;background:none;border:none;border-bottom:2px solid var(--blue);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">Choose</button>
+      <button id="ap-tab-position" onclick="artPickerTab('position')" style="padding:6px 14px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-size:12px;font-weight:500;cursor:pointer;margin-bottom:-1px">Reposition</button>
     </div>
-    <div id="art-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 12px 8px;overflow-y:auto;flex:1"></div>
-    <div id="art-picker-status" style="padding:4px 12px 12px;font-size:12px;color:var(--text3);text-align:center;flex-shrink:0"></div>
+    <!-- Choose tab -->
+    <div id="ap-panel-choose" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+      <div style="padding:10px 12px 6px;flex-shrink:0">
+        <input id="art-picker-search" type="text" placeholder="Card name…" autocomplete="off"
+          style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px;margin:0"
+          oninput="artPickerSearch(this.value)">
+      </div>
+      <div id="art-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 12px 8px;overflow-y:auto;flex:1"></div>
+      <div id="art-picker-status" style="padding:4px 12px 10px;font-size:12px;color:var(--text3);text-align:center;flex-shrink:0"></div>
+    </div>
+    <!-- Reposition tab -->
+    <div id="ap-panel-position" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:14px 16px;gap:14px">
+      <!-- Preview: full art with frame overlay showing actual crop -->
+      <div style="position:relative;width:100%;padding-bottom:56%;background:var(--bg);border-radius:6px;overflow:hidden" id="ap-pos-bg">
+        <img id="ap-pos-img" src="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0%;display:none">
+        <div id="ap-pos-frame" style="position:absolute;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;border-radius:3px"></div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
+          <span style="color:var(--text3);font-size:12px">No art loaded</span>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
+          <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
+        </div>
+        <input id="ap-x" type="range" min="0" max="100" value="50" style="width:100%;height:4px;accent-color:var(--blue)" oninput="artPickerUpdatePos()">
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
+          <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
+        </div>
+        <input id="ap-y" type="range" min="0" max="100" value="0" style="width:100%;height:4px;accent-color:var(--blue)" oninput="artPickerUpdatePos()">
+      </div>
+      <button onclick="artPickerSavePos()" class="submit-btn" style="padding:10px;margin-top:4px">Save position</button>
+    </div>
   </div>
 </div>
 
@@ -2424,10 +2457,7 @@ function renderDeckMgr() {
              onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:110px">
           ${splitArtHtml(art1Show, art2Show, d.name, false, flipped?d.partnerArtPosition||'center top':d.artPosition||'center top', flipped?d.artPosition||'center top':d.partnerArtPosition||'center top')}
           ${d.partner&&!art2?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
-          <div style="position:absolute;bottom:2px;right:2px;display:flex;gap:3px">
-            <div onclick="event.stopPropagation();openArtPositioner(${i},false)" title="Reposition art" style="font-size:8px;color:rgba(255,255,255,.6);cursor:pointer"><i class="ti ti-arrows-move"></i></div>
-            <div style="font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
-          </div>
+          <div style="position:absolute;bottom:2px;right:2px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
         </div>
         ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Flip partner art">
           <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
@@ -2587,11 +2617,23 @@ async function addDeck() {
 }
 
 // ── Art picker state ──
-let _artPickerCallback = null; // fn(url, cardName)
-let _artPickerTimer = null;
+let _artPickerCallback = null;  // fn(url, cardName) — called when art is chosen
+let _artPickerTimer    = null;
+let _artPickerPosCallback = null; // fn(x, y) — called when position saved
+let _artPickerPosArt   = null;  // current art URL for reposition preview
+let _artPickerPosX     = 50;
+let _artPickerPosY     = 0;
+// Actual display dimensions (px) for the frame overlay
+const ART_FRAME_W = 110; // deck-mgr-art width
+const ART_FRAME_H = 68;  // approx row height
 
-function openArtPicker(title, initialName, onSelect) {
-  _artPickerCallback = onSelect;
+function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
+  _artPickerCallback    = onSelect;
+  _artPickerPosCallback = onSavePos || null;
+  _artPickerPosArt      = posArt || null;
+  _artPickerPosX        = posX != null ? posX : 50;
+  _artPickerPosY        = posY != null ? posY : 0;
+
   const overlay = document.getElementById('art-picker-overlay');
   const titleEl = document.getElementById('art-picker-title');
   const search  = document.getElementById('art-picker-search');
@@ -2602,15 +2644,94 @@ function openArtPicker(title, initialName, onSelect) {
   document.getElementById('art-picker-status').textContent = '';
   overlay.style.display = 'flex';
   document.body.style.overflow = 'hidden';
+
+  // Init reposition panel
+  artPickerInitPos();
+  artPickerTab('choose');
+
   setTimeout(() => search.focus(), 50);
   if (initialName) artPickerSearch(initialName);
+}
+
+function artPickerTab(tab) {
+  const choose   = document.getElementById('ap-panel-choose');
+  const pos      = document.getElementById('ap-panel-position');
+  const tabC     = document.getElementById('ap-tab-choose');
+  const tabP     = document.getElementById('ap-tab-position');
+  if (!choose || !pos) return;
+  choose.style.display   = tab === 'choose'   ? 'flex' : 'none';
+  pos.style.display      = tab === 'position' ? 'flex' : 'none';
+  if (tabC) { tabC.style.borderBottomColor = tab==='choose'   ? 'var(--blue)' : 'transparent'; tabC.style.color = tab==='choose'   ? 'var(--text)' : 'var(--text3)'; }
+  if (tabP) { tabP.style.borderBottomColor = tab==='position' ? 'var(--blue)' : 'transparent'; tabP.style.color = tab==='position' ? 'var(--text)' : 'var(--text3)'; }
+  // Hide reposition tab if no art available
+  if (tabP) tabP.style.display = _artPickerPosArt ? '' : 'none';
+  if (tab === 'position') artPickerUpdatePos();
+}
+
+function artPickerInitPos() {
+  const img    = document.getElementById('ap-pos-img');
+  const noArt  = document.getElementById('ap-pos-noart');
+  const slX    = document.getElementById('ap-x');
+  const slY    = document.getElementById('ap-y');
+  if (img && _artPickerPosArt) {
+    img.src = _artPickerPosArt;
+    img.style.display = 'block';
+    if (noArt) noArt.style.display = 'none';
+  } else if (img) {
+    img.style.display = 'none';
+    if (noArt) noArt.style.display = 'flex';
+  }
+  if (slX) slX.value = _artPickerPosX;
+  if (slY) slY.value = _artPickerPosY;
+  artPickerUpdatePos();
+}
+
+function artPickerUpdatePos() {
+  const x   = parseFloat(document.getElementById('ap-x')?.value ?? 50);
+  const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  const img = document.getElementById('ap-pos-img');
+  if (img) img.style.objectPosition = `${x}% ${y}%`;
+  const xv = document.getElementById('ap-x-val');
+  const yv = document.getElementById('ap-y-val');
+  if (xv) xv.textContent = `${x}%`;
+  if (yv) yv.textContent = `${y}%`;
+
+  // Update frame overlay — shows actual crop area relative to full art
+  const bg = document.getElementById('ap-pos-bg');
+  const frame = document.getElementById('ap-pos-frame');
+  if (!bg || !frame) return;
+  const bgW = bg.offsetWidth  || 300;
+  const bgH = bg.offsetHeight || 168;
+  // The actual display is ART_FRAME_W × ART_FRAME_H
+  // Scale to preview dimensions
+  const scale = bgW / ART_FRAME_W;
+  const fW = Math.min(bgW, ART_FRAME_W * scale);
+  const fH = Math.min(bgH, ART_FRAME_H * scale);
+  // Position the frame so its centre matches the object-position focal point
+  // object-fit:cover: the image fills the frame. The object-position shifts the image.
+  // For the preview, the frame represents the "window" into the art.
+  // Frame left/top = (bgW - fW) * x/100, (bgH - fH) * y/100
+  const fl = (bgW - fW) * (x / 100);
+  const ft = (bgH - fH) * (y / 100);
+  frame.style.left   = `${fl}px`;
+  frame.style.top    = `${ft}px`;
+  frame.style.width  = `${fW}px`;
+  frame.style.height = `${fH}px`;
+}
+
+function artPickerSavePos() {
+  const x = parseFloat(document.getElementById('ap-x')?.value ?? 50);
+  const y = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  if (_artPickerPosCallback) _artPickerPosCallback(x, y);
+  closeArtPicker();
 }
 
 function closeArtPicker() {
   const overlay = document.getElementById('art-picker-overlay');
   if (overlay) overlay.style.display = 'none';
   document.body.style.overflow = '';
-  _artPickerCallback = null;
+  _artPickerCallback    = null;
+  _artPickerPosCallback = null;
 }
 
 async function artPickerSearch(name) {
@@ -2627,11 +2748,9 @@ async function artPickerSearch(name) {
         {headers:{Accept:'application/json'}}
       );
       if (!res.ok) {
-        // Try fuzzy if exact fails
         const fres = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name.trim())}`);
         if (!fres.ok) { status.textContent = 'No results found'; return; }
         const card = await fres.json();
-        // Search by canonical name
         const res2 = await fetch(
           `https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+card.name+'"')}&order=released&dir=asc&unique=prints`,
           {headers:{Accept:'application/json'}}
@@ -2656,7 +2775,7 @@ function artPickerRender(data, cardName) {
   grid.innerHTML = cards.map((c,i) => {
     const url = c.image_uris?.art_crop || c.card_faces?.[0]?.image_uris?.art_crop;
     const label = [c.set_name, c.collector_number ? `#${c.collector_number}` : '', c.artist ? `· ${c.artist}` : ''].filter(Boolean).join(' ');
-    return `<div class="art-thumb" onclick="artPickerSelect('${url.replace(/'/g,"\'")}','${cardName.replace(/'/g,"\'")}',this)">
+    return `<div class="art-thumb" onclick="artPickerSelect('${url.replace(/'/g,"\\'")}','${cardName.replace(/'/g,"\\'")}',this)">
       <img src="${url}" alt="${c.set_name}" loading="lazy">
       <div class="art-thumb-label">${label}</div>
     </div>`;
@@ -2666,8 +2785,21 @@ function artPickerRender(data, cardName) {
 function artPickerSelect(url, cardName, el) {
   document.querySelectorAll('.art-thumb').forEach(t => t.classList.remove('selected'));
   el.classList.add('selected');
+  // Update reposition preview with the newly chosen art
+  _artPickerPosArt = url;
+  const img = document.getElementById('ap-pos-img');
+  const noArt = document.getElementById('ap-pos-noart');
+  if (img) { img.src = url; img.style.display = 'block'; }
+  if (noArt) noArt.style.display = 'none';
+  // Show reposition tab
+  const tabP = document.getElementById('ap-tab-position');
+  if (tabP) tabP.style.display = '';
   if (_artPickerCallback) _artPickerCallback(url, cardName);
-  setTimeout(closeArtPicker, 300);
+  // Don't auto-close — let user optionally go to Reposition tab
+  setTimeout(() => {
+    // Auto-close after brief flash if no pos callback
+    if (!_artPickerPosCallback) setTimeout(closeArtPicker, 300);
+  }, 0);
 }
 
 // Wire autocomplete to the search input
@@ -2675,6 +2807,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('art-picker-search');
   if (el) initAC('art-picker-search', null);
 });
+
 
 function openArtOverride(idx, isPartner) {
   const deck = data.colorDecks[idx];
@@ -2700,10 +2833,15 @@ function openArtOverride(idx, isPartner) {
 
   // Show a small choice modal: pick which slot to edit (or just open picker for commander if no partner)
   if (!hasPartner) {
+    const posStr = deck.artPosition || '50% 0%';
+    const [px, py] = posStr.split(' ').map(v => parseFloat(v)||0);
     openArtPicker(
       `${deck.name} — choose art`,
       deck.artOverrideName || deck.name,
-      (url, cardName) => applyArt('artOverride', 'artOverrideName', url, cardName)
+      (url, cardName) => applyArt('artOverride', 'artOverrideName', url, cardName),
+      deck.artOverride || artCache[scryfallKey(deck.name)] || null,
+      px, py,
+      (x, y) => { data.colorDecks[idx].artPosition = `${x}% ${y}%`; renderDeckMgr(); scheduleSync(); }
     );
     return;
   }
@@ -2761,50 +2899,6 @@ function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
     renderDeckMgr(); scheduleSync();
     showToast('Art updated');
   }
-}
-
-function openArtPositioner(idx, isPartner) {
-  const deck = data.colorDecks[idx];
-  if (!deck) return;
-  const fieldKey = isPartner ? 'partnerArtPosition' : 'artPosition';
-  const current  = deck[fieldKey] || 'center top';
-  // Parse current position
-  const parts = current.split(' ');
-  const curX = parts[0] || 'center';
-  const curY = parts[1] || 'top';
-  // Convert named to percent
-  const toNum = v => v==='left'?0:v==='center'?50:v==='right'?100:v==='top'?0:v==='bottom'?100:parseInt(v)||50;
-  const numX = toNum(curX), numY = toNum(curY);
-
-  showModal('Reposition art', '', () => {
-    const x = document.getElementById('ap-x')?.value || 50;
-    const y = document.getElementById('ap-y')?.value || 0;
-    data.colorDecks[idx][fieldKey] = `${x}% ${y}%`;
-    renderDeckMgr(); scheduleSync();
-  });
-  setTimeout(() => {
-    const body = document.getElementById('modal-body');
-    if (!body) return;
-    body.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
-        <div style="border-radius:8px;overflow:hidden;height:120px;position:relative;background:var(--bg)" id="ap-preview">
-          ${(()=>{
-            const art = isPartner ? (deck.partnerArtOverride||artCache[scryfallKey(deck.partner||'')]) : (deck.artOverride||artCache[scryfallKey(deck.name||'')]);
-            return art ? `<img src="${art}" id="ap-img" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${numX}% ${numY}%">` : '<div style="background:var(--surface);height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">No art loaded</div>';
-          })()}
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Horizontal <span id="ap-x-val">${numX}%</span></div>
-          <input id="ap-x" type="range" min="0" max="100" value="${numX}" style="width:100%"
-            oninput="document.getElementById('ap-x-val').textContent=this.value+'%';const img=document.getElementById('ap-img');if(img)img.style.objectPosition=this.value+'% '+(document.getElementById('ap-y')?.value||0)+'%'">
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Vertical <span id="ap-y-val">${numY}%</span></div>
-          <input id="ap-y" type="range" min="0" max="100" value="${numY}" style="width:100%"
-            oninput="document.getElementById('ap-y-val').textContent=this.value+'%';const img=document.getElementById('ap-img');if(img)img.style.objectPosition=(document.getElementById('ap-x')?.value||50)+'% '+this.value+'%'">
-        </div>
-      </div>`;
-  }, 20);
 }
 
 function closeModal() {
