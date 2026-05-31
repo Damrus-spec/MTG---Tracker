@@ -103,17 +103,19 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
 /* HISTORY */
 .search-bar{width:100%;padding:9px 12px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px}
-.h-row{display:flex;align-items:center;padding:7px 0;border-bottom:.5px solid var(--border);gap:7px}
+.h-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:48px}
 .h-row:last-child{border-bottom:none}
-.h-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
-.h-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.h-badge{align-self:center;margin:0 6px}
+.h-del-btn{align-self:center;margin-right:4px}
+.h-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.h-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .h-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.h-main{flex:1;min-width:0}
+.h-main{flex:1;min-width:0;padding:7px 7px 7px 8px}
 .h-deck{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .h-submeta{font-size:11px;color:var(--text2);margin-top:1px}
 .h-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;flex-shrink:0}
 .h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
-.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:26px;text-align:left}
+.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:26px;text-align:left;display:flex;align-items:center;padding-left:8px}
 .h-del-btn{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px;flex-shrink:0;transition:color .15s}
 .h-del-btn:active,.h-del-active{color:var(--red)!important}
 .h-selected{background:var(--red-bg)}
@@ -153,14 +155,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-sec-toggle.open{transform:rotate(180deg)}
 .deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:0 12px}
 .deck-sec-body.open{display:block}
-.want-card-row{display:flex;align-items:center;padding:7px 0;border-bottom:.5px solid var(--border);gap:8px}
+.want-card-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:44px}
 .want-card-row:last-child{border-bottom:none}
 .w-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.w-card-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative}
+.w-card-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .w-card-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .w-card-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .w-buy{background:var(--blue)}.w-considering{background:var(--amber)}.w-owned{background:var(--green)}
-.w-card-name{flex:1;font-size:13px}
+.w-card-name{flex:1;font-size:13px;align-self:center;padding:0 0 0 10px}
 .w-card-out{font-size:11px;color:var(--red);max-width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-no-out{font-size:10px;color:var(--text3);font-style:italic}
 .w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px}
@@ -190,7 +192,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:110px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch;margin:2px 0}
+.deck-mgr-art{width:110px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -404,7 +406,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 <div id="page-history" class="page">
   <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
     <input class="search-bar" type="text" id="hist-search" placeholder="Search deck..." oninput="renderHistory()" style="flex:1;margin:0">
-    <div style="display:flex;gap:4px;flex-shrink:0">
+    <div style="display:flex;gap:4px;flex-shrink:0;align-self:center;padding-right:4px">
       <select id="hist-year" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
         <option value="">Year</option>
       </select>
@@ -2136,8 +2138,8 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
             data-deck="${uuid}"
             data-idx="${idx}"
             onchange="updateWantOut(this.dataset.deck,parseInt(this.dataset.idx),this.value)"
-            style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
-          <div style="display:flex;gap:4px;flex-shrink:0">
+            style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0;align-self:center">
+          <div style="display:flex;gap:4px;flex-shrink:0;align-self:center;padding-right:4px">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
             <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
           </div>
@@ -2550,29 +2552,62 @@ async function addDeck() {
 }
 
 function openArtOverride(idx, isPartner) {
-  const query = prompt(isPartner
-    ? 'Enter card name to use for partner art:'
-    : 'Enter card name to use for commander art (or leave blank to reset):'
+  const deck = data.colorDecks[idx];
+  if (!deck) return;
+  const hasPartner = !!deck.partner;
+
+  showModal(
+    'Custom art',
+    '',
+    () => {
+      const doOverride = (fieldKey, inputId) => {
+        const val = (document.getElementById(inputId)?.value||'').trim();
+        if (!val) {
+          delete data.colorDecks[idx][fieldKey];
+          renderDeckMgr(); scheduleSync();
+          return Promise.resolve();
+        }
+        return fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(val)}`)
+          .then(r=>r.json()).then(card=>{
+            const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop;
+            if (!url) { showToast('Card not found: '+val); return; }
+            data.colorDecks[idx][fieldKey] = url;
+            artCache[scryfallKey(val)] = url; saveArtCache();
+          }).catch(()=>showToast('Scryfall error'));
+      };
+      const p1 = doOverride('artOverride', 'ao-main');
+      const p2 = hasPartner ? doOverride('partnerArtOverride', 'ao-partner') : Promise.resolve();
+      Promise.all([p1,p2]).then(()=>{ renderDeckMgr(); scheduleSync(); showToast('Art updated'); });
+    }
   );
-  if (query === null) return;
-  if (!query.trim()) {
-    // Reset override
-    if (isPartner) delete data.colorDecks[idx].partnerArtOverride;
-    else delete data.colorDecks[idx].artOverride;
-    renderDeckMgr(); scheduleSync(); return;
-  }
-  fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(query.trim())}`)
-    .then(r=>r.json()).then(card=>{
-      const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop;
-      if (!url) { showToast('Card not found'); return; }
-      if (isPartner) data.colorDecks[idx].partnerArtOverride = url;
-      else data.colorDecks[idx].artOverride = url;
-      // Also cache it
-      const key = scryfallKey(query.trim());
-      artCache[key] = url; saveArtCache();
-      renderDeckMgr(); scheduleSync();
-      showToast('Art updated');
-    }).catch(()=>showToast('Scryfall error'));
+  setTimeout(()=>{
+    const body = document.getElementById('modal-body');
+    if (!body) return;
+    const currentMain    = deck.artOverride    ? deck.name    : '';
+    const currentPartner = deck.partnerArtOverride ? deck.partner : '';
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
+            Commander art — <span style="color:var(--text3)">blank = default (${deck.name})</span>
+          </div>
+          <input id="ao-main" type="text" value="${currentMain.replace(/"/g,'&quot;')}"
+            placeholder="${deck.name}"
+            style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+        </div>
+        ${hasPartner?`
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
+            Partner art — <span style="color:var(--text3)">blank = default (${deck.partner})</span>
+          </div>
+          <input id="ao-partner" type="text" value="${currentPartner.replace(/"/g,'&quot;')}"
+            placeholder="${deck.partner}"
+            style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+        </div>`:''}
+        <div style="font-size:11px;color:var(--text3)">Enter a card name to use its art. Clear the field to reset to default.</div>
+      </div>`;
+    document.getElementById('ao-main')?.focus();
+  }, 20);
 }
 
 // ============================================================
