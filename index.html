@@ -2085,7 +2085,18 @@ function renderGraph() {
           grid: { color:gridCol }
         },
         y: {
-          min: 0, max: 100,
+          min: (() => {
+            const dataMin = Math.min(...thinned.map(p=>p.y));
+            // Floor: lowest of (fallBehind-10, dataMin-10), rounded down to nearest 5
+            const floor = Math.floor(Math.min(s.fallBehind - 10, dataMin - 10) / 5) * 5;
+            return Math.max(0, floor); // never below 0
+          })(),
+          max: (() => {
+            const dataMax = Math.max(...thinned.map(p=>p.y));
+            // Ceiling: highest of (maxWin+10, dataMax+10), rounded up to nearest 5
+            const ceil = Math.ceil(Math.max(s.maxWin + 10, dataMax + 10) / 5) * 5;
+            return Math.min(100, ceil); // never above 100
+          })(),
           ticks: { color:textCol, callback: v=>v+'%', maxTicksLimit:5 },
           grid: { color:gridCol }
         }
