@@ -429,7 +429,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <span><span style="width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block;margin-right:3px;vertical-align:middle"></span>Considering</span>
         <span><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:3px;vertical-align:middle"></span>Owned, not in</span>
       </div>
-      <button onclick="spellCheckWants()" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap;flex-shrink:0"><i class="ti ti-spell-check"></i> Spell check</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button onclick="setAllDeckSections(true)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-down"></i> All</button>
+        <button onclick="setAllDeckSections(false)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-up"></i> None</button>
+      </div>
     </div>
     <div id="deck-wants-list"></div>
   </div>
@@ -2009,7 +2012,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
             ${artUrl?`<img src="${artUrl}" alt="${e.in}" loading="lazy">`:''}
           </div>
           <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>
-          ${e._suggestion?`<span style="font-size:10px;color:var(--amber);cursor:pointer;margin-left:4px" data-deck="${deck.replace(/"/g,'&quot;')}" data-idx="${idx}" onclick="applyWantSuggestionEl(this)">→ ${e._suggestion}?</span>`:''}${e._notFound?`<span style="font-size:10px;color:var(--red);margin-left:4px">✕ not found</span>`:''}
+          
           <input type="text"
             id="wout-${uuid}-${idx}"
             value="${e.out||''}"
@@ -2068,6 +2071,14 @@ function toggleDeckBuylist(uuid, include) {
   deckBuylistExcluded = new Set(arr);
   renderWants();
   scheduleSync();
+}
+
+function setAllDeckSections(open) {
+  const dw = data.deckWants || {};
+  for (const uuid of Object.keys(dw)) {
+    deckSectionOpen[uuid] = open;
+  }
+  renderDeckWants();
 }
 
 function toggleWantsDeckSection(uuidOrDeck) {
@@ -2157,7 +2168,30 @@ function submitBulkImport(deck, key) {
   toggleBulkImport(key);
   renderWants();
   scheduleSync();
+  // Background normalise all newly added names
+  for (const name of cards) normaliseWantCardName(deck, name);
   showToast(`Added ${added} card${added !== 1 ? 's' : ''}${cards.length - added ? ` (${cards.length - added} skipped, already in list)` : ''}`);
+}
+
+// Silently correct a card name to Scryfall canonical form after it's been added
+async function normaliseWantCardName(deckUuid, rawName) {
+  try {
+    await sleep(200); // small delay to not race the render
+    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(rawName)}`);
+    if (!res.ok) return;
+    const card = await res.json();
+    if (!card.name || card.name.toLowerCase() === rawName.toLowerCase()) return;
+    // Find and update all entries in this deck with the old name
+    const entries = data.deckWants?.[deckUuid] || [];
+    let changed = false;
+    for (const e of entries) {
+      if (e.in.toLowerCase().trim() === rawName.toLowerCase().trim()) {
+        e.in = card.name;
+        changed = true;
+      }
+    }
+    if (changed) { renderWants(); scheduleSync(); }
+  } catch(e) {}
 }
 
 function addWantCard(deck, key) {
@@ -2183,6 +2217,8 @@ function addWantCard(deck, key) {
   if(outEl) outEl.value='';
   renderWants(); scheduleSync();
   showToast('Added: '+inCard);
+  // Background name normalisation
+  normaliseWantCardName(deck, inCard);
 }
 
 // ============================================================
@@ -3211,52 +3247,7 @@ function acOnKey(e, inputId, onSelect) {
   }
 }
 
-// ── Spell-check existing wants entries ──
-async function spellCheckWants() {
-  const dw = data.deckWants || {};
-  for (const entries of Object.values(dw)) {
-    for (const entry of entries) {
-      if (!entry.in) continue;
-      try {
-        const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(entry.in)}`);
-        if (!res.ok) {
-          // Try fuzzy to get the correct name
-          const res2 = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(entry.in)}`);
-          if (res2.ok) {
-            const card = await res2.json();
-            if (card.name && card.name.toLowerCase() !== entry.in.toLowerCase()) {
-              entry._suggestion = card.name;
-            }
-          } else {
-            entry._notFound = true;
-          }
-        } else {
-          const card = await res.json();
-          // Correct capitalisation
-          if (card.name !== entry.in) entry.in = card.name;
-          delete entry._suggestion;
-          delete entry._notFound;
-        }
-        await sleep(80);
-      } catch(e) {}
-    }
-  }
-  renderDeckWants();
-  showToast('Spell check complete');
-}
 
-function applyWantSuggestion(deck, idx) {
-  if (!data.deckWants[deck]||!data.deckWants[deck][idx]) return;
-  const entry = data.deckWants[deck][idx];
-  entry.in = entry._suggestion;
-  delete entry._suggestion;
-  renderDeckWants(); scheduleSync();
-}
-function applyWantSuggestionEl(el) {
-  const deck = el.dataset.deck;
-  const idx  = parseInt(el.dataset.idx);
-  applyWantSuggestion(deck, idx);
-}
 
 // Initialise AC on static inputs after render
 function initAddDeckAC() {
