@@ -1105,6 +1105,7 @@ async function fetchMissingArt(names) {
       // Inject into any rendered cells with this key
       document.querySelectorAll(`[data-art="${key}"]`).forEach(el=>{
         el.classList.remove('loading');
+        if (el.dataset.rerender==='deckmgr') { renderDeckMgr(); return; }
         if (!el.querySelector('img')) {
           const img=document.createElement('img'); img.src=url; img.alt=name; img.loading='lazy';
           el.insertBefore(img, el.firstChild);
@@ -2340,6 +2341,7 @@ function renderDeckMgr() {
         <div class="deck-mgr-art${art1Show?'':d.name?' loading':''}" data-art="${key}"
              onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:90px">
           ${splitArtHtml(art1Show, art2Show, d.name)}
+          ${d.partner&&!art2?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
           <div style="position:absolute;bottom:2px;right:2px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
         </div>
         ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Flip partner art">
@@ -2353,7 +2355,7 @@ function renderDeckMgr() {
           id="dname-${i}"
           onblur="updateDeckField(${i},'name',this.value)">
         <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
-          style="margin:0 0 4px;font-size:11px;padding:4px 8px;color:var(--text2)"
+          style="margin:0 0 4px;font-size:13px;padding:5px 8px;font-weight:500"
           id="dpartner-${i}"
           onblur="updateDeckField(${i},'partner',this.value)">
         <input type="text" value="${(d.label||'').replace(/"/g,'&quot;')}" placeholder="Display name (optional)"
@@ -2371,7 +2373,7 @@ function renderDeckMgr() {
     </div>`;
   }).join('')||'<div class="empty">No decks added yet.</div>';
 
-  const deckNames=decks.filter(d=>d.name).map(d=>d.name);
+  const deckNames=decks.filter(d=>d.name).flatMap(d=>d.partner?[d.name,d.partner]:[d.name]);
   fetchMissingArt(deckNames);
   // Wire autocomplete on each deck name + partner input
   setTimeout(() => {
