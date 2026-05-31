@@ -903,6 +903,7 @@ async function loadFromDrive(force) {
       lastFetchTime = Date.now();
       migrateDataToUuids();
       cleanStaleScores();
+      deduplicateHistory();
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
     } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
@@ -2658,8 +2659,48 @@ function isPlainName(key) {
   return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key);
 }
 
+function deduplicateHistory() {
+  // Remove duplicate history entries for the same deck on the same date
+  // where one entry lacks wins/losses (manually added) and another has them (original).
+  // Also remove exact duplicate entries (same deck+date+last+wins+losses).
+  if (!data.history) return;
+  const seen = new Set();
+  const toRemove = new Set();
+
+  // First pass: index all entries that have wins/losses by deck+date key
+  const hasSnapshot = new Set(); // "deckKey|date" pairs that have a proper snapshot
+  for (let i = 0; i < data.history.length; i++) {
+    const h = data.history[i];
+    if (!h.last || !h.deck) continue;
+    const deckKey = h.deckUuid || h.deck;
+    if (h.wins != null) hasSnapshot.add(`${deckKey}|${h.date}`);
+  }
+
+  // Second pass: mark duplicates for removal
+  for (let i = 0; i < data.history.length; i++) {
+    const h = data.history[i];
+    if (!h.last || !h.deck) continue;
+    const deckKey = h.deckUuid || h.deck;
+    const sig = `${deckKey}|${h.date}|${h.last}|${h.wins??''}|${h.losses??''}`;
+
+    // Remove exact duplicates
+    if (seen.has(sig)) { toRemove.add(i); continue; }
+    seen.add(sig);
+
+    // Remove no-snapshot entries when a snapshot exists for same deck+date
+    if (h.wins == null && hasSnapshot.has(`${deckKey}|${h.date}`)) {
+      toRemove.add(i);
+    }
+  }
+
+  if (toRemove.size) {
+    data.history = data.history.filter((_,i) => !toRemove.has(i));
+    return true;
+  }
+  return false;
+}
+
 function runDbCleanup() {
-  // First stamp names from history onto all UUID score entries
   for (const h of (data.history||[])) {
     if (h.deckUuid && h.deck && data.scores?.[h.deckUuid] && !data.scores[h.deckUuid]._name) {
       data.scores[h.deckUuid]._name = h.deck;
@@ -2667,10 +2708,12 @@ function runDbCleanup() {
   }
   migrateDataToUuids();
   const cleaned = cleanStaleScores();
+  deduplicateHistory();
   saveLocal();
   syncDrive(true);
   renderScore();
-  showToast(cleaned ? 'Duplicates removed — syncing to Drive' : 'Already clean — syncing to Drive');
+  renderHistory();
+  showToast(cleaned ? 'Duplicates removed — syncing to Drive' : 'Cleaned — syncing to Drive');
 }
 
 function runRebuildScores() {
