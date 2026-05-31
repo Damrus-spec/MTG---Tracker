@@ -213,9 +213,9 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 /* AUTOCOMPLETE */
 .ac-wrap{position:relative;width:100%}
 .ac-input{width:100%}
-.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:.5px solid var(--border-md);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);z-index:50;max-height:180px;overflow-y:auto;display:none}
+.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:.5px solid var(--border-md);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);z-index:50;max-height:220px;overflow-y:auto;display:none;box-shadow:0 4px 12px rgba(0,0,0,.3)}
 .ac-dropdown.open{display:block}
-.ac-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:.5px solid var(--border)}
+.ac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-bottom:.5px solid var(--border)}
 .ac-item:last-child{border-bottom:none}
 .ac-item:hover,.ac-item.focused{background:var(--info-bg);color:var(--info)}
 .ac-invalid{border-color:var(--amber)!important}
@@ -1599,11 +1599,12 @@ function renderDeckMgr() {
   // Wire autocomplete on each deck name + partner input
   setTimeout(() => {
     decks.forEach((d,i) => {
-      // Commander name
+      // Commander name — commander mode
       const inputId = 'dname-'+i;
       const el = document.getElementById(inputId);
       if (el && !el._acInit) {
         el._acInit = true;
+        acCommanderMode.add(inputId);
         initAC(inputId, null);
         acCallbacks[inputId] = async (name) => {
           const colorLabel = await fetchColorIdentity(name);
@@ -1615,11 +1616,12 @@ function renderDeckMgr() {
           if (span) { span.style.color='var(--green)'; setTimeout(()=>span.style.color='',1500); }
         };
       }
-      // Partner name — just autocomplete, no color update needed
+      // Partner name — also commander mode
       const partnerId = 'dpartner-'+i;
       const pel = document.getElementById(partnerId);
       if (pel && !pel._acInit) {
         pel._acInit = true;
+        acCommanderMode.add(partnerId);
         initAC(partnerId, null);
         acCallbacks[partnerId] = async (name) => {
           updateDeckField(i, 'partner', name);
@@ -2009,6 +2011,9 @@ function initAC(inputId, onSelect) {
   input.addEventListener('blur', () => setTimeout(() => acClose(inputId), 150));
 }
 
+// Track which inputs are in commander mode
+const acCommanderMode = new Set();
+
 async function acOnInput(inputId, onSelect) {
   const input = document.getElementById(inputId);
   if (!input) return;
@@ -2019,11 +2024,27 @@ async function acOnInput(inputId, onSelect) {
   if (q.length < 2) return;
   acTimers[inputId] = setTimeout(async () => {
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
-      const json = await res.json();
-      const names = json.data || [];
+      let names = [];
+      if (acCommanderMode.has(inputId)) {
+        // Commander search: legendary creatures + planeswalkers that can be commanders
+        const query = `${q} (type:legendary type:creature OR type:legendary type:planeswalker OR oracle:"can be your commander")`;
+        const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=names&order=name&limit=20`);
+        if (res.ok) {
+          const json = await res.json();
+          names = (json.data||[]).map(c=>c.name).slice(0,10);
+        }
+        // Fallback to autocomplete if search returned nothing
+        if (!names.length) {
+          const res2 = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+          const json2 = await res2.json();
+          names = json2.data||[];
+        }
+      } else {
+        const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+        const json = await res.json();
+        names = json.data || [];
+      }
       if (!names.length) { acMarkInvalid(inputId); return; }
-      // Exact match = valid
       const exact = names.some(n => n.toLowerCase() === q.toLowerCase());
       if (exact) { input.classList.add('ac-valid'); }
       acShowDropdown(inputId, names, onSelect);
@@ -2188,18 +2209,21 @@ function applyWantSuggestionEl(el) {
 
 // Initialise AC on static inputs after render
 function initStaticAC() {
-  // Commander name — auto-detect color on pick
+  // Commander name — commander mode AC
   acCallbacks['new-deck-name'] = async (name) => {
-    // Color is now auto-detected silently on addDeck(), no dropdown to update
-    // But show a subtle indicator
     const input = document.getElementById('new-deck-name');
     if (input) { input.style.borderColor='var(--green)'; setTimeout(()=>input.style.borderColor='',1500); }
   };
+  acCommanderMode.add('new-deck-name');
   initAC('new-deck-name', null);
-  // Partner name — just autocomplete
+  // Partner name — also commander mode
   if (!document.getElementById('new-deck-partner')?._acInit) {
     const pel = document.getElementById('new-deck-partner');
-    if (pel) { pel._acInit = true; initAC('new-deck-partner', null); }
+    if (pel) {
+      pel._acInit = true;
+      acCommanderMode.add('new-deck-partner');
+      initAC('new-deck-partner', null);
+    }
   }
 }
 
