@@ -296,14 +296,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .art-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
 .art-thumb-label{position:absolute;bottom:0;left:0;right:0;padding:3px 5px;font-size:9px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
-.editor-row td:nth-child(2){padding:0;width:52px;vertical-align:top}
-.editor-row td:nth-child(2) .editor-art{position:absolute;top:0;left:0;width:52px;height:100%}
-.editor-row{position:relative}
+.editor-row td:nth-child(2){padding:0;width:52px;vertical-align:middle}
+.editor-row td:nth-child(2) .editor-art{width:52px;height:52px}
 .editor-row:last-child td{border-bottom:none}
 .editor-input{width:100%;background:transparent;border:none;border-bottom:.5px solid transparent;color:var(--text);font-size:13px;padding:2px 4px;font-family:inherit;border-radius:0}
 .editor-input:focus{outline:none;border-bottom-color:var(--blue);background:var(--surface)}
 .editor-input.date-input{width:104px}
-.editor-input.num-input{width:32px;text-align:center;font-size:11px}
+.editor-input.num-input{width:40px;text-align:center;font-size:12px}
 .editor-input.num-input::-webkit-inner-spin-button,.editor-input.num-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .editor-input.num-input{-moz-appearance:textfield}
 .editor-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
@@ -601,14 +600,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
       <thead>
         <tr style="border-bottom:.5px solid var(--border-md)">
-          <th style="width:30px;padding:8px 4px 8px 10px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
+          <th style="width:28px;padding:8px 2px 8px 8px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
           <th style="width:52px;padding:0;font-weight:500;color:var(--text2)"></th>
-          <th style="width:88px;padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
-          <th style="padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
-          <th style="width:36px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">W</th>
-          <th style="width:36px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">L</th>
-          <th style="width:52px;padding:8px 4px 8px 6px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
-          <th style="width:28px;padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)"></th>
+          <th style="width:84px;padding:8px 4px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
+          <th style="padding:8px 4px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
+          <th style="width:44px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">W</th>
+          <th style="width:44px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">L</th>
+          <th style="width:44px;padding:8px 2px 8px 4px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
+          <th style="width:24px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)"></th>
         </tr>
       </thead>
       <tbody id="editor-body"></tbody>
@@ -643,9 +642,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <!-- Reposition tab -->
     <div id="ap-panel-position" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:14px 16px;gap:14px">
       <!-- Preview: full art with frame overlay showing actual crop -->
-      <div style="position:relative;width:100%;padding-bottom:56%;background:var(--bg);border-radius:6px;overflow:hidden" id="ap-pos-bg">
+      <div style="position:relative;width:100%;padding-bottom:90%;background:var(--bg);border-radius:6px;overflow:hidden" id="ap-pos-bg">
         <img id="ap-pos-img" src="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0%;display:none">
-        <div id="ap-pos-frame" style="position:absolute;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none;border-radius:3px"></div>
+        <div id="ap-pos-frame" style="position:absolute;pointer-events:none;border-radius:3px"></div>
+        <div style="position:absolute;inset:0;border:3px solid rgba(255,255,255,.4);border-radius:5px;pointer-events:none"></div>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
@@ -2625,7 +2625,7 @@ let _artPickerPosX     = 50;
 let _artPickerPosY     = 0;
 // Actual display dimensions (px) for the frame overlay
 const ART_FRAME_W = 110; // deck-mgr-art width
-const ART_FRAME_H = 68;  // approx row height
+const ART_FRAME_H = 110; // approx full row height (art fills stretch)
 
 function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
   _artPickerCallback    = onSelect;
@@ -2690,33 +2690,13 @@ function artPickerUpdatePos() {
   const x   = parseFloat(document.getElementById('ap-x')?.value ?? 50);
   const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
   const img = document.getElementById('ap-pos-img');
+  // The preview container has exactly the same aspect ratio as the real deck art display.
+  // Moving object-position shows exactly what will be visible in the deck list.
   if (img) img.style.objectPosition = `${x}% ${y}%`;
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
   if (xv) xv.textContent = `${x}%`;
   if (yv) yv.textContent = `${y}%`;
-
-  // Update frame overlay — shows actual crop area relative to full art
-  const bg = document.getElementById('ap-pos-bg');
-  const frame = document.getElementById('ap-pos-frame');
-  if (!bg || !frame) return;
-  const bgW = bg.offsetWidth  || 300;
-  const bgH = bg.offsetHeight || 168;
-  // The actual display is ART_FRAME_W × ART_FRAME_H
-  // Scale to preview dimensions
-  const scale = bgW / ART_FRAME_W;
-  const fW = Math.min(bgW, ART_FRAME_W * scale);
-  const fH = Math.min(bgH, ART_FRAME_H * scale);
-  // Position the frame so its centre matches the object-position focal point
-  // object-fit:cover: the image fills the frame. The object-position shifts the image.
-  // For the preview, the frame represents the "window" into the art.
-  // Frame left/top = (bgW - fW) * x/100, (bgH - fH) * y/100
-  const fl = (bgW - fW) * (x / 100);
-  const ft = (bgH - fH) * (y / 100);
-  frame.style.left   = `${fl}px`;
-  frame.style.top    = `${ft}px`;
-  frame.style.width  = `${fW}px`;
-  frame.style.height = `${fH}px`;
 }
 
 function artPickerSavePos() {
