@@ -172,6 +172,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-mini-pill.active[data-s="owned"]{background:rgba(80,180,80,.15);color:var(--green);border-color:transparent}
 .add-mini-pill.active{background:rgba(91,163,232,.15);color:var(--info);border-color:transparent}
 .add-submit{padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;white-space:nowrap}
+.bulk-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;text-decoration:underline;text-underline-offset:2px}
+.bulk-toggle:hover{color:var(--text2)}
+.bulk-area{width:100%;min-height:110px;resize:vertical;font-size:12px;font-family:inherit;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);line-height:1.5}
+.bulk-area:focus{outline:none;border-color:var(--blue)}
+.bulk-import-row{display:flex;gap:6px;align-items:flex-start;margin-top:2px}
 
 /* ── DECKS TAB ── */
 .add-deck-form{margin-bottom:12px}
@@ -1837,17 +1842,30 @@ function renderDeckWantsSection(uuid, deck, dw) {
           </div>
         </div>`).join('')}
       <div class="add-card-form">
-        <div class="add-card-row">
-          <input type="text" placeholder="Card to add (IN)" id="ain-${key}">
-          <input type="text" placeholder="Replaces (OUT)" id="aout-${key}" style="margin:0">
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-          <div class="add-status-row" id="astatus-${key}">
-            <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
-            <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Considering</button>
-            <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Own it</button>
+        <!-- Single card row -->
+        <div id="single-form-${key}">
+          <div class="add-card-row">
+            <input type="text" placeholder="Card to add (IN)" id="ain-${key}">
+            <input type="text" placeholder="Replaces (OUT)" id="aout-${key}" style="margin:0">
           </div>
-          <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <div class="add-status-row" id="astatus-${key}">
+              <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
+              <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Considering</button>
+              <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Own it</button>
+            </div>
+            <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
+            <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">bulk import</button>
+          </div>
+        </div>
+        <!-- Bulk import area (hidden by default) -->
+        <div id="bulk-form-${key}" style="display:none">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:5px">Paste a card list — one per line, optional quantity prefix. Everything from SIDEBOARD onward is ignored.</div>
+          <textarea class="bulk-area" id="bulk-text-${key}" placeholder="1 Lightning Greaves&#10;1 Sol Ring&#10;2 Mountain"></textarea>
+          <div class="bulk-import-row">
+            <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="submitBulkImport(this.dataset.deck,this.dataset.key)" style="flex:1">Import cards</button>
+            <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">cancel</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1885,6 +1903,65 @@ function setAddStatus(key, status, btn) {
   btn.classList.add('active');
   row.dataset.status=status;
 }
+function toggleBulkImport(key) {
+  const single = document.getElementById('single-form-'+key);
+  const bulk   = document.getElementById('bulk-form-'+key);
+  if (!single || !bulk) return;
+  const bulkVisible = bulk.style.display !== 'none';
+  single.style.display = bulkVisible ? '' : 'none';
+  bulk.style.display   = bulkVisible ? 'none' : '';
+  if (!bulkVisible) {
+    const ta = document.getElementById('bulk-text-'+key);
+    if (ta) setTimeout(() => ta.focus(), 50);
+  }
+}
+
+function submitBulkImport(deck, key) {
+  const ta = document.getElementById('bulk-text-'+key);
+  if (!ta || !ta.value.trim()) { showToast('Paste a card list first'); return; }
+
+  const lines = ta.value.split('\n');
+  const cards = [];
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    // Stop at SIDEBOARD, COMMANDER, COMPANION sections
+    if (/^(SIDEBOARD|COMMANDER|COMPANION|MAYBEBOARD|LAND|INSTANTS?|SORCERIES|CREATURES?|ENCHANTMENTS?|ARTIFACTS?|PLANESWALKERS?)\s*:?\s*$/i.test(line)) break;
+    // Skip lines that look like section headers with no card content
+    if (/^\/\//.test(line)) continue;
+
+    // Parse: optional quantity + card name (ignore set/collector info in parentheses/brackets)
+    const match = line.match(/^(?:(?:SB|MB):\s*)?(\d+)?\s*(.+?)(?:\s*[\(\[].+)?$/);
+    if (!match) continue;
+    const name = match[2].trim();
+    if (!name) continue;
+    cards.push(name);
+  }
+
+  if (!cards.length) { showToast('No cards found in list'); return; }
+
+  if (!data.deckWants) data.deckWants = {};
+  if (!data.deckWants[deck]) data.deckWants[deck] = [];
+
+  // Avoid exact duplicates (same name already in list)
+  const existing = new Set(data.deckWants[deck].map(e => e.in.toLowerCase()));
+  let added = 0;
+  for (const name of cards) {
+    if (!existing.has(name.toLowerCase())) {
+      data.deckWants[deck].push({ in: name, inStatus: 'buy', out: null });
+      existing.add(name.toLowerCase());
+      added++;
+    }
+  }
+
+  ta.value = '';
+  toggleBulkImport(key);
+  renderWants();
+  scheduleSync();
+  showToast(`Added ${added} card${added !== 1 ? 's' : ''}${cards.length - added ? ` (${cards.length - added} skipped, already in list)` : ''}`);
+}
+
 function addWantCard(deck, key) {
   const inEl=document.getElementById('ain-'+key);
   const outEl=document.getElementById('aout-'+key);
