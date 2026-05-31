@@ -1437,22 +1437,11 @@ function renderHistory() {
   const limit = parseInt(cfg().historyLimit)||500;
 
   // Build absolute game numbers
-  // Get the true total from the most recent history entry per deck
-  // (avoids issues with stale score data)
+  // Use scores (rebuilt from history) as the true total — reliable even with mixed entry formats
   const allWithResult = (data.history||[]).filter(h=>h.last&&h.deck);
   const historyCount = allWithResult.length;
-  // Find the peak cumulative total per deck from history
-  const peakPerDeck = {};
-  for (const h of allWithResult) {
-    const t = (h.wins||0)+(h.losses||0);
-    const key = h.deckUuid || h.deck;
-    if (!peakPerDeck[key] || t > peakPerDeck[key]) peakPerDeck[key] = t;
-  }
-  // Add in decks that have scores but no history entries
-  const scoresTotal = Object.entries(data.scores||{}).reduce((sum,[deck,s])=>{
-    return sum + (peakPerDeck[deck] ? 0 : (s.total||0));
-  }, 0);
-  const trueTotal = Object.values(peakPerDeck).reduce((s,v)=>s+v,0) + scoresTotal;
+  // Sum all deck totals from scores (already rebuilt from history at render time)
+  const trueTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0), 0);
   const gameOffset = Math.max(0, trueTotal - historyCount);
 
   const indexed = allWithResult
@@ -1487,7 +1476,7 @@ function renderHistory() {
       </div>
       <div class="h-main">
         <div class="h-deck">${h.deck}</div>
-        <div class="h-submeta">${fmtDate(h.date)} · ${h.wins}W ${h.losses}L</div>
+        <div class="h-submeta">${fmtDate(h.date)}${h.wins!=null?` · ${h.wins}W ${h.losses}L`:''}</div>
         ${issueHtml}
       </div>
       <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
