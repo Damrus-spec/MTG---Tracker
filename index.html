@@ -795,7 +795,9 @@ async function getOrCreateFile() {
 }
 async function syncDrive(silent) {
   if (syncing||!accessToken) return;
-  syncing=true; dirty=false; setSyncStatus('busy','Syncing...');
+  syncing=true; dirty=false;
+  // Only show busy spinner on explicit/forced saves, not background flushes
+  if (!silent) setSyncStatus('busy','Syncing...');
   try {
     const fid = await getOrCreateFile();
     const body = JSON.stringify(data);
@@ -814,7 +816,6 @@ async function syncDrive(silent) {
     }
     if (res.ok) {
       setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-      if (!silent) showToast('Saved to Drive');
     } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
     else setSyncStatus('red','Sync error');
   } catch(e){ setSyncStatus('red','Offline — saved locally'); }
@@ -847,6 +848,36 @@ async function loadFromDrive(force) {
   if (!force && hasFetchedFromDrive && (Date.now() - lastFetchTime) < FETCH_COOLDOWN) return;
   // Never reload while user is actively typing/editing anything
   if (!force && userIsEditing) return;
+  // Background reloads (non-forced) are silent — no spinner, no disruption
+  if (!force) {
+    try {
+      const fid = await getOrCreateFile();
+      if (!fid) { hasFetchedFromDrive = true; lastFetchTime = Date.now(); return; }
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`,
+        {headers:{Authorization:`Bearer ${accessToken}`}});
+      if (res.ok) {
+        if (userIsEditing) return; // user started editing during fetch — drop it
+        const loaded = await res.json();
+        data = Object.assign({},INITIAL_DATA,loaded);
+        if (!data.settings)  data.settings  = INITIAL_DATA.settings;
+        if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
+        if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
+        if (!data.undoStack) data.undoStack = [];
+        if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
+        hasFetchedFromDrive = true;
+        lastFetchTime = Date.now();
+        migrateDataToUuids();
+        cleanStaleScores();
+        saveLocal(); renderAll();
+        setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+      } else if (res.status===401) {
+        accessToken=null; hasFetchedFromDrive=false;
+        setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn();
+      }
+    } catch(e) { /* silently ignore background fetch errors */ }
+    return;
+  }
+  // Forced load (sign-in, explicit refresh) — show status
   setSyncStatus('busy','Loading...');
   try {
     const fid = await getOrCreateFile();
@@ -855,20 +886,13 @@ async function loadFromDrive(force) {
       {headers:{Authorization:`Bearer ${accessToken}`}});
     if (res.ok) {
       const loaded = await res.json();
-      // Don't overwrite in-memory data if user started editing while fetch was in flight
-      if (!force && userIsEditing) {
-        setSyncStatus('ok', 'Saved (not reloaded — editing in progress)');
-        return;
-      }
+      if (!force && userIsEditing) { setSyncStatus('ok','Synced'); return; }
       data = Object.assign({},INITIAL_DATA,loaded);
       if (!data.settings)  data.settings  = INITIAL_DATA.settings;
       if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
       if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
       if (!data.undoStack) data.undoStack = [];
-      // Always rebuild scores from history to ensure consistency
-      if ((data.history||[]).filter(h=>h.last).length > 0) {
-        rebuildAllScoresFromHistory();
-      }
+      if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
       hasFetchedFromDrive = true;
       lastFetchTime = Date.now();
       migrateDataToUuids();
@@ -876,25 +900,34 @@ async function loadFromDrive(force) {
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
     } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
-    else { setSyncStatus('red','Load error'); renderAll(); }
-  } catch(e){ setSyncStatus('red','Offline — using local'); renderAll(); }
+    else { setSyncStatus('red','Load error'); }
+  } catch(e){ setSyncStatus('red','Offline — using local'); }
 }
 function scheduleSync() {
   saveLocal();
   if (!hasFetchedFromDrive) return;
   clearTimeout(syncTimer);
-  // Use a longer debounce while actively editing so rapid keystrokes don't hammer Drive
-  const delay = userIsEditing ? 6000 : 3000;
+  // Longer debounce while typing, shorter otherwise
+  const delay = userIsEditing ? 6000 : 2000;
   syncTimer = setTimeout(()=>syncDrive(true), delay);
 }
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='hidden'&&dirty&&hasFetchedFromDrive) syncDrive(true);
-  else if(document.visibilityState==='visible'&&accessToken) loadFromDrive();
+  if (document.visibilityState==='hidden' && dirty && hasFetchedFromDrive) {
+    // Flush immediately when leaving — no waiting
+    clearTimeout(syncTimer);
+    syncDrive(true);
+  } else if (document.visibilityState==='visible' && accessToken) {
+    // Silent background check on return
+    loadFromDrive();
+  }
 });
-window.addEventListener('blur',()=>{if(dirty&&accessToken&&hasFetchedFromDrive){clearTimeout(syncTimer);syncDrive(true);}});
-// On refocus, only reload if user isn't mid-edit
+// Save immediately when window loses focus (switching app/tab)
+window.addEventListener('blur',()=>{
+  if (dirty && accessToken && hasFetchedFromDrive) { clearTimeout(syncTimer); syncDrive(true); }
+});
+// Silent background reload on refocus — never blocks navigation
 window.addEventListener('focus',()=>{ if(accessToken && !userIsEditing) loadFromDrive(); });
-window.addEventListener('pagehide',()=>{if(dirty&&accessToken&&hasFetchedFromDrive) syncDrive(true);});
+window.addEventListener('pagehide',()=>{ if(dirty&&accessToken&&hasFetchedFromDrive) syncDrive(true); });
 
 // ============================================================
 // SCRYFALL ART
