@@ -511,15 +511,32 @@ function genUUID() {
     return (c==='x'?r:(r&0x3|0x8)).toString(16);
   });
 }
-// Get display name for a deck object
 function deckDisplayName(d) {
   if (!d) return '';
   if (d.partner) return d.name + ' // ' + d.partner;
   return d.name || '';
 }
-// Find deck by UUID or name (fallback for legacy data)
-function findDeckByKey(key) {
-  return (data.colorDecks||[]).find(d => d.uuid===key || d.name===key || deckDisplayName(d)===key);
+function deckByUuid(uuid) {
+  return (data.colorDecks||[]).find(d => d.uuid === uuid);
+}
+function uuidForName(name) {
+  // Find UUID by display name or commander name
+  return (data.colorDecks||[]).find(d =>
+    deckDisplayName(d) === name || d.name === name
+  )?.uuid || null;
+}
+function displayNameForUuid(uuid) {
+  const d = deckByUuid(uuid);
+  return d ? deckDisplayName(d) : uuid; // fallback to uuid if not found
+}
+// Migrate name-keyed object to UUID-keyed
+function migrateToUuids(obj) {
+  const result = {};
+  for (const [key, val] of Object.entries(obj||{})) {
+    const uuid = uuidForName(key);
+    result[uuid || key] = val;
+  }
+  return result;
 }
 
 // Format ISO date string (YYYY-MM-DD) as DD MMM YYYY e.g. "24 May 2026"
@@ -565,6 +582,7 @@ function loadLocal() {
       if ((data.history||[]).filter(h=>h.last).length > 0) {
         rebuildAllScoresFromHistory();
       }
+      migrateDataToUuids();
     }
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
 }
@@ -704,6 +722,7 @@ async function loadFromDrive(force) {
       }
       hasFetchedFromDrive = true;
       lastFetchTime = Date.now();
+      migrateDataToUuids();
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
     } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
@@ -858,14 +877,13 @@ function renderScore() {
     p.textContent = labels[k] + (sortKey===k ? (sortDir===-1?' ↓':' ↑') : '');
   });
   const owned = ownedDecks();
-  const ownedNames = new Set(owned.map(d=>deckDisplayName(d)));
+  const ownedUuids = new Set(owned.map(d=>d.uuid).filter(Boolean));
 
-  // Build score display list using display name as score key
+  // Build score display list using UUID as key
   let list = owned.map(d=>{
-    const key = deckDisplayName(d);
-    const s = data.scores?.[key] || {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
-    return {...s, name:key, _deck:d};
-  }).filter(d=>d.total>0 || true); // show all owned even with 0 games
+    const s = data.scores?.[d.uuid] || data.scores?.[deckDisplayName(d)] || {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    return {...s, name:deckDisplayName(d), _deck:d, _uuid:d.uuid};
+  }).filter(d=>d.total>0 || true);
 
   list.sort((a,b)=>{
     if(sortKey==='lastDate') {
@@ -934,18 +952,19 @@ function renderScore() {
     </div>`;
   }).join('');
 
-  // Legacy: decks with history but not currently owned
-  const legacyNames = Object.keys(data.scores||{}).filter(n=>
-    !ownedNames.has(n) && data.scores[n].total>0
+  // Legacy: score entries not matching any owned deck UUID
+  const legacyNames = Object.keys(data.scores||{}).filter(key=>
+    !ownedUuids.has(key) && data.scores[key].total>0
   );
   const legacySec = document.getElementById('legacy-section');
   if (legacyNames.length>0) {
     legacySec.style.display='';
-    document.getElementById('legacy-list').innerHTML = legacyNames.map(n=>{
-      const s=data.scores[n];
+    document.getElementById('legacy-list').innerHTML = legacyNames.map(uuidOrName=>{
+      const s=data.scores[uuidOrName];
+      const n=displayNameForUuid(uuidOrName)||uuidOrName;
       const cls=wrClass(s.winRate,s.total);
       const fill=WR_FILL[cls];
-      const key=scryfallKey(n);
+      const key=scryfallKey(n.split(' // ')[0]);
       const art=artCache[key];
       return `<div class="deck-row">
         <div class="deck-art${art?'':' loading'}" data-art="${key}">
@@ -979,7 +998,7 @@ function toggleDeckExpand(eid) {
     const owned = ownedDecks();
     const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
     if (deck) {
-      lastExpandedDeck = deckDisplayName(deck);
+      lastExpandedDeck = deck.uuid || deckDisplayName(deck);
       populateGraphSelect();
       renderGraph();
     }
@@ -988,7 +1007,7 @@ function toggleDeckExpand(eid) {
     const key = eid.replace(/^exp-/,'');
     const owned = ownedDecks();
     const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
-    if (deck && lastExpandedDeck===deckDisplayName(deck)) {
+    if (deck && (lastExpandedDeck===(deck.uuid||deckDisplayName(deck)))) {
       lastExpandedDeck = null;
       populateGraphSelect();
       renderGraph();
@@ -1147,7 +1166,8 @@ function renderHistory() {
   const peakPerDeck = {};
   for (const h of allWithResult) {
     const t = (h.wins||0)+(h.losses||0);
-    if (!peakPerDeck[h.deck] || t > peakPerDeck[h.deck]) peakPerDeck[h.deck] = t;
+    const key = h.deckUuid || h.deck;
+    if (!peakPerDeck[key] || t > peakPerDeck[key]) peakPerDeck[key] = t;
   }
   // Add in decks that have scores but no history entries
   const scoresTotal = Object.entries(data.scores||{}).reduce((sum,[deck,s])=>{
@@ -1245,13 +1265,13 @@ function deleteHistoryEntry(idx) {
 }
 
 function rebuildAllScoresFromHistory() {
-  // Called when scores are missing/empty but history exists
   if (!data.scores) data.scores = {};
   for (const h of (data.history||[])) {
     if (!h.last || !h.deck) continue;
-    if (!data.scores[h.deck]) data.scores[h.deck] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
-    const s = data.scores[h.deck];
-    // Use cumulative values stored in each history entry
+    // Use UUID if available, fall back to name
+    const key = h.deckUuid || uuidForName(h.deck) || h.deck;
+    if (!data.scores[key]) data.scores[key] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
+    const s = data.scores[key];
     s.wins   = h.wins;
     s.losses = h.losses;
     s.total  = h.wins + h.losses;
@@ -1438,24 +1458,31 @@ function copyBuyList() {
 function renderDeckWants() {
   const dw = data.deckWants||{};
   const cd = data.colorDecks||[];
-  const ownedNames    = cd.filter(d=>d.name&&d.status==='Owned').map(d=>d.name).sort((a,b)=>a.localeCompare(b));
-  const buildingNames = cd.filter(d=>d.name&&d.status==='Building').map(d=>d.name).sort((a,b)=>a.localeCompare(b));
-  const extra = Object.keys(dw).filter(n=>!ownedNames.includes(n)&&!buildingNames.includes(n)&&dw[n].length>0);
-  const allDecks = [...ownedNames,...buildingNames,...extra];
+  // Sort by display name within each group
+  const ownedDecksCD    = cd.filter(d=>d.name&&d.status==='Owned').sort((a,b)=>deckDisplayName(a).localeCompare(deckDisplayName(b)));
+  const buildingDecksCD = cd.filter(d=>d.name&&d.status==='Building').sort((a,b)=>deckDisplayName(a).localeCompare(deckDisplayName(b)));
+  const ownedUuids    = ownedDecksCD.map(d=>d.uuid).filter(Boolean);
+  const buildingUuids = buildingDecksCD.map(d=>d.uuid).filter(Boolean);
+  const knownUuids = new Set([...ownedUuids,...buildingUuids]);
+  const extra = Object.keys(dw).filter(k=>!knownUuids.has(k)&&dw[k].length>0);
+  // allDecks is now array of {uuid, displayName}
+  const allDecks = [
+    ...ownedDecksCD.map(d=>({uuid:d.uuid,displayName:deckDisplayName(d),group:'Owned'})),
+    ...buildingDecksCD.map(d=>({uuid:d.uuid,displayName:deckDisplayName(d),group:'Building'})),
+    ...extra.map(k=>({uuid:k,displayName:displayNameForUuid(k)||k,group:'Other'}))
+  ];
 
-  // Build sections with group headers
   let html = '';
   let lastGroup = null;
-  for (const deck of allDecks) {
-    const group = ownedNames.includes(deck) ? 'Owned' : buildingNames.includes(deck) ? 'Building' : 'Other';
+  for (const {uuid, displayName, group} of allDecks) {
     if (group !== lastGroup) {
       lastGroup = group;
       html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 4px 4px">${group}</div>`;
     }
-    html += renderDeckWantsSection(deck, dw);
+    html += renderDeckWantsSection(uuid, displayName, dw);
   }
   document.getElementById('deck-wants-list').innerHTML = html || '<div class="empty">No wants tracked yet.</div>';
-  fetchMissingArt(allDecks);
+  fetchMissingArt(allDecks.map(d=>d.displayName.split(' // ')[0]));
   setTimeout(() => {
     document.querySelectorAll('[id^="ain-"],[id^="aout-"]').forEach(el => {
       if (!el._acInit) { el._acInit = true; initAC(el.id, null); }
@@ -1463,15 +1490,15 @@ function renderDeckWants() {
   }, 0);
 }
 
-function renderDeckWantsSection(deck, dw) {
-  const entries = (dw||{})[deck]||[];
-  const isOpen = deckSectionOpen[deck]===true;
-  const key = scryfallKey(deck);
+function renderDeckWantsSection(uuid, deck, dw) {
+  const entries = (dw||{})[uuid]||[];
+  const isOpen = deckSectionOpen[uuid]===true;
+  const cmdName = deck.split(' // ')[0];
+  const key = scryfallKey(cmdName);
   const art = artCache[key];
   const buyCount = entries.filter(e=>e.inStatus==='buy').length;
-  const allDecks = [deck]; // for fetchArt
   return `<div class="deck-section">
-    <div class="deck-sec-header" data-deck="${deck.replace(/"/g,'&quot;')}" onclick="toggleWantsDeckSection(this.dataset.deck)">
+    <div class="deck-sec-header" data-deck="${uuid}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}">
         ${art?`<img src="${art}" alt="${deck}" loading="lazy">`:''}
       </div>
@@ -1507,15 +1534,15 @@ function renderDeckWantsSection(deck, dw) {
             <button class="add-mini-pill" onclick="setAddStatus('${key}','considering',this)">Considering</button>
             <button class="add-mini-pill" onclick="setAddStatus('${key}','owned',this)">Own it</button>
           </div>
-          <button class="add-submit" data-deck="${deck.replace(/"/g,'&quot;')}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
+          <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
         </div>
       </div>
     </div>
   </div>`;
 }
 
-function toggleWantsDeckSection(deck) {
-  deckSectionOpen[deck] = !(deckSectionOpen[deck]===true);
+function toggleWantsDeckSection(uuidOrDeck) {
+  deckSectionOpen[uuidOrDeck] = !(deckSectionOpen[uuidOrDeck]===true);
   renderDeckWants();
 }
 function updateWantOut(deck, idx, value) {
@@ -1682,23 +1709,18 @@ function updateDeckField(idx, field, value) {
 
   // Migrate scores, history, deckWants if display name changed
   if ((field==='name'||field==='partner') && oldDisplayName !== newDisplayName && oldDisplayName) {
-    if (data.scores?.[oldDisplayName]) {
-      data.scores[newDisplayName] = data.scores[oldDisplayName];
-      delete data.scores[oldDisplayName];
-    }
+    // With UUID-keyed data, scores/wants don't need migration on rename
+    // Just update history display names for readability
+    const uuid = deck.uuid;
     for (const h of (data.history||[])) {
       if (h.deck === oldDisplayName) h.deck = newDisplayName;
-    }
-    if (data.deckWants?.[oldDisplayName]) {
-      data.deckWants[newDisplayName] = data.deckWants[oldDisplayName];
-      delete data.deckWants[oldDisplayName];
+      if (h.deckUuid === uuid) h.deck = newDisplayName; // keep display name current
     }
     // Sync immediately after rename and block re-fetches
     lastFetchTime = Date.now() + 4*60*1000;
     saveLocal();
     syncDrive(true);
     renderScore();
-    // Don't re-render deck mgr — would destroy the active input
     return;
   }
 
@@ -1865,6 +1887,35 @@ function toggleGraph() {
   if (graphOpen) setTimeout(renderGraph, 50);
 }
 
+
+// Migrate legacy name-keyed data to UUID-keyed
+function migrateDataToUuids() {
+  // Ensure all colorDecks have UUIDs
+  for (const d of (data.colorDecks||[])) {
+    if (!d.uuid) d.uuid = genUUID();
+  }
+  // Migrate scores
+  const newScores = {};
+  for (const [key, val] of Object.entries(data.scores||{})) {
+    const uuid = uuidForName(key) || key;
+    newScores[uuid] = val;
+  }
+  data.scores = newScores;
+  // Migrate deckWants
+  const newWants = {};
+  for (const [key, val] of Object.entries(data.deckWants||{})) {
+    const uuid = uuidForName(key) || key;
+    newWants[uuid] = val;
+  }
+  data.deckWants = newWants;
+  // Add deckUuid to history entries
+  for (const h of (data.history||[])) {
+    if (!h.deckUuid && h.deck) {
+      h.deckUuid = uuidForName(h.deck) || null;
+    }
+  }
+}
+
 function renderAll() {
   renderScore(); renderHistory(); renderWants(); renderDeckMgr(); populateHistoryFilters();
   setTimeout(()=>{
@@ -1883,8 +1934,7 @@ function populateGraphSelect() {
   if (!sel) return;
   const owned = ownedDecks().map(d=>deckDisplayName(d));
   sel.innerHTML = '<option value="ALL">All decks</option>' +
-    owned.map(n=>`<option value="${n}">${n.split(' // ')[0]}</option>`).join('');
-  // Set to last expanded deck if available
+    owned.map(d=>`<option value="${d.uuid||deckDisplayName(d)}">${deckDisplayName(d).split(' // ')[0]}</option>`).join('');
   if (lastExpandedDeck && [...sel.options].some(o=>o.value===lastExpandedDeck)) {
     sel.value = lastExpandedDeck;
   } else {
@@ -1919,7 +1969,7 @@ function renderGraph() {
     }
   } else {
     // Running win rate for selected deck
-    const deckHist = history.filter(h=>h.deck===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
+    const deckHist = history.filter(h=>h.deck===deckFilter||h.deckUuid===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
     for (const h of deckHist) {
       const total = h.wins+h.losses;
       if (total>0) points.push({x:h.date, y:parseFloat((h.wins/total*100).toFixed(1))});
