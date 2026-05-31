@@ -329,7 +329,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 </nav>
 
 <!-- SCORE -->
-<div id="page-score" class="page active" style="visibility:hidden">
+<div id="page-score" class="page active">
 
   <!-- Stats — scroll away naturally -->
   <div class="stat-grid">
@@ -810,14 +810,9 @@ function updateSignInBtn() {
   const nav  = document.getElementById('main-nav');
   const isSignedIn = !!accessToken;
 
-  // Toggle login gate
+  // Gate overlay covers everything when not signed in — no need to hide pages
   if (gate) gate.style.display = isSignedIn ? 'none' : 'flex';
-  // Hide/show nav
   if (nav)  nav.style.display  = isSignedIn ? ''     : 'none';
-  // Hide/show all pages when not signed in
-  document.querySelectorAll('.page').forEach(p => {
-    p.style.visibility = isSignedIn ? '' : 'hidden';
-  });
 
   if (!btn) return;
   if (isSignedIn) { btn.textContent='Sign out'; btn.onclick=signOut; }
