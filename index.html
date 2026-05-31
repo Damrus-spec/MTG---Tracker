@@ -1675,16 +1675,38 @@ function renderDeckMgr() {
 
 function updateDeckField(idx, field, value) {
   if(!data.colorDecks[idx]) return;
-  const old = data.colorDecks[idx][field];
-  if(old===value) return; // no change, avoid re-render loop
-  data.colorDecks[idx][field]=value;
-  // If name changed, migrate score data to new key
-  if(field==='name'&&old&&value&&old!==value&&data.scores&&data.scores[old]){
-    data.scores[value]=data.scores[old];
-    delete data.scores[old];
+  const deck = data.colorDecks[idx];
+  const oldVal = deck[field];
+  if(oldVal===value) return; // no change
+  const oldDisplayName = deckDisplayName(deck);
+  deck[field] = value;
+  const newDisplayName = deckDisplayName(deck);
+
+  // Migrate scores, history, deckWants if display name changed
+  if ((field==='name'||field==='partner') && oldDisplayName !== newDisplayName && oldDisplayName) {
+    if (data.scores?.[oldDisplayName]) {
+      data.scores[newDisplayName] = data.scores[oldDisplayName];
+      delete data.scores[oldDisplayName];
+    }
+    for (const h of (data.history||[])) {
+      if (h.deck === oldDisplayName) h.deck = newDisplayName;
+    }
+    if (data.deckWants?.[oldDisplayName]) {
+      data.deckWants[newDisplayName] = data.deckWants[oldDisplayName];
+      delete data.deckWants[oldDisplayName];
+    }
+    // Sync immediately after rename and block re-fetches
+    lastFetchTime = Date.now() + 4*60*1000;
+    saveLocal();
+    syncDrive(true);
+    renderScore();
+    // Don't re-render deck mgr — would destroy the active input
+    return;
   }
+
+  // For color/status changes, full re-render is fine
   renderDeckMgr();
-  renderScore();
+  if(field==='color'||field==='status') renderScore();
   scheduleSync();
 }
 
