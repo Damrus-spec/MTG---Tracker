@@ -190,7 +190,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:110px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-mgr-art{width:110px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch;margin:2px 0}
 .deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -834,8 +834,10 @@ function splitArtHtml(art1, art2, altText, flipped) {
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
   if (a && b) {
+    // Diagonal divider: a thin dark line along the clip edge (polygon ~47.5% midpoint)
     return `<img src="${a}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">
-            <img src="${b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`;
+            <img src="${b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">
+            <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(calc(47.5% - 1px) 0,calc(47.5% + 1px) 0,calc(42.5% + 1px) 100%,calc(42.5% - 1px) 100%);background:rgba(0,0,0,.75)"></div>`;
   }
   return `<img src="${a||b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
 }
