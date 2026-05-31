@@ -2064,20 +2064,17 @@ async function acOnInput(inputId, onSelect) {
     try {
       let names = [];
       if (acCommanderMode.has(inputId)) {
-        // Commander search using Scryfall autocomplete filtered to legendary creatures/planeswalkers
-        const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
-        const json = await res.json();
-        const allNames = json.data || [];
-        // Filter client-side by fetching type data — too slow, so use search API with correct syntax
-        // Scryfall search: name contains q AND (is:commander)
-        const query = `name:/${encodeURIComponent(q)}/ is:commander`;
-        const res2 = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent('name:'+q+' is:commander')}&unique=names&order=name`);
-        if (res2.ok) {
-          const json2 = await res2.json();
-          names = (json2.data||[]).map(card=>card.name).slice(0,10);
+        // Use Scryfall search with is:commander filter
+        const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q + ' is:commander')}&unique=names&order=name`);
+        if (res.ok) {
+          const json = await res.json();
+          names = (json.data||[]).map(card=>card.name).slice(0,10);
         }
-        // Fallback to regular autocomplete if commander search failed
-        if (!names.length) names = allNames;
+        // Fallback: regular autocomplete if search fails or returns nothing
+        if (!names.length) {
+          const res2 = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+          if (res2.ok) { const j = await res2.json(); names = j.data||[]; }
+        }
       } else {
         const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
         const json = await res.json();
