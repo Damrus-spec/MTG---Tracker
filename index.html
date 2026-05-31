@@ -1441,8 +1441,8 @@ function openIssuePanelFull(deckName, uuid) {
         <div class="issue-hist-agg-title">All-time totals (${entries.length} games with issues)</div>
         ${aggSorted.map(([iss,count])=>`
           <div class="issue-hist-agg-row">
-            <span style="color:var(--text)">${iss}</span>
-            <span style="color:var(--text3);font-size:11px">${count}×</span>
+            <span style="color:var(--text);font-weight:600;min-width:28px">${count}×</span>
+            <span style="color:var(--text);flex:1">${iss}</span>
           </div>`).join('')}
       </div>`;
     const entriesHtml = entries.map(h => {
@@ -2224,11 +2224,8 @@ function openIssuePanel(deckName, uuid) {
         <div class="issue-hist-agg-title">All-time totals</div>
         ${aggSorted.map(([iss,c])=>`
           <div class="issue-hist-agg-row">
-            <span style="color:var(--text)">${iss}</span>
-            <span style="display:flex;gap:8px;font-size:11px">
-              ${c.win?`<span style="color:var(--green)">${c.win}×W</span>`:''}
-              ${c.loss?`<span style="color:var(--red)">${c.loss}×L</span>`:''}
-            </span>
+            <span style="color:var(--text);font-weight:600;min-width:28px">${c.win+c.loss}×</span>
+            <span style="color:var(--text);flex:1">${iss}</span>
           </div>`).join('')}
       </div>`;
 
