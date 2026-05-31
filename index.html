@@ -314,8 +314,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
   <!-- Sticky: graph + sort pills -->
   <div id="score-sticky" style="position:sticky;top:78px;z-index:15;background:var(--bg);margin:0 -12px;padding:4px 12px 4px">
-    <!-- WIN RATE GRAPH — collapsible -->
-    <div class="card" style="margin-bottom:8px;padding:0;overflow:hidden">
+    <!-- WIN RATE GRAPH — collapsible, hidden when pending -->
+    <div id="graph-card" class="card" style="margin-bottom:8px;padding:0;overflow:hidden">
       <div onclick="toggleGraph()" style="display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer">
         <div style="font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;flex:1">Win rate over time</div>
         <i class="ti ti-chevron-down" id="graph-toggle-icon" style="font-size:14px;color:var(--text3);transition:transform .2s"></i>
@@ -326,6 +326,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         </div>
       </div>
     </div>
+    <!-- Pending changes bar — sticky, replaces graph when active -->
+    <div id="pending-bar" style="display:none;margin-bottom:8px">
+      <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius);padding:10px 14px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Pending changes</div>
+        <div id="pending-list" style="margin-bottom:10px;font-size:13px"></div>
+        <button class="submit-btn" style="padding:11px" onclick="submitPending()">Submit entries</button>
+      </div>
+    </div>
     <!-- Sort pills -->
     <div class="sort-row" id="sort-row">
       <button class="pill" id="pill-total" onclick="sortDecks('total',this)">Most played</button>
@@ -333,15 +341,6 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       <button class="pill active" id="pill-lastDate" onclick="sortDecks('lastDate',this)">Last played ↑</button>
     </div>
   </div><!-- /score-sticky -->
-
-  <!-- Pending changes bar -->
-  <div id="pending-bar" style="display:none;margin-bottom:10px">
-    <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius);padding:10px 14px">
-      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Pending changes</div>
-      <div id="pending-list" style="margin-bottom:10px;font-size:13px"></div>
-      <button class="submit-btn" style="padding:11px" onclick="submitPending()">Submit entries</button>
-    </div>
-  </div>
 
   <div class="card no-pad"><div id="deck-list"></div></div>
 
@@ -1208,11 +1207,11 @@ function renderPendingBar() {
   if (!bar) return;
   const entries = Object.entries(pending).filter(([,v])=>v.wins>0||v.losses>0);
   const hasPending = entries.length > 0;
-  // Hide/show stat grid, graph, and last-game section when pending active
+  // Swap: hide graph card, show pending bar in its place (both inside score-sticky)
+  const graphCard  = document.getElementById('graph-card');
   const statGrid   = document.querySelector('.stat-grid');
-  const scoreSticky = document.getElementById('score-sticky');
-  if (statGrid)    statGrid.style.display    = hasPending ? 'none' : '';
-  if (scoreSticky) scoreSticky.style.display = hasPending ? 'none' : '';
+  if (graphCard) graphCard.style.display = hasPending ? 'none' : '';
+  if (statGrid)  statGrid.style.display  = hasPending ? 'none' : '';
   if (!hasPending) { bar.style.display='none'; return; }
   bar.style.display='';
   const pl = document.getElementById('pending-list');
