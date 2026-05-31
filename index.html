@@ -1561,33 +1561,68 @@ function deleteHistoryEntry(idx) {
 }
 
 function rebuildAllScoresFromHistory() {
-  // Compute scores entirely from raw history — counts wins/losses directly,
-  // ignoring the cumulative h.wins/h.losses fields which go stale on deletion.
   if (!data.scores) data.scores = {};
 
-  // First pass: count wins and losses per deck key, and track last date/result
-  const counts = {}; // key -> {wins, losses, lastDate, lastResult, _name}
+  // Group history entries by deck key, preserving order
+  const byDeck = {}; // key -> [{h, date}]
   for (const h of (data.history||[])) {
     if (!h.last || !h.deck) continue;
     const key = h.deckUuid || uuidForName(h.deck) || h.deck;
-    if (!counts[key]) counts[key] = {wins:0, losses:0, lastDate:'', lastResult:'', _name: h.deck};
-    if (h.last === 'Win') counts[key].wins++;
-    else counts[key].losses++;
-    if (!counts[key].lastDate || h.date > counts[key].lastDate) {
-      counts[key].lastDate   = h.date;
-      counts[key].lastResult = h.last;
-    }
+    if (!byDeck[key]) byDeck[key] = [];
+    byDeck[key].push(h);
   }
 
-  // Second pass: write back, preserving existing metadata (_name stamps etc)
-  // Also zero out decks that have score entries but no history left
+  // For each deck, determine wins/losses using the best available method:
+  //   Old entries store cumulative h.wins/h.losses — use the last entry's snapshot.
+  //   New entries (no h.wins field) — count h.last values directly.
+  //   Mixed — split at the last old-style entry, take its snapshot + count new ones after.
+  const counts = {};
+  for (const [key, entries] of Object.entries(byDeck)) {
+    // Sort chronologically
+    const sorted = entries.slice().sort((a,b)=> (a.date||'').localeCompare(b.date||''));
+
+    // Find the last entry that has cumulative h.wins/h.losses (old-style)
+    let lastOldIdx = -1;
+    for (let i = sorted.length-1; i >= 0; i--) {
+      if (sorted[i].wins !== undefined) { lastOldIdx = i; break; }
+    }
+
+    let wins = 0, losses = 0;
+    if (lastOldIdx >= 0) {
+      // Seed from the last cumulative snapshot
+      wins   = sorted[lastOldIdx].wins   || 0;
+      losses = sorted[lastOldIdx].losses || 0;
+      // Count any new-style entries that came after it
+      for (let i = lastOldIdx+1; i < sorted.length; i++) {
+        if (sorted[i].last === 'Win') wins++;
+        else if (sorted[i].last === 'Loss') losses++;
+      }
+    } else {
+      // All new-style — count directly
+      for (const h of sorted) {
+        if (h.last === 'Win') wins++;
+        else if (h.last === 'Loss') losses++;
+      }
+    }
+
+    // Track last played
+    const last = sorted[sorted.length-1];
+    counts[key] = {
+      wins, losses,
+      lastDate:   last.date   || '',
+      lastResult: last.last   || '',
+      _name:      last.deck   || '',
+    };
+  }
+
+  // Zero out decks with score entries but no history
   for (const key of Object.keys(data.scores)) {
     if (!counts[key]) {
-      // No history at all for this deck — zero it out
-      const meta = { _name: data.scores[key]._name }; // preserve stamped name
+      const meta = { _name: data.scores[key]._name };
       data.scores[key] = {wins:0, losses:0, total:0, winRate:0, lastDate:'', lastResult:'', ...meta};
     }
   }
+  // Write computed counts
   for (const [key, c] of Object.entries(counts)) {
     const existing = data.scores[key] || {};
     const total = c.wins + c.losses;
@@ -1606,23 +1641,47 @@ function rebuildAllScoresFromHistory() {
 
 function rebuildScoreForDeck(deckNameOrUuid) {
   if (!data.scores) data.scores = {};
-  // Count wins/losses directly from history for this deck
-  let wins = 0, losses = 0, lastDate = '', lastResult = '';
-  for (const h of (data.history||[])) {
-    if (!h.last) continue;
-    const key = h.deckUuid || uuidForName(h.deck) || h.deck;
-    if (key !== deckNameOrUuid && h.deck !== deckNameOrUuid) continue;
-    if (h.last === 'Win') wins++; else losses++;
-    if (!lastDate || h.date > lastDate) { lastDate = h.date; lastResult = h.last; }
+  const entries = (data.history||[])
+    .filter(h => {
+      if (!h.last) return false;
+      const key = h.deckUuid || uuidForName(h.deck) || h.deck;
+      return key === deckNameOrUuid || h.deck === deckNameOrUuid;
+    })
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+
+  if (!entries.length) {
+    const existing = data.scores[deckNameOrUuid] || {};
+    data.scores[deckNameOrUuid] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:'',_name:existing._name||''};
+    return;
   }
+
+  // Same hybrid logic as rebuildAllScoresFromHistory
+  let lastOldIdx = -1;
+  for (let i = entries.length-1; i >= 0; i--) {
+    if (entries[i].wins !== undefined) { lastOldIdx = i; break; }
+  }
+  let wins = 0, losses = 0;
+  if (lastOldIdx >= 0) {
+    wins   = entries[lastOldIdx].wins   || 0;
+    losses = entries[lastOldIdx].losses || 0;
+    for (let i = lastOldIdx+1; i < entries.length; i++) {
+      if (entries[i].last === 'Win') wins++;
+      else if (entries[i].last === 'Loss') losses++;
+    }
+  } else {
+    for (const h of entries) {
+      if (h.last === 'Win') wins++;
+      else if (h.last === 'Loss') losses++;
+    }
+  }
+  const last = entries[entries.length-1];
   const total = wins + losses;
   const existing = data.scores[deckNameOrUuid] || {};
   data.scores[deckNameOrUuid] = {
-    ...existing,
-    wins, losses, total,
+    ...existing, wins, losses, total,
     winRate:    total > 0 ? parseFloat((wins/total*100).toFixed(1)) : 0,
-    lastDate,
-    lastResult,
+    lastDate:   last.date   || '',
+    lastResult: last.last   || '',
   };
 }
 
