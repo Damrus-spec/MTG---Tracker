@@ -805,14 +805,33 @@ async function syncDrive(silent) {
   } catch(e){ setSyncStatus('red','Offline — saved locally'); }
   syncing=false;
 }
+// ── Editing guard ──
+// Any input/textarea/select getting focus sets this; blur clears it after a short delay
+// so we never reload Drive data while the user is in the middle of typing.
+let _editingTimer = null;
+let userIsEditing = false;
+
+function isUserEditing() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+document.addEventListener('focusin',  () => {
+  clearTimeout(_editingTimer);
+  userIsEditing = isUserEditing();
+});
+document.addEventListener('focusout', () => {
+  // Small delay so a click from one input to another doesn't briefly clear the flag
+  _editingTimer = setTimeout(() => { userIsEditing = isUserEditing(); }, 200);
+});
+
 async function loadFromDrive(force) {
   if (!accessToken) { setSyncStatus('red','Not signed in'); return; }
-  // Don't re-fetch if we recently fetched and have no unsaved changes
-  // lastFetchTime can be set in the future to block re-fetches during editing
   if (!force && hasFetchedFromDrive && (Date.now() - lastFetchTime) < FETCH_COOLDOWN) return;
-  // Don't re-fetch if any deck input is currently focused
-  const activeDeckInput = document.activeElement;
-  if (!force && activeDeckInput && (activeDeckInput.id?.startsWith('dname-') || activeDeckInput.id?.startsWith('dpartner-'))) return;
+  // Never reload while user is actively typing/editing anything
+  if (!force && userIsEditing) return;
   setSyncStatus('busy','Loading...');
   try {
     const fid = await getOrCreateFile();
@@ -821,6 +840,11 @@ async function loadFromDrive(force) {
       {headers:{Authorization:`Bearer ${accessToken}`}});
     if (res.ok) {
       const loaded = await res.json();
+      // Don't overwrite in-memory data if user started editing while fetch was in flight
+      if (!force && userIsEditing) {
+        setSyncStatus('ok', 'Saved (not reloaded — editing in progress)');
+        return;
+      }
       data = Object.assign({},INITIAL_DATA,loaded);
       if (!data.settings)  data.settings  = INITIAL_DATA.settings;
       if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
@@ -842,16 +866,19 @@ async function loadFromDrive(force) {
 }
 function scheduleSync() {
   saveLocal();
-  if (!hasFetchedFromDrive) return; // never upload before fetching
+  if (!hasFetchedFromDrive) return;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(()=>syncDrive(true), 3000);
+  // Use a longer debounce while actively editing so rapid keystrokes don't hammer Drive
+  const delay = userIsEditing ? 6000 : 3000;
+  syncTimer = setTimeout(()=>syncDrive(true), delay);
 }
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='hidden'&&dirty&&hasFetchedFromDrive) syncDrive(true);
   else if(document.visibilityState==='visible'&&accessToken) loadFromDrive();
 });
 window.addEventListener('blur',()=>{if(dirty&&accessToken&&hasFetchedFromDrive){clearTimeout(syncTimer);syncDrive(true);}});
-window.addEventListener('focus',()=>{if(accessToken) loadFromDrive();});
+// On refocus, only reload if user isn't mid-edit
+window.addEventListener('focus',()=>{ if(accessToken && !userIsEditing) loadFromDrive(); });
 window.addEventListener('pagehide',()=>{if(dirty&&accessToken&&hasFetchedFromDrive) syncDrive(true);});
 
 // ============================================================
