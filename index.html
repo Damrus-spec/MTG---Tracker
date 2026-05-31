@@ -128,24 +128,24 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
 /* Buy list */
 .buy-copy-btn{width:100%;padding:10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:13px;cursor:pointer;color:var(--info);margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:6px}
-.buy-item-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--border)}
+.buy-item-row{display:flex;align-items:stretch;gap:0;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:52px}
 .buy-item-row:last-child{border-bottom:none}
-.buy-item-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
-.buy-item-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.buy-item-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.buy-item-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .buy-item-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.buy-item-name{flex:1;font-size:14px;font-weight:500}
-.buy-item-qty{font-size:13px;color:var(--text2);flex-shrink:0}
-.buy-item-price{font-size:13px;font-weight:500;flex-shrink:0;min-width:44px;text-align:right}
+.buy-item-name{flex:1;font-size:14px;font-weight:500;align-self:center;padding-left:10px}
+.buy-item-qty{font-size:13px;color:var(--text2);flex-shrink:0;align-self:center}
+.buy-item-price{font-size:13px;font-weight:500;flex-shrink:0;min-width:56px;text-align:right;align-self:center}
 .buy-item-price.loading{color:var(--text3);font-size:11px}
-.buy-item-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;font-size:16px;flex-shrink:0}
+.buy-item-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 8px;font-size:16px;flex-shrink:0;align-self:center}
 
 /* By deck */
 .deck-section{margin-bottom:12px}
-.deck-sec-header{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:0}
-.deck-sec-art{width:36px;height:26px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0}
-.deck-sec-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
-.deck-sec-name{flex:1;font-size:13px;font-weight:500}
-.deck-sec-count{font-size:11px;color:var(--text2)}
+.deck-sec-header{display:flex;align-items:stretch;gap:0;padding:0;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:0;overflow:hidden;min-height:48px}
+.deck-sec-art{width:60px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-sec-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
+.deck-sec-name{flex:1;font-size:13px;font-weight:500;align-self:center;padding-left:10px}
+.deck-sec-count{font-size:11px;color:var(--text2);align-self:center;padding:0 8px}
 .deck-buylist-toggle{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);flex-shrink:0;cursor:pointer;padding:2px 4px;border-radius:4px;-webkit-tap-highlight-color:transparent}
 
 .deck-buylist-toggle:hover{color:var(--text2)}
@@ -291,6 +291,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .toast.show{opacity:1}
 .empty{padding:12px;color:var(--text2);font-size:13px}
 .editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
+.editor-row td:nth-child(2){padding:0;vertical-align:stretch}
 .editor-row:last-child td{border-bottom:none}
 .editor-input{width:100%;background:transparent;border:none;border-bottom:.5px solid transparent;color:var(--text);font-size:13px;padding:2px 4px;font-family:inherit;border-radius:0}
 .editor-input:focus{outline:none;border-bottom-color:var(--blue);background:var(--surface)}
@@ -298,7 +299,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .editor-input.num-input{width:52px;text-align:center}
 .editor-input.num-input::-webkit-inner-spin-button,.editor-input.num-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .editor-input.num-input{-moz-appearance:textfield}
-.editor-art{width:38px;height:28px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;display:inline-block;vertical-align:middle}
+.editor-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .editor-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .editor-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .editor-select{background:transparent;border:none;color:var(--text);font-size:12px;padding:2px 4px;font-family:inherit;cursor:pointer}
@@ -586,6 +587,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       <option value="Win">Win</option>
       <option value="Loss">Loss</option>
     </select>
+    <button onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
     <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
   </div>
   <div class="card no-pad">
@@ -2644,6 +2646,15 @@ function toggleSettingsSection(labelEl) {
   if (body) body.classList.toggle('collapsed');
 }
 
+let editorSortDir = 1; // 1 = oldest first, -1 = newest first
+
+function toggleEditorSort() {
+  editorSortDir = -editorSortDir;
+  const btn = document.getElementById('editor-sort-btn');
+  if (btn) btn.innerHTML = `<i class="ti ti-arrows-sort"></i> ${editorSortDir===1?'Oldest':'Newest'}`;
+  renderEditor();
+}
+
 function renderEditor() {
   const q      = (document.getElementById('editor-search')?.value||'').toLowerCase();
   const resF   = document.getElementById('editor-result')?.value||'';
@@ -2655,7 +2666,7 @@ function renderEditor() {
   const indexed = history
     .map((h,i)=>({h,i}))
     .filter(({h})=> h.last && h.deck)
-    .sort((a,b)=>(a.h.date||'').localeCompare(b.h.date||''))
+    .sort((a,b)=>editorSortDir*(a.h.date||'').localeCompare(b.h.date||''))
     .filter(({h})=>!q || h.deck.toLowerCase().includes(q))
     .filter(({h})=>!resF || h.last===resF);
 
