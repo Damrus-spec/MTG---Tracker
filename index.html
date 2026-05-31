@@ -600,6 +600,9 @@ let accessToken = null;
 let hasFetchedFromDrive = false; // must fetch before we can upload
 let lastFetchTime = 0; // timestamp of last successful Drive fetch
 const FETCH_COOLDOWN = 60000; // only re-fetch from Drive if 60s have passed
+// Version counter: incremented on every local change, embedded in saved data.
+// loadFromDrive only overwrites if Drive version >= local version.
+let localVersion = 0;
 let artCache = {};
 let priceCache = {}; // card name -> {eur, usd, updated}
 let wantsTab = 'buy';
@@ -670,6 +673,8 @@ function fmtDate(iso) {
 // LOCAL STORAGE
 // ============================================================
 function saveLocal() {
+  localVersion++;
+  data._v = localVersion;
   try { localStorage.setItem('mtg_data', JSON.stringify(data)); } catch(e) {}
   dirty = true;
 }
@@ -693,6 +698,7 @@ function loadLocal() {
     if (s) {
       const loaded = JSON.parse(s);
       data = Object.assign({}, INITIAL_DATA, loaded);
+      localVersion = data._v || 0;
       if (!data.settings)   data.settings  = INITIAL_DATA.settings;
       if (!data.deckWants)  data.deckWants = INITIAL_DATA.deckWants;
       if (!data.history)    data.history   = INITIAL_DATA.history;
@@ -879,7 +885,14 @@ async function loadFromDrive(force) {
       if (res.ok) {
         if (userIsEditing) return; // user started editing during fetch — drop it
         const loaded = await res.json();
+        // If local data is newer than what Drive has, don't overwrite — our save is in flight
+        const driveVersion = loaded._v || 0;
+        if (driveVersion < localVersion) {
+          setSyncStatus('ok', '↑ saving…');
+          return;
+        }
         data = Object.assign({},INITIAL_DATA,loaded);
+        localVersion = data._v || 0;
         if (!data.settings)  data.settings  = INITIAL_DATA.settings;
         if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
         if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
@@ -909,6 +922,7 @@ async function loadFromDrive(force) {
       const loaded = await res.json();
       if (!force && userIsEditing) { setSyncStatus('ok','Synced'); return; }
       data = Object.assign({},INITIAL_DATA,loaded);
+      localVersion = data._v || 0;
       if (!data.settings)  data.settings  = INITIAL_DATA.settings;
       if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
       if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
