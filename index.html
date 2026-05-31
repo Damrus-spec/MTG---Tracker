@@ -291,7 +291,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .toast.show{opacity:1}
 .empty{padding:12px;color:var(--text2);font-size:13px}
 .editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
-.editor-row td:nth-child(2){padding:0;vertical-align:stretch}
+.editor-row td:nth-child(2){padding:0;height:1px;width:52px}
+.editor-row td:nth-child(2) .editor-art{height:100%;min-height:44px;align-self:unset}
 .editor-row:last-child td{border-bottom:none}
 .editor-input{width:100%;background:transparent;border:none;border-bottom:.5px solid transparent;color:var(--text);font-size:13px;padding:2px 4px;font-family:inherit;border-radius:0}
 .editor-input:focus{outline:none;border-bottom-color:var(--blue);background:var(--surface)}
@@ -590,18 +591,18 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <button onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
     <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
   </div>
-  <div class="card no-pad">
-    <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px">
+  <div class="card no-pad" style="overflow:hidden">
+    <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
       <thead>
         <tr style="border-bottom:.5px solid var(--border-md)">
-          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
-          <th style="padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)"></th>
-          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
-          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
-          <th style="padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">W</th>
-          <th style="padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">L</th>
-          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
-          <th style="padding:8px 12px;text-align:left;font-weight:500;color:var(--text2)"></th>
+          <th style="width:36px;padding:8px 6px 8px 12px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
+          <th style="width:52px;padding:0;font-weight:500;color:var(--text2)"></th>
+          <th style="width:96px;padding:8px 8px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
+          <th style="padding:8px 8px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
+          <th style="width:52px;padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">W</th>
+          <th style="width:52px;padding:8px 4px;text-align:center;font-weight:500;color:var(--text2)">L</th>
+          <th style="width:64px;padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
+          <th style="width:36px;padding:8px 4px;text-align:left;font-weight:500;color:var(--text2)"></th>
         </tr>
       </thead>
       <tbody id="editor-body"></tbody>
