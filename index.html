@@ -190,7 +190,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:56px;height:40px;border-radius:4px;overflow:hidden;background:var(--bg);flex-shrink:0;margin-left:12px}
+.deck-mgr-art{width:80px;height:64px;border-radius:6px;overflow:hidden;background:var(--bg);flex-shrink:0;margin-left:12px}
 .deck-mgr-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -2323,12 +2323,21 @@ function renderDeckMgr() {
     const art2 = d.partner ? (d.partnerArtOverride || artCache[scryfallKey(d.partner)]) : null;
     const artDisplay = art || d.artOverride;
     const art2Display = art2;
+    const flipped = !!d.artFlipped;
+    const art1Show = (!flipped || !art2Display) ? artDisplay : art2Display;
+    const art2Show = (!flipped || !art2Display) ? art2Display : artDisplay;
     return header+`<div class="deck-mgr-row">
-      <div class="deck-mgr-art${artDisplay?'':d.name?' loading':''}" data-art="${key}"
-           onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;position:relative;overflow:hidden">
-        ${artDisplay?`<img src="${artDisplay}" alt="${d.name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:''}
-        ${art2Display?`<img src="${art2Display}" alt="${d.partner}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`:''}
-        <div style="position:absolute;bottom:1px;right:1px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-left:12px;flex-shrink:0">
+        <div class="deck-mgr-art${art1Show?'':d.name?' loading':''}" data-art="${key}"
+             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;position:relative;overflow:hidden">
+          ${art1Show?`<img src="${art1Show}" alt="${d.name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`:''}
+          ${art2Show?`<img src="${art2Show}" alt="${d.partner||''}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`:''}
+          <div style="position:absolute;bottom:1px;right:1px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
+        </div>
+        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Flip partner art">
+          <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+          flip
+        </label>`:''}
       </div>
       <div class="deck-mgr-fields">
         <input type="text" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="Commander name"
