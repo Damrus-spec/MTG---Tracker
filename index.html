@@ -1697,11 +1697,19 @@ function renderDeckMgr() {
         initAC(partnerId, null);
         acCallbacks[partnerId] = async (partnerName) => {
           updateDeckField(i, 'partner', partnerName);
-          // Re-fetch color identity combining both commanders
-          const cmdName = data.colorDecks[i]?.name || '';
+          // Re-fetch combined color identity
+          // Use the commander name input value directly (most reliable)
+          const cmdInput = document.getElementById('dname-' + i);
+          const cmdName = cmdInput?.value?.trim() || data.colorDecks[i]?.name || '';
           if (cmdName) {
             const colorLabel = await fetchColorIdentity(cmdName, partnerName);
-            if (colorLabel) updateDeckField(i, 'color', colorLabel);
+            if (colorLabel) {
+              updateDeckField(i, 'color', colorLabel);
+              // Flash the color label green for feedback
+              const row = document.getElementById(partnerId)?.closest('.deck-mgr-row');
+              const colorSpan = row?.querySelector('span[style*="color"]');
+              if (colorSpan) { colorSpan.style.color='var(--green)'; setTimeout(()=>colorSpan.style.color='',2000); }
+            }
           }
         };
       }
