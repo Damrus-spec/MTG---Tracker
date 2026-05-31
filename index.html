@@ -213,7 +213,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 /* AUTOCOMPLETE */
 .ac-wrap{position:relative;width:100%}
 .ac-input{width:100%}
-.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:.5px solid var(--border-md);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);z-index:50;max-height:220px;overflow-y:auto;display:none;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.ac-dropdown{position:fixed;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);z-index:9999;max-height:220px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.4)}
 .ac-dropdown.open{display:block}
 .ac-item{padding:7px 12px;font-size:13px;cursor:pointer;border-bottom:.5px solid var(--border)}
 .ac-item:last-child{border-bottom:none}
@@ -2032,21 +2032,29 @@ let acSelected = {}; // track which input has which selected index
 function initAC(inputId, onSelect) {
   const input = document.getElementById(inputId);
   if (!input) return;
-  // Wrap in ac-wrap if not already
-  if (!input.parentElement.classList.contains('ac-wrap')) {
-    const wrap = document.createElement('div');
-    wrap.className = 'ac-wrap';
-    input.parentNode.insertBefore(wrap, input);
-    wrap.appendChild(input);
-    const dd = document.createElement('div');
-    dd.className = 'ac-dropdown';
-    dd.id = 'ac-dd-' + inputId;
-    wrap.appendChild(dd);
-  }
+  // Remove any old dropdown for this id
+  const oldDd = document.getElementById('ac-dd-' + inputId);
+  if (oldDd) oldDd.remove();
+  // Create dropdown appended to body, positioned absolutely via JS
+  const dd = document.createElement('div');
+  dd.className = 'ac-dropdown';
+  dd.id = 'ac-dd-' + inputId;
+  dd.style.position = 'fixed';
+  dd.style.zIndex = '9999';
+  document.body.appendChild(dd);
+  // Position dropdown under input on open
+  const positionDD = () => {
+    const rect = input.getBoundingClientRect();
+    dd.style.left = rect.left + 'px';
+    dd.style.top = (rect.bottom) + 'px';
+    dd.style.width = rect.width + 'px';
+  };
+  input._positionDD = positionDD;
   input.setAttribute('autocomplete','off');
-  input.addEventListener('input', () => acOnInput(inputId, onSelect));
+  input.addEventListener('input', () => { positionDD(); acOnInput(inputId, onSelect); });
   input.addEventListener('keydown', (e) => acOnKey(e, inputId, onSelect));
   input.addEventListener('blur', () => setTimeout(() => acClose(inputId), 150));
+  input.addEventListener('focus', positionDD);
 }
 
 // Track which inputs are in commander mode
@@ -2084,7 +2092,7 @@ async function acOnInput(inputId, onSelect) {
       const exact = names.some(n => n.toLowerCase() === q.toLowerCase());
       if (exact) { input.classList.add('ac-valid'); }
       acShowDropdown(inputId, names, onSelect);
-    } catch(e) {}
+    } catch(e) { console.warn('AC error:', e); }
   }, 250);
 }
 
