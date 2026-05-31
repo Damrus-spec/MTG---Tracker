@@ -1674,7 +1674,8 @@ function renderDeckMgr() {
         acCommanderMode.add(inputId);
         initAC(inputId, null);
         acCallbacks[inputId] = async (name) => {
-          const colorLabel = await fetchColorIdentity(name);
+          const partner = data.colorDecks[i]?.partner || '';
+          const colorLabel = await fetchColorIdentity(name, partner||null);
           if (!colorLabel) return;
           updateDeckField(i, 'color', colorLabel);
           // Flash the color span green
@@ -1690,8 +1691,14 @@ function renderDeckMgr() {
         pel._acInit = true;
         acCommanderMode.add(partnerId);
         initAC(partnerId, null);
-        acCallbacks[partnerId] = async (name) => {
-          updateDeckField(i, 'partner', name);
+        acCallbacks[partnerId] = async (partnerName) => {
+          updateDeckField(i, 'partner', partnerName);
+          // Re-fetch color identity combining both commanders
+          const cmdName = data.colorDecks[i]?.name || '';
+          if (cmdName) {
+            const colorLabel = await fetchColorIdentity(cmdName, partnerName);
+            if (colorLabel) updateDeckField(i, 'color', colorLabel);
+          }
         };
       }
     });
@@ -1750,7 +1757,7 @@ async function addDeck() {
   if(!data.colorDecks) data.colorDecks=[];
   if(!data.scores) data.scores={};
   // Auto-detect color identity from Scryfall
-  const color = (await fetchColorIdentity(name)) || '?';
+  const color = (await fetchColorIdentity(name, partner||null)) || '?';
   const deckName = partner ? `${name} // ${partner}` : name;
   if(!data.scores[deckName]) data.scores[deckName]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
   const uuid = genUUID();
@@ -2234,12 +2241,25 @@ function colorIdentityToLabel(ci) {
   return map[sorted] || null;
 }
 
-async function fetchColorIdentity(cardName) {
+async function fetchColorIdentity(cardName, partnerName) {
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+    const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}`);
     if (!res.ok) return null;
     const card = await res.json();
-    return colorIdentityToLabel(card.color_identity);
+    let ci = card.color_identity || [];
+
+    // If partner provided, combine both color identities
+    if (partnerName) {
+      const res2 = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(partnerName)}`);
+      if (res2.ok) {
+        const card2 = await res2.json();
+        const ci2 = card2.color_identity || [];
+        // Union of both color identities, deduplicated and sorted
+        ci = [...new Set([...ci, ...ci2])].sort();
+      }
+    }
+
+    return colorIdentityToLabel(ci);
   } catch(e) { return null; }
 }
 
@@ -2334,7 +2354,19 @@ function initStaticAC() {
   };
   acCommanderMode.add('new-deck-name');
   initAC('new-deck-name', null);
-  // Partner name — also commander mode
+  // Partner name — also commander mode, re-fetches combined color on pick
+  acCallbacks['new-deck-partner'] = async (partnerName) => {
+    const cmdName = (document.getElementById('new-deck-name')?.value||'').trim();
+    if (cmdName) {
+      const colorLabel = await fetchColorIdentity(cmdName, partnerName);
+      // Flash feedback (color will be set on addDeck)
+      const pel = document.getElementById('new-deck-partner');
+      if (pel && colorLabel) {
+        pel.style.borderColor='var(--green)';
+        setTimeout(()=>pel.style.borderColor='',1500);
+      }
+    }
+  };
   if (!document.getElementById('new-deck-partner')?._acInit) {
     const pel = document.getElementById('new-deck-partner');
     if (pel) {
