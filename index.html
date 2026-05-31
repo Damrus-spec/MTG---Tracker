@@ -2813,16 +2813,7 @@ function openArtOverride(idx, isPartner) {
 
   // Show a small choice modal: pick which slot to edit (or just open picker for commander if no partner)
   if (!hasPartner) {
-    const posStr = deck.artPosition || '50% 0%';
-    const [px, py] = posStr.split(' ').map(v => parseFloat(v)||0);
-    openArtPicker(
-      `${deck.name} — choose art`,
-      deck.artOverrideName || deck.name,
-      (url, cardName) => applyArt('artOverride', 'artOverrideName', url, cardName),
-      deck.artOverride || artCache[scryfallKey(deck.name)] || null,
-      px, py,
-      (x, y) => { data.colorDecks[idx].artPosition = `${x}% ${y}%`; renderDeckMgr(); scheduleSync(); }
-    );
+    openArtPickerSlot(idx, false);
     return;
   }
 
@@ -2837,12 +2828,12 @@ function openArtOverride(idx, isPartner) {
     if (!body) return;
     body.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        <button onclick="closeModal();setTimeout(()=>openArtPicker('${deck.name.replace(/'/g,"\'")} — choose art','${(deck.artOverrideName||deck.name).replace(/'/g,"\'")}',function(url,name){applyArtSlot(${idx},'artOverride','artOverrideName',url,name)}),50)"
+        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${deck.name}</div>
           <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
         </button>
-        <button onclick="closeModal();setTimeout(()=>openArtPicker('${deck.partner.replace(/'/g,"\'")} — choose art','${(deck.partnerArtOverrideName||deck.partner).replace(/'/g,"\'")}',function(url,name){applyArtSlot(${idx},'partnerArtOverride','partnerArtOverrideName',url,name)}),50)"
+        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${deck.partner}</div>
           <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
@@ -2862,6 +2853,25 @@ function openArtOverride(idx, isPartner) {
     const confirmBtn = document.querySelector('#modal-overlay .modal-confirm');
     if (confirmBtn) confirmBtn.style.display = 'none';
   }, 20);
+}
+
+function openArtPickerSlot(idx, isPartner) {
+  const deck = data.colorDecks[idx];
+  if (!deck) return;
+  const fieldKey  = isPartner ? 'partnerArtOverride'     : 'artOverride';
+  const nameKey   = isPartner ? 'partnerArtOverrideName'  : 'artOverrideName';
+  const posKey    = isPartner ? 'partnerArtPosition'      : 'artPosition';
+  const cmdName   = isPartner ? (deck.partner||'')         : deck.name;
+  const posStr    = deck[posKey] || '50% 0%';
+  const [px, py]  = posStr.split(' ').map(v => parseFloat(v)||0);
+  const posArt    = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
+  openArtPicker(
+    `${cmdName} — ${isPartner?'partner':'commander'} art`,
+    deck[nameKey] || cmdName,
+    (url, cardName) => applyArtSlot(idx, fieldKey, nameKey, url, cardName),
+    posArt, px, py,
+    (x, y) => { data.colorDecks[idx][posKey] = `${x}% ${y}%`; renderDeckMgr(); scheduleSync(); }
+  );
 }
 
 function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
