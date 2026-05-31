@@ -551,6 +551,15 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     </div>
     <div class="settings-body">
       <div class="card">
+        <div class="setting-block" style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="setting-name">History editor</div>
+            <div class="setting-desc">Show the Editor tab for directly editing history entries</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0">
+            <input type="checkbox" id="s-showEditor" onchange="saveStrSetting('showEditor',this.checked);updateEditorTab()" style="accent-color:var(--blue);width:15px;height:15px;cursor:pointer">
+          </label>
+        </div>
         <div class="setting-block">
           <div class="setting-name">Clean up duplicate entries</div>
           <div class="setting-desc">Removes duplicate score and history entries. Fixes retired decks showing twice, stale UUID records, and manually-added history duplicates.</div>
@@ -628,7 +637,7 @@ const COLOR_OPTIONS = [
 const INITIAL_DATA = {
   settings: {
     maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:30,
-    cardSeller:'cardmarket', artPref:'oldest'
+    cardSeller:'cardmarket', artPref:'oldest', showEditor:false
   },
   colorDecks: [],
   scores: {},
@@ -2657,6 +2666,16 @@ function editorOpenAdd() {
   }, 20);
 }
 
+function updateEditorTab() {
+  const show = cfg().showEditor === true || cfg().showEditor === 'true';
+  const btn = document.querySelector('.nav-btn[onclick*="editor"]');
+  if (btn) btn.style.display = show ? '' : 'none';
+  // If editor is hidden and we're on it, go back to settings
+  if (!show && document.getElementById('page-editor')?.classList.contains('active')) {
+    document.querySelector('.nav-btn[onclick*="settings"]')?.click();
+  }
+}
+
 function renderSettings() {
   const s=cfg();
   document.getElementById('s-maxWin').value     = s.maxWin;
@@ -2664,6 +2683,8 @@ function renderSettings() {
   document.getElementById('s-fallBehind').value = s.fallBehind;
   document.getElementById('s-threshold').value  = s.threshold;
   document.getElementById('s-historyLimit').value= s.historyLimit||500;
+  const showEditorEl = document.getElementById('s-showEditor');
+  if (showEditorEl) showEditorEl.checked = s.showEditor===true||s.showEditor==='true';
   const sellerEl = document.getElementById('s-cardSeller');
   if (sellerEl) sellerEl.value = s.cardSeller||'cardmarket';
   const artEl = document.getElementById('s-artPref');
@@ -3027,6 +3048,7 @@ function runRebuildScores() {
 
 function renderAll() {
   renderScore(); renderHistory(); renderWants(); renderDeckMgr(); populateHistoryFilters();
+  updateEditorTab();
   setTimeout(()=>{
     lastExpandedDeck = null;
     populateHistoryFilters();
