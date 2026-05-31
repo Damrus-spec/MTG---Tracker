@@ -680,7 +680,11 @@ async function syncDrive(silent) {
 async function loadFromDrive(force) {
   if (!accessToken) { setSyncStatus('red','Not signed in'); return; }
   // Don't re-fetch if we recently fetched and have no unsaved changes
+  // lastFetchTime can be set in the future to block re-fetches during editing
   if (!force && hasFetchedFromDrive && (Date.now() - lastFetchTime) < FETCH_COOLDOWN) return;
+  // Don't re-fetch if any deck input is currently focused
+  const activeDeckInput = document.activeElement;
+  if (!force && activeDeckInput && (activeDeckInput.id?.startsWith('dname-') || activeDeckInput.id?.startsWith('dpartner-'))) return;
   setSyncStatus('busy','Loading...');
   try {
     const fid = await getOrCreateFile();
