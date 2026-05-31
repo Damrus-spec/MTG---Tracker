@@ -190,8 +190,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:80px;height:64px;border-radius:6px;overflow:hidden;background:var(--bg);flex-shrink:0;margin-left:12px}
-.deck-mgr-art img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.deck-mgr-art{width:90px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
 .deck-mgr-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -783,16 +783,25 @@ function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artC
 
 // Render split art HTML for a container that already has position:relative;overflow:hidden
 // art1 = primary commander, art2 = partner (optional)
-function splitArtHtml(art1, art2, altText) {
+function splitArtHtml(art1, art2, altText, flipped) {
   if (!art1 && !art2) return '';
-  if (art1 && art2) {
-    // art1: full bleed underneath, art2: covers right side with diagonal left edge
-    // clip-path uses container-percentage coordinates via the parent being position:relative
-    // art2 sits full-width but is clipped to the right portion with a diagonal cut
-    return `<img src="${art1}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">
-            <img src="${art2}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`;
+  const a = (flipped && art2) ? art2 : art1;
+  const b = (flipped && art2) ? art1 : art2;
+  if (a && b) {
+    return `<img src="${a}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">
+            <img src="${b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`;
   }
-  return `<img src="${art1||art2}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
+  return `<img src="${a||b}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
+}
+
+// Look up artFlipped for a deck by UUID or display name
+function isArtFlipped(deckUuidOrName) {
+  const d = (data.colorDecks||[]).find(d =>
+    d.uuid === deckUuidOrName ||
+    deckDisplayName(d) === deckUuidOrName ||
+    d.name === deckUuidOrName
+  );
+  return !!(d?.artFlipped);
 }
 function savePriceCache() { try{localStorage.setItem('mtg_prices',JSON.stringify(priceCache));}catch(e){} }
 
@@ -1234,7 +1243,7 @@ function renderScore() {
     return `<div>
       <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-          ${splitArtHtml(art, prtArt, cmdName)}
+          ${splitArtHtml(art, prtArt, cmdName, d._deck?.artFlipped)}
         </div>
         <div class="deck-left">
           <div class="deck-name">${d.name}</div>
@@ -1321,7 +1330,7 @@ function renderScore() {
       const prtArt2 = cleanNPrt ? artCache[scryfallKey(cleanNPrt)] : null;
       return `<div class="deck-row">
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-          ${splitArtHtml(art, prtArt2, cleanN)}
+          ${splitArtHtml(art, prtArt2, cleanN, isArtFlipped(uuidOrName))}
         </div>
         <div class="deck-left">
           <div class="deck-name">${cleanN}</div>
@@ -1568,7 +1577,7 @@ function renderHistory() {
     return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
       <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${(()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,h.deck);})()}
+        ${(()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,h.deck,isArtFlipped(h.deckUuid||h.deck));})()}
       </div>
       <div class="h-main">
         <div class="h-deck">${h.deck}</div>
@@ -2052,7 +2061,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   return `<div class="deck-section">
     <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${(()=>{const pp=deck.includes(' // ')?deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,deck);})()}
+        ${(()=>{const pp=deck.includes(' // ')?deck.split(' // ')[1].trim():null; const pa=pp?artCache[scryfallKey(pp)]:null; return splitArtHtml(art,pa,deck,isArtFlipped(uuid));})()}
       </div>
       <span class="deck-sec-name">${deck}</span>
       <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
@@ -2327,14 +2336,13 @@ function renderDeckMgr() {
     const art1Show = (!flipped || !art2Display) ? artDisplay : art2Display;
     const art2Show = (!flipped || !art2Display) ? art2Display : artDisplay;
     return header+`<div class="deck-mgr-row">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-left:12px;flex-shrink:0">
+      <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;align-self:stretch;position:relative">
         <div class="deck-mgr-art${art1Show?'':d.name?' loading':''}" data-art="${key}"
-             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;position:relative;overflow:hidden">
-          ${art1Show?`<img src="${art1Show}" alt="${d.name}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`:''}
-          ${art2Show?`<img src="${art2Show}" alt="${d.partner||''}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">`:''}
-          <div style="position:absolute;bottom:1px;right:1px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
+             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:90px">
+          ${splitArtHtml(art1Show, art2Show, d.name)}
+          <div style="position:absolute;bottom:2px;right:2px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
         </div>
-        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap" title="Flip partner art">
+        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Flip partner art">
           <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
           flip
         </label>`:''}
