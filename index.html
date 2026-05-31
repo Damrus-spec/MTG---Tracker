@@ -2563,10 +2563,11 @@ function openArtOverride(idx, isPartner) {
     'Custom art',
     '',
     () => {
-      const doOverride = (fieldKey, inputId) => {
+      const doOverride = (fieldKey, nameKey, inputId) => {
         const val = (document.getElementById(inputId)?.value||'').trim();
         if (!val) {
           delete data.colorDecks[idx][fieldKey];
+          delete data.colorDecks[idx][nameKey];
           renderDeckMgr(); scheduleSync();
           return Promise.resolve();
         }
@@ -2575,19 +2576,20 @@ function openArtOverride(idx, isPartner) {
             const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop;
             if (!url) { showToast('Card not found: '+val); return; }
             data.colorDecks[idx][fieldKey] = url;
-            artCache[scryfallKey(val)] = url; saveArtCache();
+            data.colorDecks[idx][nameKey]  = card.name;
+            artCache[scryfallKey(card.name)] = url; saveArtCache();
           }).catch(()=>showToast('Scryfall error'));
       };
-      const p1 = doOverride('artOverride', 'ao-main');
-      const p2 = hasPartner ? doOverride('partnerArtOverride', 'ao-partner') : Promise.resolve();
+      const p1 = doOverride('artOverride', 'artOverrideName', 'ao-main');
+      const p2 = hasPartner ? doOverride('partnerArtOverride', 'partnerArtOverrideName', 'ao-partner') : Promise.resolve();
       Promise.all([p1,p2]).then(()=>{ renderDeckMgr(); scheduleSync(); showToast('Art updated'); });
     }
   );
   setTimeout(()=>{
     const body = document.getElementById('modal-body');
     if (!body) return;
-    const currentMain    = deck.artOverride    ? deck.name    : '';
-    const currentPartner = deck.partnerArtOverride ? deck.partner : '';
+    const currentMain    = deck.artOverrideName         || '';
+    const currentPartner = deck.partnerArtOverrideName  || '';
     body.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
         <div>
@@ -2607,12 +2609,19 @@ function openArtOverride(idx, isPartner) {
             placeholder="${deck.partner}"
             style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
         </div>`:''}
-        <div style="font-size:11px;color:var(--text3)">Enter a card name to use its art. Clear the field to reset to default.</div>
+        <div style="font-size:11px;color:var(--text3)">Enter any card name to use its art. Clear to reset to default.</div>
       </div>`;
-    document.getElementById('ao-main')?.focus();
+    setTimeout(()=>{
+      ['ao-main','ao-partner'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        acCommanderMode.delete(id);
+        initAC(id, null);
+      });
+      document.getElementById('ao-main')?.focus();
+    }, 30);
   }, 20);
 }
-
 // ============================================================
 // SETTINGS
 // ============================================================
