@@ -103,20 +103,21 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
 /* HISTORY */
 .search-bar{width:100%;padding:9px 12px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px}
-.h-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:48px}
+.h-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:52px}
 .h-row:last-child{border-bottom:none}
-.h-badge{align-self:center;margin:0 8px 0 auto}
-.h-del-btn{align-self:center;margin-right:4px}
-.h-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.h-art{width:52px;height:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .h-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .h-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.h-main{flex:1;min-width:0;padding:7px 7px 7px 8px}
+.h-num{font-size:11px;color:var(--text3);flex-shrink:0;width:32px;text-align:right;padding:0 6px 0 6px}
+.h-main{flex:1;min-width:0;padding:0 8px}
 .h-deck{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.h-submeta{font-size:11px;color:var(--text2);margin-top:1px}
-.h-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;flex-shrink:0}
+.h-submeta{font-size:11px;color:var(--text2);margin-top:2px}
+.h-col-date{flex-shrink:0;width:86px;font-size:11px;color:var(--text2);text-align:center}
+.h-col-w{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--green);text-align:center}
+.h-col-l{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--red);text-align:center}
+.h-badge{flex-shrink:0;font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;width:44px;text-align:center;margin:0 6px}
 .h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
-.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:32px;text-align:left;display:flex;align-items:center;padding:0 6px 0 8px}
-.h-del-btn{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px;flex-shrink:0;transition:color .15s}
+.h-del-btn{flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 6px 2px 2px;transition:color .15s}
 .h-del-btn:active,.h-del-active{color:var(--red)!important}
 .h-selected{background:var(--red-bg)}
 
@@ -1819,9 +1820,10 @@ function renderHistory() {
       </div>
       <div class="h-main">
         <div class="h-deck">${(h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck}</div>
-        <div class="h-submeta">${fmtDate(h.date)}${h.wins!=null?` · ${h.wins}W ${h.losses}L`:''}</div>
         ${issueHtml}
       </div>
+      <span class="h-col-date">${fmtDate(h.date)}</span>
+      ${h.wins!=null?`<span class="h-col-w">${h.wins}</span><span class="h-col-l">${h.losses}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
       <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
       <button class="h-del-btn${isSel?' h-del-active':''}" onclick="toggleHistorySelect(${i},event)" title="Select to delete">
         <i class="ti ti-trash"></i>
