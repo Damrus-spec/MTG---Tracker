@@ -1391,7 +1391,7 @@ function renderScore() {
   const allDecksData = data.colorDecks||[];
   const ownedCount = allDecksData.filter(d=>d.status==='Owned'&&d.name).length;
   document.getElementById('total-decks').textContent  = ownedCount;
-  const lastH=data.history?.[data.history.length-1];
+  const lastH = (data.history||[]).filter(h=>h.date&&h.last).reduce((best,h)=>(!best||h.date>best.date)?h:best, null);
   document.getElementById('last-played').textContent  = lastH?fmtDate(lastH.date):'—';
 
   const artNames = list.flatMap(d=>{
@@ -3683,6 +3683,7 @@ function renderGraph() {
     if (fromLabel) fromLabel.textContent = pct === 0 ? 'All time' : cutoff.slice(0,7);
   }
 
+  let points = [];
 
   if (deckFilter === 'ALL') {
     // Running overall win rate — deduplicate entries that exist under both UUID and name
