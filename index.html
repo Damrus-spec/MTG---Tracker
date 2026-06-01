@@ -313,7 +313,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .editor-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .editor-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .editor-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.editor-select{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:2px 2px;font-family:inherit;cursor:pointer;width:100%}
+.editor-select{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:2px 2px;font-family:inherit;cursor:pointer;width:100%;text-align:center}
 .editor-select:focus{outline:none;border-color:var(--blue)}
 .editor-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:2px 4px;font-size:12px}
 .editor-del:hover{color:var(--red)}
@@ -3144,7 +3144,7 @@ function renderEditor() {
         placeholder="—" onchange="editorUpdate(${i},'wins',this.value)"></td>
       <td style="text-align:center;padding:2px"><input class="editor-input num-input" type="number" min="0" value="${h.losses!=null?h.losses:''}"
         placeholder="—" onchange="editorUpdate(${i},'losses',this.value)"></td>
-      <td><select class="editor-select" onchange="editorUpdate(${i},'last',this.value)">
+      <td style="text-align:center;padding:2px"><select class="editor-select" onchange="editorUpdate(${i},'last',this.value)">
         <option value="Win" ${h.last==='Win'?'selected':''}>Win</option>
         <option value="Loss" ${h.last==='Loss'?'selected':''}>Loss</option>
       </select></td>
