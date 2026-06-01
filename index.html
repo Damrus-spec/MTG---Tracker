@@ -998,16 +998,38 @@ function initGSI() {
       client_id: CLIENT_ID,
       scope: SCOPES,
       callback: (resp) => {
-        if (resp.error) { setSyncStatus('red','Sign-in failed: '+resp.error); return; }
+        if (resp.error) {
+          // Silent sign-in failed — need user interaction
+          if (resp.error === 'interaction_required' || resp.error === 'user_cancelled') {
+            setSyncStatus('red', 'Session expired — tap to sign in again');
+            accessToken = null;
+            updateSignInBtn();
+          } else {
+            setSyncStatus('red', 'Sign-in failed: ' + resp.error);
+          }
+          return;
+        }
         accessToken = resp.access_token;
         try { localStorage.setItem('mtg_token', accessToken); } catch(e) {}
-        updateSignInBtn(); loadFromDrive(true); // force fetch on sign-in
+        updateSignInBtn();
+        loadFromDrive(true);
       }
     });
     return true;
   } catch(e) {
-    setSyncStatus('red', 'GSI init failed: '+e.message);
+    setSyncStatus('red', 'GSI init failed: ' + e.message);
     return false;
+  }
+}
+
+// Try to silently re-acquire a token (no popup). Falls back to showing sign-in button.
+function silentSignIn() {
+  if (!initGSI()) return;
+  try {
+    gsiClient.requestAccessToken({ prompt: 'none' });
+  } catch(e) {
+    // Silent sign-in not supported in this context — just show the sign-in button
+    updateSignInBtn();
   }
 }
 
@@ -1017,9 +1039,9 @@ function signIn() {
     return;
   }
   try {
-    gsiClient.requestAccessToken();
+    gsiClient.requestAccessToken({ prompt: 'select_account' });
   } catch(e) {
-    setSyncStatus('red', 'Sign-in error: '+e.message);
+    setSyncStatus('red', 'Sign-in error: ' + e.message);
   }
 }
 function signOut() {
@@ -1091,7 +1113,7 @@ async function syncDrive(silent) {
     }
     if (res.ok) {
       setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
+    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; silentSignIn(); }
     else setSyncStatus('red','Sync error');
   } catch(e){ setSyncStatus('red','Offline — saved locally'); }
   syncing=false;
@@ -1154,7 +1176,7 @@ async function loadFromDrive(force) {
         setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
       } else if (res.status===401) {
         accessToken=null; hasFetchedFromDrive=false;
-        setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn();
+        silentSignIn();
       }
     } catch(e) { /* silently ignore background fetch errors */ }
     return;
@@ -1183,7 +1205,7 @@ async function loadFromDrive(force) {
       deduplicateHistory();
       saveLocal(); renderAll();
       setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; setSyncStatus('red','Session expired — tap to sign in again'); updateSignInBtn(); }
+    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; silentSignIn(); }
     else { setSyncStatus('red','Load error'); }
   } catch(e){ setSyncStatus('red','Offline — using local'); }
 }
@@ -4080,7 +4102,11 @@ updateSignInBtn();
 if (accessToken) {
   loadFromDrive(true); // force fetch on boot
 } else {
-  setSyncStatus('red', 'Not signed in — tap to connect Google Drive');
+  // Try silent re-auth first — if user is still logged into Google this works without a popup
+  setSyncStatus('amber', 'Reconnecting…');
+  setTimeout(() => {
+    if (!accessToken) silentSignIn();
+  }, 1500); // wait for GSI library to load
 }
 </script>
 </body>
