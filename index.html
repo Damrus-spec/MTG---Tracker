@@ -2562,7 +2562,7 @@ function renderDeckMgr() {
           id="dname-${i}"
           onblur="updateDeckField(${i},'name',this.value)">
         <input type="text" value="${(d.partner||'').replace(/"/g,'&quot;')}" placeholder="Partner (optional)"
-          style="margin:0 0 5px;font-size:12px;padding:4px 8px;color:var(--text2)"
+          style="margin:0 0 5px;font-size:12px;padding:4px 8px"
           id="dpartner-${i}"
           onblur="updateDeckField(${i},'partner',this.value)">
         <div class="deck-mgr-selects" style="align-items:center">
@@ -3108,7 +3108,7 @@ function renderEditor() {
       })()}</td>
       <td><input class="editor-input date-input" value="${h.date||''}"
         onchange="editorUpdate(${i},'date',this.value)"></td>
-      <td style="min-width:140px"><input class="editor-input" value="${(h.deck||'').replace(/"/g,'&quot;')}"
+      <td style="min-width:140px"><input class="editor-input" value="${((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '').replace(/"/g,'&quot;')}"
         onchange="editorUpdate(${i},'deck',this.value)" style="width:100%;min-width:130px"></td>
       <td><input class="editor-input num-input" type="number" min="0" value="${h.wins!=null?h.wins:''}"
         placeholder="—" onchange="editorUpdate(${i},'wins',this.value)"></td>
