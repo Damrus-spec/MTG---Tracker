@@ -1541,16 +1541,20 @@ function renderScore() {
   const legacySec = document.getElementById('legacy-section');
   if (legacyNames.length>0) {
     legacySec.style.display='';
+    const artNamesToFetch = [];
     document.getElementById('legacy-list').innerHTML = legacyNames.map(uuidOrName=>{
       const s=data.scores[uuidOrName];
-      // Resolve display name: stamped _name, UUID lookup, plain name, or raw value
-      const cleanN = s._name || displayNameForUuid(uuidOrName) || uuidOrName;
+      // Resolve display name: check retired deck record first, then stamped _name, then UUID lookup
+      const retiredDeck = (data.colorDecks||[]).find(d=>d.uuid===uuidOrName);
+      const cleanN = (retiredDeck ? deckDisplayName(retiredDeck) : null) || s._name || displayNameForUuid(uuidOrName) || uuidOrName;
       const cls=wrClass(s.winRate,s.total);
-      const fill=WR_FILL[cls];
-      const key=scryfallKey(cleanN.split(' // ')[0]);
-      const art=artCache[key];
-      const cleanNPrt = cleanN.includes(' // ') ? cleanN.split(' // ')[1].trim() : null;
-      const prtArt2 = cleanNPrt ? artCache[scryfallKey(cleanNPrt)] : null;
+      const cmdName = cleanN.split(' // ')[0].trim();
+      const prtName = cleanN.includes(' // ') ? cleanN.split(' // ')[1].trim() : null;
+      const key=scryfallKey(cmdName);
+      const art=retiredDeck?.artOverride || artCache[key];
+      const prtArt2 = prtName ? (retiredDeck?.partnerArtOverride || artCache[scryfallKey(prtName)]) : null;
+      artNamesToFetch.push(cmdName);
+      if (prtName) artNamesToFetch.push(prtName);
       return `<div class="deck-row">
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
           ${splitArtHtml(art, prtArt2, cleanN, isArtFlipped(uuidOrName))}
@@ -1562,7 +1566,7 @@ function renderScore() {
         <div class="deck-wr ${cls}">${s.winRate}%</div>
       </div>`;
     }).join('');
-    fetchMissingArt(legacyNames);
+    fetchMissingArt(artNamesToFetch);
   } else { legacySec.style.display='none'; }
 
   fetchMissingArt(artNames);
