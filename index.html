@@ -1771,7 +1771,7 @@ function renderHistory() {
 
   const indexed = allWithResult
     .map((h,i)=>({h,i,absNum:gameOffset+i+1})) // offset so newest = totalScoreGames
-    .filter(({h})=>!q||h.deck.toLowerCase().includes(q))
+    .filter(({h})=>!q||(((h.deckUuid?displayNameForUuid(h.deckUuid):null)||h.deck||'').toLowerCase().includes(q)))
     .filter(({h})=>!filterYear ||h.date.startsWith(filterYear))
     .filter(({h})=>!filterMonth||h.date.slice(5,7)===filterMonth)
     .reverse(); // newest first
@@ -1800,7 +1800,7 @@ function renderHistory() {
         ${h.deckUuid ? deckArtHtml(h.deckUuid) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck)}
       </div>
       <div class="h-main">
-        <div class="h-deck">${h.deck}</div>
+        <div class="h-deck">${(h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck}</div>
         <div class="h-submeta">${fmtDate(h.date)}${h.wins!=null?` · ${h.wins}W ${h.losses}L`:''}</div>
         ${issueHtml}
       </div>
