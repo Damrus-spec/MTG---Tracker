@@ -361,7 +361,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <div id="graph-card" class="card" style="margin-bottom:8px;padding:0;overflow:hidden">
       <div onclick="toggleGraph()" style="display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer">
         <div style="font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;flex:1">Win rate over time</div>
-        <i class="ti ti-chevron-down" id="graph-toggle-icon" style="font-size:14px;color:var(--text3);transition:transform .2s"></i>
+        <i class="ti ti-chevron-down" title="Collapse/expand graph" id="graph-toggle-icon" style="font-size:14px;color:var(--text3);transition:transform .2s"></i>
       </div>
       <div id="graph-body" style="padding:0 14px 10px">
         <div style="position:relative;height:140px">
@@ -382,16 +382,16 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Pending changes</div>
         <div id="pending-list" style="margin-bottom:10px;font-size:13px"></div>
         <div style="display:flex;gap:8px">
-          <button onclick="cancelPending()" style="padding:11px 16px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-size:14px">Cancel</button>
-          <button class="submit-btn" style="padding:11px;flex:1" onclick="submitPending()">Submit entries</button>
+          <button title="Discard all pending entries" onclick="cancelPending()" style="padding:11px 16px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-size:14px">Cancel</button>
+          <button class="submit-btn" style="padding:11px;flex:1" title="Log all pending games to history" onclick="submitPending()">Submit entries</button>
         </div>
       </div>
     </div>
     <!-- Sort pills -->
     <div class="sort-row" id="sort-row">
-      <button class="pill" id="pill-total" onclick="sortDecks('total',this)">Most played</button>
-      <button class="pill" id="pill-winRate" onclick="sortDecks('winRate',this)">Win rate</button>
-      <button class="pill active" id="pill-lastDate" onclick="sortDecks('lastDate',this)">Last played ↑</button>
+      <button class="pill" id="pill-total" title="Sort by most played" onclick="sortDecks('total',this)">Most played</button>
+      <button class="pill" id="pill-winRate" title="Sort by win rate" onclick="sortDecks('winRate',this)">Win rate</button>
+      <button class="pill active" id="pill-lastDate" title="Sort by last played" onclick="sortDecks('lastDate',this)">Last played ↑</button>
     </div>
   </div><!-- /score-sticky -->
 
@@ -445,13 +445,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 <!-- WANTS -->
 <div id="page-wants" class="page">
   <div class="wants-tabs">
-    <button class="wants-tab active" onclick="switchWantsTab('buy',this)">Buy list</button>
-    <button class="wants-tab" onclick="switchWantsTab('deck',this)">By deck</button>
+    <button class="wants-tab active" title="View your buy list" onclick="switchWantsTab('buy',this)">Buy list</button>
+    <button class="wants-tab" title="View wants organised by deck" onclick="switchWantsTab('deck',this)">By deck</button>
   </div>
   <!-- BUY LIST -->
   <div id="wants-buy">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button class="buy-copy-btn" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy full list</button>
+      <button class="buy-copy-btn" title="Copy all buy list items to clipboard" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy full list</button>
       <div id="buy-total-price" style="font-size:14px;font-weight:600;color:var(--text);flex-shrink:0;padding:10px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm)">€—</div>
     </div>
     <div class="card"><div id="buy-list"></div></div>
@@ -465,8 +465,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <span><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:3px;vertical-align:middle"></span>Owned, not in</span>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
-        <button onclick="setAllDeckSections(true)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-down"></i> All</button>
-        <button onclick="setAllDeckSections(false)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-up"></i> None</button>
+        <button title="Expand all decks" onclick="setAllDeckSections(true)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-down"></i> All</button>
+        <button title="Collapse all decks" onclick="setAllDeckSections(false)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-up"></i> None</button>
       </div>
     </div>
     <div id="deck-wants-list"></div>
@@ -593,14 +593,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <div class="setting-block">
           <div class="setting-name">Clean up duplicate entries</div>
           <div class="setting-desc">Removes duplicate score and history entries. Fixes retired decks showing twice, stale UUID records, and manually-added history duplicates.</div>
-          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" onclick="runDbCleanup()">Clean up now</button>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" title="Remove duplicate history and score entries" onclick="runDbCleanup()">Clean up now</button>
         </div>
       </div>
       <div class="card">
         <div class="setting-block">
           <div class="setting-name">Recover deleted decks</div>
           <div class="setting-desc">Finds decks in your history that no longer exist in your deck list and lets you restore them as Retired.</div>
-          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="recoverDeletedDecks()">Find & restore</button>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" title="Scan history for decks removed from the deck list and restore them" onclick="recoverDeletedDecks()">Find & restore</button>
         </div>
       </div>
     </div>
@@ -618,8 +618,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       <option value="Win">Win</option>
       <option value="Loss">Loss</option>
     </select>
-    <button onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
-    <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
+    <button title="Toggle sort order: oldest/newest first" onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
+    <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" title="Add a new history entry" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
   </div>
   <div class="card no-pad" style="overflow:hidden">
     <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
@@ -647,7 +647,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;padding:12px 16px 0;flex-shrink:0">
       <div id="art-picker-title" style="flex:1;font-size:14px;font-weight:600">Choose art</div>
-      <button onclick="closeArtPicker()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:2px 4px;line-height:1"><i class="ti ti-x"></i></button>
+      <button title="Close without saving" onclick="closeArtPicker()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--text3);padding:2px 4px;line-height:1"><i class="ti ti-x"></i></button>
     </div>
     <!-- Tabs -->
     <div style="display:flex;gap:0;padding:10px 16px 0;flex-shrink:0;border-bottom:.5px solid var(--border)">
@@ -693,7 +693,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         </div>
         <input id="ap-s" type="range" min="100" max="250" value="100" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
-      <button onclick="artPickerSavePos()" class="submit-btn" style="padding:10px;margin-top:4px">Save position</button>
+      <button title="Apply crop position and zoom to this deck" onclick="artPickerSavePos()" class="submit-btn" style="padding:10px;margin-top:4px">Save position</button>
     </div>
   </div>
 </div>
@@ -1458,15 +1458,15 @@ function renderScore() {
           <div>
             <div class="log-col-label win-lbl">Wins</div>
             <div class="log-btn-row">
-              <button class="log-adj-btn plus-win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button>
-              <button class="log-adj-btn minus-win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button>
+              <button class="log-adj-btn plus-win" title="Add a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button>
+              <button class="log-adj-btn minus-win" title="Remove a win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button>
             </div>
           </div>
           <div>
             <div class="log-col-label loss-lbl">Losses</div>
             <div class="log-btn-row">
-              <button class="log-adj-btn plus-loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button>
-              <button class="log-adj-btn minus-loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button>
+              <button class="log-adj-btn plus-loss" title="Add a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button>
+              <button class="log-adj-btn minus-loss" title="Remove a loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button>
             </div>
           </div>
         </div>
@@ -2275,7 +2275,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       </div>
       <span class="deck-sec-name">${deck}</span>
       <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
-      ${group==='Building'?`<label class="deck-buylist-toggle" onclick="event.stopPropagation()" title="Include in buy list">
+      ${group==='Building'?`<label class="deck-buylist-toggle" onclick="event.stopPropagation()" title="Include/exclude this deck from the buy list">
         <input type="checkbox" ${deckBuylistExcluded.has(uuid)?'':'checked'} onchange="toggleDeckBuylist('${uuid}',this.checked)">
         buy list
       </label>`:''}
@@ -2549,9 +2549,9 @@ function renderDeckMgr() {
              onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:110px">
           ${deckArtHtml(d.uuid)}
           ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
-          <div style="position:absolute;bottom:2px;right:2px;font-size:8px;color:rgba(255,255,255,.6)"><i class="ti ti-pencil"></i></div>
+
         </div>
-        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Flip partner art">
+        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Swap which partner art shows in front">
           <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
           flip
         </label>`:''}
@@ -2572,7 +2572,7 @@ function renderDeckMgr() {
         <div class="deck-mgr-selects" style="align-items:center">
           <div style="display:flex;align-items:center;gap:4px;padding:0 4px">
             ${colorManaHtml(d.color)}
-            <button onclick="redetectColor(${i})" title="Re-detect color identity" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0 2px;font-size:11px;line-height:1"><i class="ti ti-refresh" style="font-size:11px"></i></button>
+            <button onclick="redetectColor(${i})" title="Re-detect color identity from Scryfall" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0 2px;font-size:11px;line-height:1"><i class="ti ti-refresh" style="font-size:11px"></i></button>
           </div>
           <select onchange="updateDeckField(${i},'status',this.value)">
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
@@ -2580,7 +2580,7 @@ function renderDeckMgr() {
         </div>
       </div>
       ${d.status==='Retired'?`
-        <button onclick="reactivateDeck(${i})" title="Reactivate deck" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
+        <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
       `:''}
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
     </div>`;
@@ -3101,10 +3101,14 @@ function renderEditor() {
       <td style="padding:4px 4px 4px 8px">${(()=>{
         const cmdName=(h.deck||'').split(' // ')[0].trim();
         const k=scryfallKey(cmdName);
-        const art=artCache[k];
-        const prtName=(h.deck||'').includes(' // ')?(h.deck||'').split(' // ')[1].trim():null;
-        const prtArt=prtName?artCache[scryfallKey(prtName)]:null;
-        return `<div class="editor-art${art?'':' loading'}" data-art="${k}">${splitArtHtml(art,prtArt,cmdName)}</div>`;
+        const artHtml = h.deckUuid ? deckArtHtml(h.deckUuid) : (()=>{
+          const art=artCache[k];
+          const prtName=(h.deck||'').includes(' // ')?(h.deck||'').split(' // ')[1].trim():null;
+          const prtArt=prtName?artCache[scryfallKey(prtName)]:null;
+          return splitArtHtml(art,prtArt,cmdName);
+        })();
+        const hasArt = h.deckUuid ? !!(deckArtHtml(h.deckUuid)) : !!artCache[k];
+        return `<div class="editor-art${hasArt?'':' loading'}" data-art="${k}">${artHtml}</div>`;
       })()}</td>
       <td><input class="editor-input date-input" value="${h.date||''}"
         onchange="editorUpdate(${i},'date',this.value)"></td>
