@@ -367,6 +367,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <div style="position:relative;height:140px">
           <canvas id="wr-chart"></canvas>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0 2px" onclick="event.stopPropagation()">
+          <span style="font-size:10px;color:var(--text3);flex-shrink:0" id="graph-from-label">All time</span>
+          <input id="graph-date-slider" type="range" min="0" max="100" value="0"
+            style="flex:1;height:3px;accent-color:var(--blue);cursor:pointer"
+            oninput="renderGraph()">
+          <span style="font-size:10px;color:var(--text3);flex-shrink:0">Now</span>
+        </div>
       </div>
     </div>
     <!-- Pending changes bar — sticky, replaces graph when active -->
@@ -2490,7 +2497,7 @@ function renderDeckMgr() {
     `${owned} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`;
 
   // Sort: Owned first, then Building, then Planned; alphabetically within each group
-  const statusOrder = {Owned:0,Building:1,Planned:2};
+  const statusOrder = {Owned:0,Building:1,Planned:2,Retired:3};
   const sorted = decks
     .map((d,i)=>({...d,_i:i}))
     .sort((a,b)=>{
@@ -2800,8 +2807,8 @@ function artPickerUpdatePos() {
     const iH = iW / 4.4;
     const cH = cW * 0.91; // portrait crop window
     if (bg) bg.style.height = `${cH}px`;
-    // translate: x% = how far right (inverted: 0%=right edge, 100%=left edge)
-    const tx = -(((100 - x) / 100) * Math.max(0, iW - cW));
+    // translate: x=0 shows left edge, x=100 shows right edge
+    const tx = -((x / 100) * Math.max(0, iW - cW));
     const ty = -((y / 100) * Math.max(0, iH - cH));
     img.style.position   = 'absolute';
     img.style.top        = '0';
@@ -2814,7 +2821,7 @@ function artPickerUpdatePos() {
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
   const sv = document.getElementById('ap-s-val');
-  if (xv) xv.textContent = `${Math.round(100-x)}%`;
+  if (xv) xv.textContent = `${Math.round(x)}%`;
   if (yv) yv.textContent = `${y}%`;
   if (sv) sv.textContent = `${sc.toFixed(1)}×`;
 }
@@ -3422,8 +3429,7 @@ function renderIssueSummary(eid, deckName) {
   el.style.display='';
   el.innerHTML = keys.map(issue => {
     const res = ci[issue];
-    const col = res==='Win' ? 'var(--green)' : 'var(--red)';
-    return `<span style="margin-right:8px">${issue} <span style="color:${col}">×${res==='Win'?'W':'L'}</span></span>`;
+    return `<span style="margin-right:8px;padding:1px 7px;border-radius:10px;background:var(--surface);border:.5px solid var(--border-md);font-size:10px">${issue}</span>`;
   }).join('');
 }
 // Migrate legacy name-keyed data to UUID-keyed
@@ -3659,8 +3665,24 @@ function renderGraph() {
   const deckFilter = lastExpandedDeck || 'ALL';
 
   // Build data points from history
-  const history = (data.history||[]).filter(h=>h.last && h.date);
-  let points = [];
+  let history = (data.history||[]).filter(h=>h.last && h.date);
+
+  // Date range slider filter
+  const slider = document.getElementById('graph-date-slider');
+  const fromLabel = document.getElementById('graph-from-label');
+  if (slider && history.length) {
+    const allDates = history.map(h=>h.date).sort();
+    const earliest = allDates[0];
+    const latest   = allDates[allDates.length-1];
+    const pct = parseFloat(slider.value) / 100;
+    // Interpolate between earliest and latest date
+    const e = new Date(earliest).getTime();
+    const l = new Date(latest).getTime();
+    const cutoff = new Date(e + pct*(l-e)).toISOString().slice(0,10);
+    history = history.filter(h => h.date >= cutoff);
+    if (fromLabel) fromLabel.textContent = pct === 0 ? 'All time' : cutoff.slice(0,7);
+  }
+
 
   if (deckFilter === 'ALL') {
     // Running overall win rate — deduplicate entries that exist under both UUID and name
