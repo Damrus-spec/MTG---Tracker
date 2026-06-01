@@ -113,8 +113,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-deck{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .h-submeta{font-size:11px;color:var(--text2);margin-top:2px}
 .h-col-date{flex-shrink:0;width:86px;font-size:11px;color:var(--text2);text-align:center}
-.h-col-w{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--green);text-align:center}
-.h-col-l{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--red);text-align:center}
+.h-col-w{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--green);text-align:center;margin-top:4px;margin-right:4px}
+.h-col-l{flex-shrink:0;width:28px;font-size:12px;font-weight:600;color:var(--red);text-align:center;margin-top:4px}
 .h-badge{flex-shrink:0;font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;width:44px;text-align:center;margin:0 6px}
 .h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
 .h-del-btn{flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 6px 2px 2px;transition:color .15s}
@@ -3250,6 +3250,15 @@ function editorUpdate(idx, field, value) {
   const row = tbody?.querySelector(`tr[data-idx="${idx}"]`);
   if (row) {
     row.classList.toggle('draft-changed', !!editorDraft[idx]);
+    // Live-update the flip button if result changed
+    if (field === 'last') {
+      const btn = row.querySelector('button.h-badge');
+      if (btn) {
+        btn.textContent = value;
+        btn.classList.toggle('h-win', value === 'Win');
+        btn.classList.toggle('h-loss', value === 'Loss');
+      }
+    }
   }
   updateEditorSaveBar();
 }
