@@ -105,7 +105,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .search-bar{width:100%;padding:9px 12px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px}
 .h-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:48px}
 .h-row:last-child{border-bottom:none}
-.h-badge{align-self:center;margin:0 6px}
+.h-badge{align-self:center;margin:0 8px 0 auto}
 .h-del-btn{align-self:center;margin-right:4px}
 .h-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .h-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
@@ -115,7 +115,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-submeta{font-size:11px;color:var(--text2);margin-top:1px}
 .h-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;flex-shrink:0}
 .h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
-.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:26px;text-align:left;display:flex;align-items:center;padding-left:8px}
+.h-num{font-size:11px;color:var(--text3);flex-shrink:0;min-width:32px;text-align:left;display:flex;align-items:center;padding:0 6px 0 8px}
 .h-del-btn{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px;flex-shrink:0;transition:color .15s}
 .h-del-btn:active,.h-del-active{color:var(--red)!important}
 .h-selected{background:var(--red-bg)}
@@ -296,8 +296,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .art-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
 .art-thumb-label{position:absolute;bottom:0;left:0;right:0;padding:3px 5px;font-size:9px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .editor-row td{padding:4px 6px;border-bottom:.5px solid var(--border);vertical-align:middle}
-.editor-row td:nth-child(2){padding:0;width:52px;vertical-align:middle}
-.editor-row td:nth-child(2) .editor-art{width:52px;height:52px}
+.editor-row td:nth-child(2){padding:0;width:52px;height:1px;vertical-align:top}
+.editor-row td:nth-child(2) .editor-art{width:52px;height:100%;min-height:44px}
 .editor-row:last-child td{border-bottom:none}
 .editor-input{width:100%;background:transparent;border:none;border-bottom:.5px solid transparent;color:var(--text);font-size:13px;padding:2px 4px;font-family:inherit;border-radius:0}
 .editor-input:focus{outline:none;border-bottom-color:var(--blue);background:var(--surface)}
@@ -613,11 +613,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
     <div style="font-size:13px;font-weight:600;flex:1">History editor</div>
     <input class="search-bar" type="text" id="editor-search" placeholder="Filter by deck…" oninput="renderEditor()" style="width:160px;flex:none;margin:0">
-    <select id="editor-result" onchange="renderEditor()" style="padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px;margin:0">
-      <option value="">All results</option>
-      <option value="Win">Win</option>
-      <option value="Loss">Loss</option>
-    </select>
+
     <button title="Toggle sort order: oldest/newest first" onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
     <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" title="Add a new history entry" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
   </div>
@@ -3082,7 +3078,7 @@ function toggleEditorSort() {
 
 function renderEditor() {
   const q      = (document.getElementById('editor-search')?.value||'').toLowerCase();
-  const resF   = document.getElementById('editor-result')?.value||'';
+  const resF   = '';
   const tbody  = document.getElementById('editor-body');
   if (!tbody) return;
 
