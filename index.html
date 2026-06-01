@@ -229,8 +229,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-col-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);text-align:center;margin-bottom:4px}
 .issue-btn{padding:6px 4px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-size:11px;color:var(--text2);text-align:center;width:100%;position:relative;transition:background .1s}
 .issue-btn:hover{background:var(--surface-hover,rgba(255,255,255,.05))}
-.issue-btn.selected-win{border-color:var(--green);color:var(--green);background:rgba(80,180,80,.1)}
-.issue-btn.selected-loss{border-color:var(--red);color:var(--red);background:rgba(224,96,96,.1)}
+.issue-btn.selected-win{border-color:var(--blue);color:var(--text);background:rgba(66,133,244,.15)}
+.issue-btn.selected-loss{border-color:var(--blue);color:var(--text);background:rgba(66,133,244,.15)}
 .issue-badge{position:absolute;top:-5px;right:-5px;background:var(--info);color:#fff;border-radius:8px;font-size:9px;padding:1px 4px;min-width:14px;text-align:center;display:none}
 .issue-badge.show{display:block}
 .issue-summary{margin-top:8px;padding:6px 8px;background:var(--surface);border-radius:var(--radius-sm);font-size:11px;color:var(--text2)}
@@ -374,7 +374,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       <div style="background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius);padding:10px 14px">
         <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Pending changes</div>
         <div id="pending-list" style="margin-bottom:10px;font-size:13px"></div>
-        <button class="submit-btn" style="padding:11px" onclick="submitPending()">Submit entries</button>
+        <div style="display:flex;gap:8px">
+          <button onclick="cancelPending()" style="padding:11px 16px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-size:14px">Cancel</button>
+          <button class="submit-btn" style="padding:11px;flex:1" onclick="submitPending()">Submit entries</button>
+        </div>
       </div>
     </div>
     <!-- Sort pills -->
@@ -572,6 +575,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
             <input type="checkbox" id="s-showEditor" onchange="saveStrSetting('showEditor',this.checked);updateEditorTab()" style="accent-color:var(--blue);width:15px;height:15px;cursor:pointer">
           </label>
         </div>
+        <div class="setting-block" style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="setting-name">Issue history limit</div>
+            <div class="setting-desc">Number of recent games checked for issue tracking on the score and history tabs</div>
+          </div>
+          <input type="number" class="setting-input" id="s-issueLimit" min="1" max="200" step="1"
+            oninput="saveSetting('issueLimit',this.value)" style="width:60px;text-align:center">
+        </div>
         <div class="setting-block">
           <div class="setting-name">Clean up duplicate entries</div>
           <div class="setting-desc">Removes duplicate score and history entries. Fixes retired decks showing twice, stale UUID records, and manually-added history duplicates.</div>
@@ -754,7 +765,7 @@ function colorManaHtml(colorLabel) {
 const INITIAL_DATA = {
   settings: {
     maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:30,
-    cardSeller:'cardmarket', artPref:'oldest', showEditor:false
+    cardSeller:'cardmarket', artPref:'oldest', showEditor:false, issueLimit:10
   },
   colorDecks: [],
   scores: {},
@@ -1399,7 +1410,7 @@ function renderScore() {
         </div>
         <div class="deck-left">
           <div class="deck-name">${d.name}</div>
-          <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · Last played: ${lp}</div>
+          <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · ${lp}</div>
         </div>
         <div class="deck-wr ${cls}">${d.winRate||0}%</div>
         <button class="deck-issues-btn${hasHistoricalIssues(d._uuid,d.name)?' has-issues':''}" onclick="event.stopPropagation();openIssuePanel('${sn}','${d._uuid||''}')" title="View issue history">
@@ -1486,7 +1497,7 @@ function renderScore() {
         </div>
         <div class="deck-left">
           <div class="deck-name">${cleanN}</div>
-          <div class="deck-meta">${s.total} games · ${s.wins}W · ${s.losses}L · Last played: ${fmtDate(s.lastDate)}</div>
+          <div class="deck-meta">${s.total} games · ${s.wins}W · ${s.losses}L · ${fmtDate(s.lastDate)}</div>
         </div>
         <div class="deck-wr ${cls}">${s.winRate}%</div>
       </div>`;
@@ -1582,10 +1593,20 @@ function renderPendingBar() {
     if(v.wins>0)   parts.push(`<span style="color:var(--green)">+${v.wins}W</span>`);
     if(v.losses>0) parts.push(`<span style="color:var(--red)">+${v.losses}L</span>`);
     return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:.5px solid var(--border)">
-      <span style="font-size:13px">${name.split(',')[0]}</span>
+      <span style="font-size:13px">${(()=>{const d=(data.colorDecks||[]).find(d=>d.uuid===name);return d?deckDisplayName(d):name.split(',')[0];})()}</span>
       <span style="font-size:13px;display:flex;gap:8px">${parts.join('')}</span>
     </div>`;
   }).join('');
+}
+
+function cancelPending() {
+  if (!Object.keys(pending).length) return;
+  showModal('Clear pending entries?', 'This will discard all pending game logs.', () => {
+    Object.keys(pending).forEach(k => delete pending[k]);
+    Object.keys(pendingIssues||{}).forEach(k => delete pendingIssues[k]);
+    renderScore();
+    showToast('Pending entries cleared');
+  });
 }
 
 function submitPending() {
@@ -2013,23 +2034,6 @@ function buildBuyList() {
 //   buy (no replacement)   → considering
 //   buy (with replacement) → considering  (replacement already set — will appear if considering+out)
 //   considering + out      → owned        (already promoted once, now mark as obtained)
-function removeBuyItem(cardName) {
-  const k = cardName.toLowerCase().trim();
-  let changed = false;
-  for(const [deckUuid, entries] of Object.entries(data.deckWants||{})){
-    for(const e of entries){
-      if(e.in.toLowerCase().trim() !== k) continue;
-      if(e.inStatus === 'buy'){
-        e.inStatus = 'considering';
-        changed = true;
-      } else if(e.inStatus === 'considering' && e.out){
-        e.inStatus = 'owned';
-        changed = true;
-      }
-    }
-  }
-  if(changed){ renderWants(); scheduleSync(); }
-}
 
 function priceLabel(name) {
   const p = priceCache[name.toLowerCase()];
@@ -2124,15 +2128,27 @@ function updateBuyTotal() {
 }
 
 function removeBuyItem(name) {
-  // Remove the 'out' from all entries matching this card name so it drops off buy list
-  for(const entries of Object.values(data.deckWants||{})){
-    for(const e of entries){
-      if(e.in.toLowerCase()===name.toLowerCase()&&e.inStatus==='buy'&&e.out){
-        e.out=null;
+  showModal(
+    `Remove "${name}" from buy list?`,
+    'Steps: Buy → Considering, or Considering+replacement → Owned.',
+    () => {
+      const k = name.toLowerCase().trim();
+      let changed = false;
+      for(const [deckUuid, entries] of Object.entries(data.deckWants||{})){
+        for(const e of entries){
+          if(e.in.toLowerCase().trim() !== k) continue;
+          if(e.inStatus === 'buy'){
+            e.inStatus = 'considering';
+            changed = true;
+          } else if(e.inStatus === 'considering' && e.out){
+            e.inStatus = 'owned';
+            changed = true;
+          }
+        }
       }
+      if(changed){ renderWants(); scheduleSync(); }
     }
-  }
-  renderWants(); scheduleSync();
+  );
 }
 
 function copyBuyList() {
@@ -3160,6 +3176,8 @@ function renderSettings() {
   document.getElementById('s-historyLimit').value= s.historyLimit||500;
   const showEditorEl = document.getElementById('s-showEditor');
   if (showEditorEl) showEditorEl.checked = s.showEditor===true||s.showEditor==='true';
+  const issueLimEl = document.getElementById('s-issueLimit');
+  if (issueLimEl) issueLimEl.value = s.issueLimit||10;
   const sellerEl = document.getElementById('s-cardSeller');
   if (sellerEl) sellerEl.value = s.cardSeller||'cardmarket';
   const artEl = document.getElementById('s-artPref');
@@ -3248,13 +3266,14 @@ const pendingIssues = {};
 function hasHistoricalIssues(uuid, deckName) {
   // Only consider last 10 games for the score tab indicator
   const hist = (data.history||[]).filter(h => h.deckUuid === uuid || h.deck === deckName);
-  const last10 = hist.slice(-10);
+  const lim = cfg().issueLimit||10;
+  const last10 = hist.slice(-lim);
   return last10.some(h => h.issues && h.issues.length > 0);
 }
 
 function getIssuesLast10(uuid, deckName) {
   const hist = (data.history||[]).filter(h => h.deckUuid === uuid || h.deck === deckName);
-  return hist.slice(-10).filter(h => h.issues && h.issues.length > 0);
+  return hist.slice(-(cfg().issueLimit||10)).filter(h => h.issues && h.issues.length > 0);
 }
 
 function openIssuePanel(deckName, uuid) {
