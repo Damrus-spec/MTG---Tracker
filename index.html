@@ -471,12 +471,12 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
   <!-- Add new deck form -->
   <div class="card add-deck-form">
     <div class="card-title">Add a deck</div>
+    <label class="field-label">Display name <span style="font-size:11px;color:var(--text3)">(optional — overrides commander names)</span></label>
+    <input type="text" id="new-deck-label" placeholder="e.g. Blood Pod, Stax Machine...">
     <label class="field-label">Commander name</label>
     <input type="text" id="new-deck-name" placeholder="e.g. Marchesa, the Black Rose">
     <label class="field-label">Partner commander (optional)</label>
     <input type="text" id="new-deck-partner" placeholder="e.g. Tymna the Weaver">
-    <label class="field-label">Display name <span style="font-size:11px;color:var(--text3)">(optional — overrides commander names)</span></label>
-    <input type="text" id="new-deck-label" placeholder="e.g. Blood Pod, Stax Machine...">
     <label class="field-label">Status</label>
     <select id="new-deck-status">
       <option value="Owned">Owned</option>
@@ -1604,6 +1604,7 @@ function cancelPending() {
   showModal('Clear pending entries?', 'This will discard all pending game logs.', () => {
     Object.keys(pending).forEach(k => delete pending[k]);
     Object.keys(pendingIssues||{}).forEach(k => delete pendingIssues[k]);
+    renderPendingBar();
     renderScore();
     showToast('Pending entries cleared');
   });
@@ -2530,12 +2531,18 @@ function renderDeckMgr() {
           id="dpartner-${i}"
           onblur="updateDeckField(${i},'partner',this.value)">
         <div class="deck-mgr-selects" style="align-items:center">
-          <div style="display:flex;align-items:center;gap:3px;padding:0 4px">${colorManaHtml(d.color)}</div>
+          <div style="display:flex;align-items:center;gap:4px;padding:0 4px">
+            ${colorManaHtml(d.color)}
+            <button onclick="redetectColor(${i})" title="Re-detect color identity" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0 2px;font-size:11px;line-height:1"><i class="ti ti-refresh" style="font-size:11px"></i></button>
+          </div>
           <select onchange="updateDeckField(${i},'status',this.value)">
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </div>
       </div>
+      ${d.status==='Retired'?`
+        <button onclick="reactivateDeck(${i})" title="Reactivate deck" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
+      `:''}
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
     </div>`;
   }).join('')||'<div class="empty">No decks added yet.</div>';
@@ -2630,6 +2637,33 @@ function toggleDeckGroup(status) {
   renderDeckMgr();
 }
 
+async function redetectColor(idx) {
+  const deck = data.colorDecks[idx];
+  if (!deck || !deck.name) return;
+  showToast('Detecting color…');
+  const color = await fetchColorIdentity(deck.name, deck.partner||null);
+  if (color) {
+    data.colorDecks[idx].color = color;
+    renderDeckMgr(); scheduleSync();
+    showToast('Color updated: ' + color);
+  } else {
+    showToast('Could not detect color');
+  }
+}
+
+function reactivateDeck(idx) {
+  const deck = data.colorDecks[idx];
+  if (!deck) return;
+  showModal('Restore deck?',
+    `Restore "${deckDisplayName(deck)}" to Owned status?`,
+    () => {
+      deck.status = 'Owned';
+      renderDeckMgr(); renderScore(); scheduleSync();
+      showToast('Deck restored');
+    }
+  );
+}
+
 function deleteDeck(idx) {
   if(!confirm('Remove this deck entry? Score data is kept.')) return;
   const deck = data.colorDecks[idx];
@@ -2718,7 +2752,7 @@ function artPickerTab(tab) {
   if (tabP) { tabP.style.borderBottomColor = tab==='position' ? 'var(--blue)' : 'transparent'; tabP.style.color = tab==='position' ? 'var(--text)' : 'var(--text3)'; }
   // Hide reposition tab if no art available
   if (tabP) tabP.style.display = _artPickerPosArt ? '' : 'none';
-  if (tab === 'position') artPickerUpdatePos();
+  if (tab === 'position') setTimeout(artPickerUpdatePos, 30); // wait for panel to be visible
 }
 
 function artPickerInitPos() {
@@ -2747,17 +2781,17 @@ function artPickerUpdatePos() {
   const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
   const img = document.getElementById('ap-pos-img');
   const bg  = document.getElementById('ap-pos-bg');
-  if (img && bg) {
-    // Show full art image, scaled, then translate to show the right crop area.
-    // Container clips. Image is scale(sc) larger, then shifted by position %.
-    // We translate so that the x/y point in the image aligns to the container centre-left.
-    const cW = bg.offsetWidth || 300;
-    const cH = bg.offsetHeight || cW * 0.9;
-    // Natural art_crop images are roughly 4:1 landscape strips from Scryfall
+  if (img && _artPickerPosArt) {
+    img.src = _artPickerPosArt;
+    img.style.display = 'block';
+    const cW = (bg && bg.offsetWidth > 0) ? bg.offsetWidth : 320;
+    // art_crop images are landscape ~4.4:1
     const iW = cW * sc;
-    const iH = iW * 0.35; // art_crop approx 4:1 landscape → used as source, shown in portrait container
-    // Shift: (x/100) of (iW - cW), (y/100) of (iH - cH)
-    const tx = -((x / 100) * Math.max(0, iW - cW));
+    const iH = iW / 4.4;
+    const cH = cW * 0.91; // portrait crop window
+    if (bg) bg.style.height = `${cH}px`;
+    // translate: x% = how far right (inverted: 0%=right edge, 100%=left edge)
+    const tx = -(((100 - x) / 100) * Math.max(0, iW - cW));
     const ty = -((y / 100) * Math.max(0, iH - cH));
     img.style.position   = 'absolute';
     img.style.top        = '0';
@@ -2766,16 +2800,14 @@ function artPickerUpdatePos() {
     img.style.height     = `${iH}px`;
     img.style.objectFit  = 'cover';
     img.style.transform  = `translate(${tx}px, ${ty}px)`;
-    img.style.display    = 'block';
   }
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
   const sv = document.getElementById('ap-s-val');
-  if (xv) xv.textContent = `${x}%`;
+  if (xv) xv.textContent = `${Math.round(100-x)}%`;
   if (yv) yv.textContent = `${y}%`;
   if (sv) sv.textContent = `${sc.toFixed(1)}×`;
 }
-
 function artPickerSavePos() {
   const x  = parseFloat(document.getElementById('ap-x')?.value ?? 50);
   const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
