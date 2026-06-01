@@ -316,6 +316,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .editor-select{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:2px 2px;font-family:inherit;cursor:pointer;width:100%;text-align:center}
 .editor-select:focus{outline:none;border-color:var(--blue)}
 .editor-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:2px 4px;font-size:12px}
+.editor-row.draft-changed{background:rgba(66,133,244,.06)}
+.editor-row.draft-changed td:nth-child(1){border-left:2px solid var(--blue)}
+.editor-row.draft-deleted{background:rgba(224,96,96,.06);opacity:.6}
+.editor-row.draft-deleted td:nth-child(1){border-left:2px solid var(--red)}
 .editor-del:hover{color:var(--red)}
 #quick-stats-card{display:none}
 </style>
@@ -627,6 +631,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
     <button title="Toggle sort order: oldest/newest first" onclick="toggleEditorSort()" id="editor-sort-btn" style="padding:7px 10px;font-size:12px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0"><i class="ti ti-arrows-sort"></i> Oldest</button>
     <button class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0" title="Add a new history entry" onclick="editorOpenAdd()"><i class="ti ti-plus"></i> Add entry</button>
+  </div>
+  <!-- Draft save bar — shown when editorDraft has changes -->
+  <div id="editor-save-bar" style="display:none;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;display:none">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span id="editor-save-label" style="flex:1;font-size:12px;color:var(--text2)">No pending changes</span>
+      <button onclick="editorDiscard()" style="padding:7px 14px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-size:12px">Discard</button>
+      <button onclick="editorSaveChanges()" class="submit-btn" style="padding:7px 14px;font-size:12px;margin:0">Save changes</button>
+    </div>
   </div>
   <div class="card no-pad" style="overflow:hidden">
     <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
@@ -3079,6 +3091,10 @@ function toggleSettingsSection(labelEl) {
 }
 
 let editorSortDir = 1; // 1 = oldest first, -1 = newest first
+// Draft: { [originalIdx]: { field: newValue, ... }, _deleted: true }
+let editorDraft = {};
+// Snapshot of data.history at editor open time for diffing
+let editorSnapshot = null;
 
 function toggleEditorSearchMode() {
   const btn = document.getElementById('editor-search-mode');
@@ -3095,6 +3111,8 @@ function toggleEditorSort() {
 }
 
 function renderEditor() {
+  // Take snapshot on first render (so we can diff later)
+  if (!editorSnapshot) editorSnapshot = JSON.parse(JSON.stringify(data.history||[]));
   const q      = (document.getElementById('editor-search')?.value||'').toLowerCase();
   const resF   = '';
   const tbody  = document.getElementById('editor-body');
@@ -3152,29 +3170,136 @@ function renderEditor() {
     </tr>`).join('');
   const editorDeckNames = [...new Set(indexed.map(({h})=>(h.deck||'').split(' // ')[0].trim()).filter(Boolean))];
   fetchMissingArt(editorDeckNames);
+  // Apply draft visual states
+  for (const [idxStr, draft] of Object.entries(editorDraft)) {
+    const idx = parseInt(idxStr);
+    const row = tbody.querySelector(`tr[data-idx="${idx}"]`);
+    if (!row) continue;
+    if (draft._deleted) row.classList.add('draft-deleted');
+    else row.classList.add('draft-changed');
+  }
+  updateEditorSaveBar();
+}
+
+function updateEditorSaveBar() {
+  const bar = document.getElementById('editor-save-bar');
+  const lbl = document.getElementById('editor-save-label');
+  const count = Object.keys(editorDraft).length;
+  if (!bar) return;
+  if (count === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = '';
+  const dels = Object.values(editorDraft).filter(d=>d._deleted).length;
+  const edits = count - dels;
+  const parts = [];
+  if (edits) parts.push(`${edits} edit${edits!==1?'s':''}`);
+  if (dels)  parts.push(`${dels} deletion${dels!==1?'s':''}`);
+  if (lbl) lbl.textContent = `${parts.join(', ')} pending`;
 }
 
 function editorUpdate(idx, field, value) {
   if (!data.history[idx]) return;
+  if (!editorDraft[idx]) editorDraft[idx] = {};
   if (field==='wins' || field==='losses') {
     const n = parseInt(value);
-    data.history[idx][field] = isNaN(n) ? undefined : n;
-    // Remove the field entirely if blank
-    if (value==='' || value==null) delete data.history[idx][field];
+    editorDraft[idx][field] = isNaN(n) ? undefined : n;
   } else {
-    data.history[idx][field] = value;
+    editorDraft[idx][field] = value;
   }
-  scheduleSync();
+  // If draft matches original, remove the entry
+  const orig = editorSnapshot?.[idx];
+  if (orig) {
+    const draftFields = Object.keys(editorDraft[idx]).filter(k=>k!=='_deleted');
+    const allMatch = draftFields.every(k=>String(editorDraft[idx][k]??'') === String(orig[k]??''));
+    if (allMatch) delete editorDraft[idx];
+  }
+  // Re-apply visual state without full re-render
+  const tbody = document.getElementById('editor-body');
+  const row = tbody?.querySelector(`tr[data-idx="${idx}"]`);
+  if (row) {
+    row.classList.toggle('draft-changed', !!editorDraft[idx]);
+  }
+  updateEditorSaveBar();
 }
 
 function editorDelete(idx) {
   if (!data.history[idx]) return;
   const h = data.history[idx];
-  showModal('Delete entry', `Delete this entry?\n\n${h.deck} — ${h.date} — ${h.last}`, () => {
-    data.history.splice(idx, 1);
-    renderEditor();
+  // Mark as deleted in draft (deferred)
+  if (!editorDraft[idx]) editorDraft[idx] = {};
+  editorDraft[idx]._deleted = true;
+  renderEditor();
+  showToast('Marked for deletion — save to confirm');
+}
+
+function editorSaveChanges() {
+  const draftEntries = Object.entries(editorDraft);
+  if (!draftEntries.length) return;
+
+  // Build diff summary
+  const lines = [];
+  for (const [idxStr, draft] of draftEntries) {
+    const idx = parseInt(idxStr);
+    const h = data.history[idx];
+    if (!h) continue;
+    const name = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '?';
+    if (draft._deleted) {
+      lines.push(`Delete: ${name} — ${h.date} — ${h.last}`);
+    } else {
+      for (const [field, newVal] of Object.entries(draft)) {
+        const oldVal = (editorSnapshot?.[idx]?.[field]) ?? '—';
+        lines.push(`${name}: ${field} ${oldVal} → ${newVal??'—'}`);
+      }
+    }
+  }
+
+  showModal('Save changes?', lines.join('\n'), () => {
+    // Apply deletes first (in reverse index order to preserve indices)
+    const toDelete = Object.entries(editorDraft)
+      .filter(([,d])=>d._deleted)
+      .map(([i])=>parseInt(i))
+      .sort((a,b)=>b-a);
+    for (const idx of toDelete) {
+      data.history.splice(idx, 1);
+    }
+    // Apply edits (indices may have shifted, use snapshot to find matches)
+    // Re-index: after deletes, remaining edits need to find their entry by snapshot match
+    for (const [idxStr, draft] of Object.entries(editorDraft)) {
+      if (draft._deleted) continue;
+      const idx = parseInt(idxStr);
+      const snap = editorSnapshot?.[idx];
+      if (!snap) continue;
+      // Find this entry in the (now-mutated) history by matching snapshot fields
+      const entry = data.history.find(h =>
+        h.deckUuid === snap.deckUuid &&
+        h.date === snap.date &&
+        h.last === snap.last &&
+        h.deck === snap.deck
+      );
+      if (!entry) continue;
+      for (const [field, val] of Object.entries(draft)) {
+        if (field === '_deleted') continue;
+        if (val === undefined || val === '') delete entry[field];
+        else entry[field] = val;
+      }
+    }
+    editorDraft = {};
+    editorSnapshot = null;
     scheduleSync();
-    showToast('Entry deleted');
+    renderEditor();
+    showToast('Changes saved');
+  });
+}
+
+function editorDiscard() {
+  const count = Object.keys(editorDraft).length;
+  if (!count) return;
+  showModal('Discard changes?', `Discard ${count} pending change${count!==1?'s':''}?`, () => {
+    editorDraft = {};
+    renderEditor();
+    showToast('Changes discarded');
   });
 }
 
