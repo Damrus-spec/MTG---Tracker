@@ -646,8 +646,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <tr style="border-bottom:.5px solid var(--border-md)">
           <th style="width:28px;padding:8px 4px 8px 8px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
           <th style="width:52px;padding:0;font-weight:500;color:var(--text2)"></th>
-          <th style="width:96px;padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
           <th style="padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
+          <th style="width:96px;padding:8px 6px;text-align:left;font-weight:500;color:var(--text2)">Date</th>
           <th style="width:44px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">W</th>
           <th style="width:44px;padding:8px 2px;text-align:center;font-weight:500;color:var(--text2)">L</th>
           <th style="width:52px;padding:8px 4px;text-align:left;font-weight:500;color:var(--text2)">Result</th>
@@ -3151,13 +3151,13 @@ function renderEditor() {
         const hasArt = h.deckUuid ? !!(deckArtHtml(h.deckUuid)) : !!artCache[k];
         return `<div class="editor-art${hasArt?'':' loading'}" data-art="${k}">${artHtml}</div>`;
       })()}</td>
+      <td style="min-width:140px;padding:0 6px">
+        <span style="font-size:12px;color:var(--text)">${((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '').replace(/</g,'&lt;')}</span>
+      </td>
       <td><input class="editor-input date-input" type="date" value="${h.date||''}"
         title="Click to edit date"
         onchange="editorUpdate(${i},'date',this.value)"
         style="border-bottom:.5px solid var(--border-md)"></td>
-      <td style="min-width:140px;padding:0 6px">
-        <span style="font-size:12px;color:var(--text)">${((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '').replace(/</g,'&lt;')}</span>
-      </td>
       <td style="text-align:center;padding:2px"><input class="editor-input num-input" type="number" min="0" value="${h.wins!=null?h.wins:''}"
         placeholder="—" onchange="editorUpdate(${i},'wins',this.value)"></td>
       <td style="text-align:center;padding:2px"><input class="editor-input num-input" type="number" min="0" value="${h.losses!=null?h.losses:''}"
