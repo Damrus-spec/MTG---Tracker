@@ -1151,11 +1151,21 @@ function setSyncStatus(state, msg) {
 
 // ── Folder lookup ──
 async function getDriveFolder() {
-  if (driveFolderId) return driveFolderId;
+  if (driveFolderId) {
+    // Verify the cached ID is still valid
+    const check = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFolderId}?fields=id`,
+      {headers:{Authorization:`Bearer ${accessToken}`}});
+    if (check.status === 401) { accessToken=null; silentSignIn(); return null; }
+    if (check.ok) return driveFolderId;
+    // Stale/deleted — clear cache and re-search
+    driveFolderId = null;
+    try{localStorage.removeItem('mtg_folder_id');}catch(e){}
+  }
   // Search for existing folder the app owns
   const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
     {headers:{Authorization:`Bearer ${accessToken}`}});
+  if (!r.ok) return null;
   const j = await r.json();
   if (j.files && j.files.length > 0) {
     driveFolderId = j.files[0].id;
@@ -2595,8 +2605,8 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
           <i id="wdl-chev-${uuid}" class="ti ti-${wdlPanelOpen[uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
         </button>
         <div id="wdl-panel-${uuid}" style="display:${wdlPanelOpen[uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
-          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')" value="${wdlPanelOpen[uuid]?((data.deckLists||{})[uuid]||{}).url||'':''}">
-          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')">${wdlPanelOpen[uuid]?((data.deckLists||{})[uuid]||{}).list||'':''}</textarea>
+          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')" value="${wdlPanelOpen[uuid]?wdlGetUrl(uuid):''}">
+          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')">${wdlPanelOpen[uuid]?wdlGetList(uuid):''}</textarea>
           <div class="decklist-meta" id="wdl-meta-${uuid}">${wdlPanelOpen[uuid]?decklistCardCount(uuid):''}</div>
           <div class="decklist-actions">
             <button class="decklist-save-btn" id="wdl-save-${uuid}" onclick="wdlSave('${uuid}')">Save</button>
@@ -3894,6 +3904,8 @@ function decklistCardCount(uuid) {
   const n = list.split('\n').reduce((s,l)=>{const m=l.trim().match(/^(\d+)\s+/);return s+(m?parseInt(m[1]):(l.trim()?1:0));},0);
   return n ? n+' cards stored' : '';
 }
+function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; }
+function wdlGetList(uuid) { return ((data.deckLists||{})[uuid]||{}).list || ''; }
 
 function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
