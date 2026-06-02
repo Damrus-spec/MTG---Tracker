@@ -2806,7 +2806,7 @@ function renderDeckMgr() {
         <i class="ti ti-cards" style="font-size:12px"></i> Decklist
         <i class="ti ti-chevron-down" style="font-size:11px"></i>
       </button>
-      <div class="decklist-panel" id="dl-mgr-${i}" style="padding-bottom:10px">
+      <div class="decklist-panel" id="dl-mgr-${i}" style="display:none;padding-bottom:10px">
         <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},'${d._uuid||''}')">
         <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},'${d._uuid||''}')"></textarea>
         <div class="decklist-meta" id="dl-mgr-meta-${i}"></div>
@@ -3794,7 +3794,10 @@ function closeIssuePanel() {
 function toggleDeckMgrList(i, uuid) {
   const panel = document.getElementById('dl-mgr-'+i);
   if (!panel) return;
-  const isOpen = panel.classList.toggle('open');
+  const isOpen = panel.style.display === 'none' || panel.style.display === '';
+  panel.style.display    = isOpen ? 'flex' : 'none';
+  panel.style.flexDirection = 'column';
+  panel.style.gap        = '8px';
   const btn = document.getElementById('dl-mgr-toggle-'+i);
   if (btn) {
     const icons = btn.querySelectorAll('i');
