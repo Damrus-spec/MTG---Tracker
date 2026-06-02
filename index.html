@@ -2794,13 +2794,15 @@ function renderDeckMgr() {
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </div>
+        <button id="dl-mgr-toggle-${i}" onclick="toggleDeckMgrList(${i},'${d._uuid||''}')"
+          style="background:none;border:none;cursor:pointer;color:var(--text3);padding:3px 0;font-size:11px;display:flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.5px;font-weight:500;font-family:inherit;width:100%;text-align:left">
+          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+          <i id="dl-mgr-chev-${i}" class="ti ti-chevron-down" style="font-size:11px;margin-left:auto"></i>
+        </button>
       </div>
       ${d.status==='Retired'?`
         <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
       `:''}
-      <button id="dl-mgr-toggle-${i}" onclick="toggleDeckMgrList(${i},'${d._uuid||''}')" title="Decklist" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 6px;font-size:13px;display:flex;align-items:center;gap:3px;flex-shrink:0" >
-        <i class="ti ti-cards"></i>
-      </button>
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
     </div>
     <!-- Decklist panel -->
@@ -3797,6 +3799,8 @@ function toggleDeckMgrList(i, uuid) {
   panel.style.gap           = '8px';
   const btn = document.getElementById('dl-mgr-toggle-'+i);
   if (btn) btn.style.color = isOpen ? 'var(--accent)' : 'var(--text3)';
+  const chev = document.getElementById('dl-mgr-chev-'+i);
+  if (chev) chev.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
   if (isOpen) {
     const entry = (data.deckLists||{})[uuid] || {};
     const urlEl = document.getElementById('dl-mgr-url-'+i);
