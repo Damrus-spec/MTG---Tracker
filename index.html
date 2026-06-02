@@ -2815,6 +2815,22 @@ function renderDeckMgr() {
         <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
       `:''}
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
+    </div>
+    <!-- Decklist panel for this deck -->
+    <div style="border-bottom:.5px solid var(--border);padding:0 12px">
+      <button class="issues-toggle" id="dl-mgr-toggle-${i}" onclick="toggleDeckMgrList(${i},'${d._uuid||''}')" style="padding:8px 0;width:100%">
+        <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+        <i class="ti ti-chevron-down" style="font-size:11px"></i>
+      </button>
+      <div class="decklist-panel" id="dl-mgr-${i}" style="padding-bottom:10px">
+        <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},'${d._uuid||''}')">
+        <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},'${d._uuid||''}')"></textarea>
+        <div class="decklist-meta" id="dl-mgr-meta-${i}"></div>
+        <div class="decklist-actions">
+          <button class="decklist-save-btn" onclick="saveDecklistMgr(${i},'${d._uuid||''}')">Save</button>
+          <button class="decklist-push-btn" id="dl-mgr-push-${i}" onclick="pushToMoxfieldMgr(${i},'${d._uuid||''}')" disabled>Copy &amp; open Moxfield</button>
+        </div>
+      </div>
     </div>`;
   }).join('')||'<div class="empty">No decks added yet.</div>';
 
@@ -3791,6 +3807,68 @@ function closeIssuePanel() {
 // ============================================================
 // DECKLIST PANEL
 // ============================================================
+function toggleDeckMgrList(i, uuid) {
+  const panel = document.getElementById('dl-mgr-'+i);
+  if (!panel) return;
+  const isOpen = panel.classList.toggle('open');
+  const btn = document.getElementById('dl-mgr-toggle-'+i);
+  if (btn) {
+    const icons = btn.querySelectorAll('i');
+    const last = icons[icons.length-1];
+    if (last) last.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  }
+  if (isOpen) {
+    const entry = (data.deckLists||{})[uuid] || {};
+    const urlEl = document.getElementById('dl-mgr-url-'+i);
+    const taEl  = document.getElementById('dl-mgr-ta-'+i);
+    if (urlEl) urlEl.value = entry.url  || '';
+    if (taEl)  taEl.value  = entry.list || '';
+    updateDecklistMetaMgr(i, uuid);
+  }
+}
+
+function updateDecklistMetaMgr(i, uuid) {
+  const metaEl  = document.getElementById('dl-mgr-meta-'+i);
+  const pushBtn = document.getElementById('dl-mgr-push-'+i);
+  const entry   = (data.deckLists||{})[uuid] || {};
+  const lines   = (entry.list||'').split('\n').filter(l=>l.trim()).length;
+  if (metaEl)  metaEl.textContent = lines ? `${lines} cards stored` : '';
+  if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
+}
+
+function decklistUrlChangedMgr(i, uuid) {
+  const urlEl  = document.getElementById('dl-mgr-url-'+i);
+  const taEl   = document.getElementById('dl-mgr-ta-'+i);
+  const pushBtn = document.getElementById('dl-mgr-push-'+i);
+  if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
+}
+
+function saveDecklistMgr(i, uuid) {
+  if (!uuid) return;
+  const urlEl = document.getElementById('dl-mgr-url-'+i);
+  const taEl  = document.getElementById('dl-mgr-ta-'+i);
+  if (!data.deckLists) data.deckLists = {};
+  data.deckLists[uuid] = {
+    url:  (urlEl ? urlEl.value.trim() : ''),
+    list: (taEl  ? taEl.value.trim()  : '')
+  };
+  updateDecklistMetaMgr(i, uuid);
+  scheduleSync();
+  const btn = document.getElementById('dl-mgr-push-'+i) && document.querySelector(`#dl-mgr-${i} .decklist-save-btn`);
+  if (btn) { btn.textContent = 'Saved ✓'; setTimeout(()=>{ btn.textContent='Save'; },1500); }
+}
+
+function pushToMoxfieldMgr(i, uuid) {
+  const entry = (data.deckLists||{})[uuid];
+  if (!entry || !entry.list || !entry.url) return;
+  navigator.clipboard.writeText(entry.list).catch(()=>{});
+  const base = entry.url.replace(/\/+$/, '');
+  const editUrl = base.endsWith('/edit') ? base : base + '/edit';
+  window.open(editUrl, '_blank');
+  const btn = document.getElementById('dl-mgr-push-'+i);
+  if (btn) { btn.textContent = 'Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
+}
+
 function toggleDecklistPanel(eid, uuid) {
   const panel = document.getElementById('dl-'+eid);
   if (!panel) return;
