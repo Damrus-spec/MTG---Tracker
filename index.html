@@ -227,6 +227,19 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issues-toggle:hover{color:var(--text2)}
 .issues-grid{display:none;margin-top:8px}
 .issues-grid.open{display:block}
+.decklist-row{margin-top:10px;border-top:.5px solid var(--border);padding-top:8px}
+.decklist-panel{display:none;margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.decklist-panel.open{display:flex}
+.decklist-url-row{display:flex;gap:6px;align-items:center}
+.decklist-url-input{flex:1;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:0 8px;height:28px;font-family:inherit}
+.decklist-url-input::placeholder{color:var(--text3)}
+.decklist-textarea{width:100%;min-height:90px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:6px 8px;font-family:inherit;resize:vertical;box-sizing:border-box}
+.decklist-textarea::placeholder{color:var(--text3)}
+.decklist-actions{display:flex;gap:6px}
+.decklist-save-btn{flex:1;padding:7px 10px;font-size:11px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer}
+.decklist-push-btn{flex:1;padding:7px 10px;font-size:11px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;cursor:pointer;font-weight:600}
+.decklist-push-btn:disabled{opacity:.4;cursor:not-allowed}
+.decklist-meta{font-size:10px;color:var(--text3)}
 .issue-cols{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px}
 .issue-col-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);text-align:center;margin-bottom:4px}
 .issue-btn{padding:6px 4px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-size:11px;color:var(--text2);text-align:center;width:100%;position:relative;transition:background .1s}
@@ -1695,6 +1708,22 @@ function renderScore() {
               </button>
             </div>`).join('')}
             <div class="issue-summary" id="is-${eid}" style="display:none"></div>
+          </div>
+        </div>
+        <!-- Decklist panel -->
+        <div class="decklist-row">
+          <button class="issues-toggle" id="dl-toggle-${eid}" onclick="toggleDecklistPanel('${eid}','${d._uuid||''}')">
+            <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+            <i class="ti ti-chevron-down" style="font-size:11px"></i>
+          </button>
+          <div class="decklist-panel" id="dl-${eid}">
+            <input class="decklist-url-input" id="dl-url-${eid}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChanged('${d._uuid||''}','${eid}')">
+            <textarea class="decklist-textarea" id="dl-ta-${eid}" placeholder="Paste Moxfield export here…" oninput="decklistTextareaChanged('${d._uuid||''}','${eid}')"></textarea>
+            <div class="decklist-meta" id="dl-meta-${eid}"></div>
+            <div class="decklist-actions">
+              <button class="decklist-save-btn" onclick="saveDecklistData('${d._uuid||''}','${eid}')">Save</button>
+              <button class="decklist-push-btn" id="dl-push-${eid}" onclick="pushToMoxfield('${d._uuid||''}','${eid}')" disabled>Copy &amp; open Moxfield</button>
+            </div>
           </div>
         </div>
       </div>
@@ -3757,6 +3786,82 @@ function openIssuePanel(deckName, uuid) {
 function closeIssuePanel() {
   document.getElementById('issue-hist-panel').classList.remove('open');
   document.getElementById('issue-hist-overlay').classList.remove('open');
+}
+
+// ============================================================
+// DECKLIST PANEL
+// ============================================================
+function toggleDecklistPanel(eid, uuid) {
+  const panel = document.getElementById('dl-'+eid);
+  if (!panel) return;
+  const isOpen = panel.classList.toggle('open');
+  const btn = document.getElementById('dl-toggle-'+eid);
+  if (btn) {
+    const icons = btn.querySelectorAll('i');
+    const last = icons[icons.length-1];
+    if (last) last.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  }
+  if (isOpen) populateDecklistPanel(eid, uuid);
+}
+
+function populateDecklistPanel(eid, uuid) {
+  const entry = (data.deckLists||{})[uuid] || {};
+  const urlEl  = document.getElementById('dl-url-'+eid);
+  const taEl   = document.getElementById('dl-ta-'+eid);
+  if (urlEl) urlEl.value = entry.url  || '';
+  if (taEl)  taEl.value  = entry.list || '';
+  updateDecklistMeta(eid, uuid);
+}
+
+function updateDecklistMeta(eid, uuid) {
+  const metaEl = document.getElementById('dl-meta-'+eid);
+  const pushBtn = document.getElementById('dl-push-'+eid);
+  const entry = (data.deckLists||{})[uuid] || {};
+  const lines = (entry.list||'').split('\n').filter(l=>l.trim()).length;
+  if (metaEl) metaEl.textContent = lines ? `${lines} cards stored` : '';
+  if (pushBtn) pushBtn.disabled = !entry.list || !entry.url;
+}
+
+function decklistUrlChanged(uuid, eid) {
+  // just enables/disables push button live — actual save on Save click
+  const urlEl  = document.getElementById('dl-url-'+eid);
+  const taEl   = document.getElementById('dl-ta-'+eid);
+  const pushBtn = document.getElementById('dl-push-'+eid);
+  if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
+}
+
+function decklistTextareaChanged(uuid, eid) {
+  decklistUrlChanged(uuid, eid); // same live enable/disable logic
+}
+
+function saveDecklistData(uuid, eid) {
+  if (!uuid) return;
+  const urlEl = document.getElementById('dl-url-'+eid);
+  const taEl  = document.getElementById('dl-ta-'+eid);
+  if (!data.deckLists) data.deckLists = {};
+  data.deckLists[uuid] = {
+    url:  (urlEl ? urlEl.value.trim() : ''),
+    list: (taEl  ? taEl.value.trim()  : '')
+  };
+  updateDecklistMeta(eid, uuid);
+  scheduleSync();
+  // Brief visual feedback on save button
+  const btn = document.querySelector(`#dl-${eid} .decklist-save-btn`);
+  if (btn) { btn.textContent = 'Saved ✓'; setTimeout(()=>{ btn.textContent='Save'; },1500); }
+}
+
+function pushToMoxfield(uuid, eid) {
+  const entry = (data.deckLists||{})[uuid];
+  if (!entry || !entry.list || !entry.url) return;
+  // Copy decklist to clipboard
+  navigator.clipboard.writeText(entry.list).catch(()=>{});
+  // Build bulk edit URL — strip trailing slash, append /edit
+  const base = entry.url.replace(/\/+$/, '');
+  const editUrl = base.endsWith('/edit') ? base : base + '/edit';
+  window.open(editUrl, '_blank');
+  // Brief feedback
+  const btn = document.getElementById('dl-push-'+eid);
+  if (btn) { btn.textContent = 'Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
 }
 
 function toggleIssueGrid(eid) {
