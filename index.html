@@ -273,7 +273,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-hist-agg-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px}
 
 /* Issues vertical side button on deck row */
-.deck-issues-btn{writing-mode:vertical-rl;text-orientation:mixed;background:var(--surface);border:none;border-right:.5px solid var(--border);cursor:pointer;font-size:9px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase;padding:8px 5px;flex-shrink:0;transition:color .15s,background .15s;display:flex;align-items:center;justify-content:center;gap:4px;min-height:68px;min-width:24px}
+.deck-issues-btn{writing-mode:vertical-rl;text-orientation:mixed;background:var(--surface);border:none;border-left:.5px solid var(--border);cursor:pointer;font-size:9px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase;padding:8px 5px;flex-shrink:0;transition:color .15s,background .15s;display:flex;align-items:center;justify-content:center;gap:4px;min-height:68px;min-width:24px}
 .deck-issues-btn:hover,.deck-issues-btn.has-issues{color:var(--amber);background:var(--amber-bg)}
 .deck-issues-btn .idot{width:6px;height:6px;border-radius:50%;background:var(--amber);display:none;flex-shrink:0;margin-bottom:3px}
 .deck-issues-btn.has-issues .idot{display:block}
@@ -1678,9 +1678,6 @@ function renderScore() {
     const sn   = d._uuid || d.name.replace(/'/g,"\\'");
     return `<div>
       <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
-        <button class="deck-issues-btn${hasHistoricalIssues(d._uuid,d.name)?' has-issues':''}" onclick="event.stopPropagation();openIssuePanel('${sn}','${d._uuid||''}')" title="View issue history">
-          <span class="idot"></span>Issues
-        </button>
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
           ${d._deck ? deckArtHtml(d._deck.uuid) : splitArtHtml(art, prtArt, cmdName)}
         </div>
@@ -1689,6 +1686,9 @@ function renderScore() {
           <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · ${lp}</div>
         </div>
         <div class="deck-wr ${cls}">${d.winRate||0}%</div>
+        <button class="deck-issues-btn${hasHistoricalIssues(d._uuid,d.name)?' has-issues':''}" onclick="event.stopPropagation();openIssuePanel('${sn}','${d._uuid||''}')" title="View issue history">
+          <span class="idot"></span>Issues
+        </button>
       </div>
       <div class="deck-expand" id="${eid}">
         <div class="log-cols">
