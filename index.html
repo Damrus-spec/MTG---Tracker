@@ -4369,32 +4369,14 @@ function renderGraph() {
   // If no deck is expanded, always show ALL
   const deckFilter = lastExpandedDeck || 'ALL';
 
-  // Build data points from history
-  let history = (data.history||[]).filter(h=>h.last && h.date);
-
-  // Date range slider filter
-  const slider = document.getElementById('graph-date-slider');
-  const fromLabel = document.getElementById('graph-from-label');
-  if (slider && history.length) {
-    const allDates = history.map(h=>h.date).sort();
-    const earliest = allDates[0];
-    const latest   = allDates[allDates.length-1];
-    const pct = parseFloat(slider.value) / 100;
-    // Interpolate between earliest and latest date
-    const e = new Date(earliest).getTime();
-    const l = new Date(latest).getTime();
-    const cutoff = new Date(e + pct*(l-e)).toISOString().slice(0,10);
-    history = history.filter(h => h.date >= cutoff);
-    if (fromLabel) fromLabel.textContent = pct === 0 ? 'All time' : cutoff.slice(0,7);
-  }
-
-  let points = [];
+  // Build ALL data points from full history first (running cumulative)
+  const fullHistory = (data.history||[]).filter(h=>h.last && h.date);
+  let allPoints = [];
 
   if (deckFilter === 'ALL') {
-    // Running overall win rate — deduplicate entries that exist under both UUID and name
     const seen = new Set();
     const byDate = {};
-    for (const h of history) {
+    for (const h of fullHistory) {
       const deckKey = h.deckUuid || uuidForName(h.deck) || h.deck;
       const sig = `${deckKey}|${h.date}|${h.last}|${h.wins}|${h.losses}`;
       if (seen.has(sig)) continue;
@@ -4406,15 +4388,33 @@ function renderGraph() {
     for (const date of Object.keys(byDate).sort()) {
       totalW += byDate[date].w; totalL += byDate[date].l;
       const total = totalW+totalL;
-      if (total>0) points.push({x:date, y:parseFloat((totalW/total*100).toFixed(1))});
+      if (total>0) allPoints.push({x:date, y:parseFloat((totalW/total*100).toFixed(1))});
     }
   } else {
-    // Running win rate for selected deck
-    const deckHist = history.filter(h=>h.deck===deckFilter||h.deckUuid===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
+    const deckHist = fullHistory.filter(h=>h.deck===deckFilter||h.deckUuid===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
+    let w=0, l=0;
     for (const h of deckHist) {
-      const total = h.wins+h.losses;
-      if (total>0) points.push({x:h.date, y:parseFloat((h.wins/total*100).toFixed(1))});
+      if (h.last==='Win') w++; else l++;
+      const total = w+l;
+      if (total>0) allPoints.push({x:h.date, y:parseFloat((w/total*100).toFixed(1))});
     }
+  }
+
+  // Slider only controls which window of the already-computed points to display
+  const slider = document.getElementById('graph-date-slider');
+  const fromLabel = document.getElementById('graph-from-label');
+  let points = allPoints;
+  if (slider && allPoints.length) {
+    const pct = parseFloat(slider.value) / 100;
+    const earliest = allPoints[0].x;
+    const latest   = allPoints[allPoints.length-1].x;
+    const e = new Date(earliest).getTime();
+    const l = new Date(latest).getTime();
+    const cutoff = new Date(e + pct*(l-e)).toISOString().slice(0,10);
+    // Find the index of the last point BEFORE cutoff to include as the starting value
+    const cutoffIdx = allPoints.findIndex(p => p.x >= cutoff);
+    points = cutoffIdx > 0 ? allPoints.slice(cutoffIdx - 1) : allPoints;
+    if (fromLabel) fromLabel.textContent = pct === 0 ? 'All time' : cutoff.slice(0,7);
   }
 
   if (points.length < 2) {
@@ -4483,13 +4483,8 @@ function renderGraph() {
         },
         y: {
           min: (() => {
-            const vals = thinned.map(p=>p.y).sort((a,b)=>a-b);
-            // Use 10th percentile to ignore early outlier zeros (e.g. first game was a loss)
-            const p10idx = Math.floor(vals.length * 0.10);
-            const dataMin = vals[Math.min(p10idx, vals.length-1)];
-            // Start 10% below that
+            const dataMin = Math.min(...thinned.map(p=>p.y));
             const fromData = dataMin - 10;
-            // But must show lowest threshold with 5% buffer below it
             const lowestThreshold = Math.min(s.fallBehind, s.strongWin, s.maxWin);
             const fromThreshold = lowestThreshold - 5;
             const raw = Math.min(fromData, fromThreshold);
