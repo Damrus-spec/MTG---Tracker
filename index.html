@@ -617,6 +617,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
           <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" title="Scan history for decks removed from the deck list and restore them" onclick="recoverDeletedDecks()">Find & restore</button>
         </div>
       </div>
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Google Drive folder</div>
+          <div class="setting-desc">Opens the MTG Tracker Data folder on Google Drive where your data files are stored.</div>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="openDriveFolder()"><i class="ti ti-folder-open"></i> Open Drive folder</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -806,6 +813,7 @@ const INITIAL_DATA = {
   colorDecks: [],
   scores: {},
   deckWants: {},
+  deckLists: {},
   history: [],
   undoStack: []
 }
@@ -820,7 +828,11 @@ let newDeckAddStatus = 'buy'; // for wants add form
 let dirty = false;
 let syncTimer = null;
 let syncing = false;
-let driveFileId = null;
+let driveFileId = null; // legacy, kept for migration check
+let driveFolderId = null;
+let driveDecksId  = null;
+let driveWantsId  = null;
+let driveListsId  = null;
 let accessToken = null;
 let hasFetchedFromDrive = false; // must fetch before we can upload
 let lastFetchTime = 0; // timestamp of last successful Drive fetch
@@ -908,8 +920,12 @@ function saveLocal() {
 }
 function loadLocal() {
   // Always load auth tokens first
-  try { accessToken = localStorage.getItem('mtg_token')||null; } catch(e) {}
-  try { driveFileId = localStorage.getItem('mtg_file_id')||null; } catch(e) {}
+  try { accessToken    = localStorage.getItem('mtg_token')||null; } catch(e) {}
+  try { driveFileId   = localStorage.getItem('mtg_file_id')||null; } catch(e) {}   // legacy
+  try { driveFolderId = localStorage.getItem('mtg_folder_id')||null; } catch(e) {}
+  try { driveDecksId  = localStorage.getItem('mtg_decks_id')||null; } catch(e) {}
+  try { driveWantsId  = localStorage.getItem('mtg_wants_id')||null; } catch(e) {}
+  try { driveListsId  = localStorage.getItem('mtg_lists_id')||null; } catch(e) {}
   try { artCache = JSON.parse(localStorage.getItem('mtg_art')||'{}'); } catch(e) { artCache={}; }
   try { priceCache = JSON.parse(localStorage.getItem('mtg_prices')||'{}'); } catch(e) { priceCache={}; }
 
@@ -1008,7 +1024,11 @@ function savePriceCache() { try{localStorage.setItem('mtg_prices',JSON.stringify
 // ============================================================
 const CLIENT_ID = '759702102602-oqut2g10iijiilci142fqr5ll9i78rfh.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
-const FILE_NAME = 'MTG_Tools_Data.json';
+const FOLDER_NAME = 'MTG Tracker Data';
+const FILE_LEGACY = 'MTG_Tools_Data.json';
+const FILE_DECKS  = 'MTG_Tracker_Decks.json';
+const FILE_WANTS  = 'MTG_Tracker_Wants.json';
+const FILE_LISTS  = 'MTG_Tracker_Decklists.json';
 
 let gsiClient = null;
 
@@ -1068,10 +1088,16 @@ function signIn() {
 }
 function signOut() {
   if (accessToken) google.accounts.oauth2.revoke(accessToken, ()=>{});
-  accessToken = null; driveFileId = null; hasFetchedFromDrive = false;
+  accessToken = null; driveFileId = null; driveFolderId = null;
+  driveDecksId = null; driveWantsId = null; driveListsId = null;
+  hasFetchedFromDrive = false;
   try {
     localStorage.removeItem('mtg_token');
     localStorage.removeItem('mtg_file_id');
+    localStorage.removeItem('mtg_folder_id');
+    localStorage.removeItem('mtg_decks_id');
+    localStorage.removeItem('mtg_wants_id');
+    localStorage.removeItem('mtg_lists_id');
     localStorage.removeItem('mtg_data');
   } catch(e) {}
   data = JSON.parse(JSON.stringify(INITIAL_DATA));
@@ -1099,44 +1125,182 @@ function setSyncStatus(state, msg) {
 }
 
 // ============================================================
-// DRIVE SYNC
+// DRIVE SYNC — multi-file, folder-scoped
 // ============================================================
-async function getOrCreateFile() {
-  if (driveFileId) return driveFileId;
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${FILE_NAME}'+and+trashed=false&fields=files(id)`,
+
+// ── Folder lookup ──
+async function getDriveFolder() {
+  if (driveFolderId) return driveFolderId;
+  const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
     {headers:{Authorization:`Bearer ${accessToken}`}});
   const j = await r.json();
   if (j.files && j.files.length > 0) {
-    driveFileId = j.files[0].id;
-    try{localStorage.setItem('mtg_file_id',driveFileId);}catch(e){}
+    driveFolderId = j.files[0].id;
+    try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
   }
-  return driveFileId;
+  return driveFolderId;
 }
+
+// Open the Drive folder in the browser
+function openDriveFolder() {
+  if (driveFolderId) {
+    window.open(`https://drive.google.com/drive/folders/${driveFolderId}`, '_blank');
+  } else {
+    getDriveFolder().then(fid => {
+      if (fid) window.open(`https://drive.google.com/drive/folders/${fid}`, '_blank');
+      else alert('Could not find the MTG Tracker Data folder on Drive.');
+    });
+  }
+}
+
+// ── Generic file helpers ──
+async function driveGetFileId(fileName, folderId) {
+  const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+    {headers:{Authorization:`Bearer ${accessToken}`}});
+  const j = await r.json();
+  return (j.files && j.files.length > 0) ? j.files[0].id : null;
+}
+
+async function driveReadFile(fileId) {
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    {headers:{Authorization:`Bearer ${accessToken}`}});
+  if (!r.ok) return null;
+  return await r.json();
+}
+
+async function driveWriteFile(fileId, fileName, folderId, payload) {
+  const body = JSON.stringify(payload, null, 2);
+  if (fileId) {
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      {method:'PATCH', headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'}, body});
+    return r.ok ? fileId : null;
+  } else {
+    const meta = new Blob([JSON.stringify({name:fileName, mimeType:'application/json', parents:[folderId]})],{type:'application/json'});
+    const content = new Blob([body],{type:'application/json'});
+    const form = new FormData(); form.append('metadata',meta); form.append('file',content);
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {method:'POST', headers:{Authorization:`Bearer ${accessToken}`}, body:form});
+    if (!r.ok) return null;
+    const c = await r.json();
+    return c.id;
+  }
+}
+
+async function driveRenameFile(fileId, newName) {
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`,
+    {method:'PATCH', headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
+     body: JSON.stringify({name: newName})});
+}
+
+// ── Migration: split legacy single file into 3 files ──
+async function migrateLegacyFile(folderId) {
+  const legacyId = await driveGetFileId(FILE_LEGACY, folderId);
+  if (!legacyId) return false; // nothing to migrate
+  setSyncStatus('busy', 'Migrating data to new format…');
+  const legacy = await driveReadFile(legacyId);
+  if (!legacy) return false;
+
+  // Write the 3 new files
+  const decksPayload = {
+    _v: legacy._v || 0,
+    settings:   legacy.settings   || INITIAL_DATA.settings,
+    colorDecks: legacy.colorDecks || [],
+    scores:     legacy.scores     || {},
+    history:    legacy.history    || [],
+    undoStack:  legacy.undoStack  || []
+  };
+  const wantsPayload  = { deckWants: legacy.deckWants || {} };
+  const listsPayload  = { deckLists: {} };
+
+  driveDecksId = await driveWriteFile(null, FILE_DECKS, folderId, decksPayload);
+  driveWantsId = await driveWriteFile(null, FILE_WANTS, folderId, wantsPayload);
+  driveListsId = await driveWriteFile(null, FILE_LISTS, folderId, listsPayload);
+
+  try{localStorage.setItem('mtg_decks_id', driveDecksId);}catch(e){}
+  try{localStorage.setItem('mtg_wants_id', driveWantsId);}catch(e){}
+  try{localStorage.setItem('mtg_lists_id', driveListsId);}catch(e){}
+
+  // Rename legacy file instead of deleting
+  await driveRenameFile(legacyId, 'legacy_' + FILE_LEGACY);
+  try{localStorage.removeItem('mtg_file_id');}catch(e){}
+
+  return legacy;
+}
+
+// ── Ensure all 3 file IDs are resolved ──
+async function resolveFileIds(folderId) {
+  if (!driveDecksId) {
+    driveDecksId = await driveGetFileId(FILE_DECKS, folderId);
+    if (driveDecksId) try{localStorage.setItem('mtg_decks_id', driveDecksId);}catch(e){}
+  }
+  if (!driveWantsId) {
+    driveWantsId = await driveGetFileId(FILE_WANTS, folderId);
+    if (driveWantsId) try{localStorage.setItem('mtg_wants_id', driveWantsId);}catch(e){}
+  }
+  if (!driveListsId) {
+    driveListsId = await driveGetFileId(FILE_LISTS, folderId);
+    if (driveListsId) try{localStorage.setItem('mtg_lists_id', driveListsId);}catch(e){}
+  }
+}
+
+// ── Merge all 3 files into the in-memory data object ──
+function mergeFilesIntoData(decks, wants, lists) {
+  data = Object.assign({}, INITIAL_DATA);
+  if (decks) {
+    data._v        = decks._v       || 0;
+    data.settings  = decks.settings  || INITIAL_DATA.settings;
+    data.colorDecks= decks.colorDecks|| [];
+    data.scores    = decks.scores    || {};
+    data.history   = decks.history   || [];
+    data.undoStack = decks.undoStack || [];
+  }
+  if (wants) {
+    data.deckWants = wants.deckWants || {};
+  }
+  if (lists) {
+    data.deckLists = lists.deckLists || {};
+  }
+  // Guard defaults
+  if (!data.settings)   data.settings   = INITIAL_DATA.settings;
+  if (!data.deckWants)  data.deckWants  = {};
+  if (!data.colorDecks) data.colorDecks = [];
+  if (!data.undoStack)  data.undoStack  = [];
+  if (!data.deckLists)  data.deckLists  = {};
+}
+
 async function syncDrive(silent) {
   if (syncing||!accessToken) return;
   syncing=true; dirty=false;
-  // Only show busy spinner on explicit/forced saves, not background flushes
   if (!silent) setSyncStatus('busy','Syncing...');
   try {
-    const fid = await getOrCreateFile();
-    const body = JSON.stringify(data, null, 2);
-    let res;
-    if (fid) {
-      res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fid}?uploadType=media`,
-        {method:'PATCH',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body});
-    } else {
-      const meta = new Blob([JSON.stringify({name:FILE_NAME,mimeType:'application/json'})],{type:'application/json'});
-      const content = new Blob([body],{type:'application/json'});
-      const form = new FormData(); form.append('metadata',meta); form.append('file',content);
-      res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        {method:'POST',headers:{Authorization:`Bearer ${accessToken}`},body:form});
-      const c = await res.json(); driveFileId=c.id;
-      try{localStorage.setItem('mtg_file_id',driveFileId);}catch(e){}
-    }
-    if (res.ok) {
-      setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; silentSignIn(); }
-    else setSyncStatus('red','Sync error');
+    const folderId = await getDriveFolder();
+    if (!folderId) { setSyncStatus('red','Drive folder not found'); syncing=false; return; }
+    await resolveFileIds(folderId);
+
+    const decksPayload = {
+      _v: localVersion,
+      settings:   data.settings   || INITIAL_DATA.settings,
+      colorDecks: data.colorDecks || [],
+      scores:     data.scores     || {},
+      history:    data.history    || [],
+      undoStack:  data.undoStack  || []
+    };
+    const wantsPayload = { deckWants: data.deckWants || {} };
+    const listsPayload = { deckLists: data.deckLists || {} };
+
+    const [newDecksId, newWantsId, newListsId] = await Promise.all([
+      driveWriteFile(driveDecksId, FILE_DECKS, folderId, decksPayload),
+      driveWriteFile(driveWantsId, FILE_WANTS, folderId, wantsPayload),
+      driveWriteFile(driveListsId, FILE_LISTS, folderId, listsPayload)
+    ]);
+
+    if (newDecksId) { driveDecksId = newDecksId; try{localStorage.setItem('mtg_decks_id', driveDecksId);}catch(e){} }
+    if (newWantsId) { driveWantsId = newWantsId; try{localStorage.setItem('mtg_wants_id', driveWantsId);}catch(e){} }
+    if (newListsId) { driveListsId = newListsId; try{localStorage.setItem('mtg_lists_id', driveListsId);}catch(e){} }
+
+    setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
   } catch(e){ setSyncStatus('red','Offline — saved locally'); }
   syncing=false;
 }
@@ -1165,70 +1329,73 @@ document.addEventListener('focusout', () => {
 async function loadFromDrive(force) {
   if (!accessToken) { setSyncStatus('red','Not signed in'); return; }
   if (!force && hasFetchedFromDrive && (Date.now() - lastFetchTime) < FETCH_COOLDOWN) return;
-  // Never reload while user is actively typing/editing anything
   if (!force && userIsEditing) return;
-  // Background reloads (non-forced) are silent — no spinner, no disruption
+
   if (!force) {
     try {
-      const fid = await getOrCreateFile();
-      if (!fid) { hasFetchedFromDrive = true; lastFetchTime = Date.now(); return; }
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`,
-        {headers:{Authorization:`Bearer ${accessToken}`}});
-      if (res.ok) {
-        if (userIsEditing) return; // user started editing during fetch — drop it
-        const loaded = await res.json();
-        // If local data is newer than what Drive has, don't overwrite — our save is in flight
-        const driveVersion = loaded._v || 0;
-        if (driveVersion < localVersion) {
-          setSyncStatus('ok', '↑ saving…');
-          return;
-        }
-        data = Object.assign({},INITIAL_DATA,loaded);
-        localVersion = data._v || 0;
-        if (!data.settings)  data.settings  = INITIAL_DATA.settings;
-        if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
-        if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
-        if (!data.undoStack) data.undoStack = [];
-        if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
-        hasFetchedFromDrive = true;
-        lastFetchTime = Date.now();
-        migrateDataToUuids();
-        cleanStaleScores();
-        saveLocal(); renderAll();
-        setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-      } else if (res.status===401) {
-        accessToken=null; hasFetchedFromDrive=false;
-        silentSignIn();
-      }
+      const folderId = await getDriveFolder();
+      if (!folderId) return;
+      await resolveFileIds(folderId);
+      if (!driveDecksId) return;
+
+      const [decks, wants, lists] = await Promise.all([
+        driveDecksId ? driveReadFile(driveDecksId) : null,
+        driveWantsId ? driveReadFile(driveWantsId) : null,
+        driveListsId ? driveReadFile(driveListsId) : null
+      ]);
+      if (!decks) return;
+      if (userIsEditing) return;
+      const driveVersion = decks._v || 0;
+      if (driveVersion < localVersion) { setSyncStatus('ok', '↑ saving…'); return; }
+      mergeFilesIntoData(decks, wants, lists);
+      localVersion = data._v || 0;
+      if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
+      hasFetchedFromDrive = true; lastFetchTime = Date.now();
+      migrateDataToUuids(); cleanStaleScores();
+      saveLocal(); renderAll();
+      setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
     } catch(e) { /* silently ignore background fetch errors */ }
     return;
   }
-  // Forced load (sign-in, explicit refresh) — show status
+
+  // Forced load
   setSyncStatus('busy','Loading...');
   try {
-    const fid = await getOrCreateFile();
-    if (!fid) { hasFetchedFromDrive = true; lastFetchTime = Date.now(); setSyncStatus('ok','No Drive file yet — will save on first change'); renderAll(); return; }
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`,
-      {headers:{Authorization:`Bearer ${accessToken}`}});
-    if (res.ok) {
-      const loaded = await res.json();
-      if (!force && userIsEditing) { setSyncStatus('ok','Synced'); return; }
-      data = Object.assign({},INITIAL_DATA,loaded);
-      localVersion = data._v || 0;
-      if (!data.settings)  data.settings  = INITIAL_DATA.settings;
-      if (!data.deckWants) data.deckWants = INITIAL_DATA.deckWants;
-      if (!data.colorDecks)data.colorDecks= INITIAL_DATA.colorDecks;
-      if (!data.undoStack) data.undoStack = [];
-      if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
-      hasFetchedFromDrive = true;
-      lastFetchTime = Date.now();
-      migrateDataToUuids();
-      cleanStaleScores();
-      deduplicateHistory();
-      saveLocal(); renderAll();
-      setSyncStatus('ok','Loaded '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } else if (res.status===401) { accessToken=null; hasFetchedFromDrive=false; silentSignIn(); }
-    else { setSyncStatus('red','Load error'); }
+    const folderId = await getDriveFolder();
+    if (!folderId) { setSyncStatus('red','Drive folder not found'); return; }
+
+    // Check for legacy file and migrate if found
+    const legacy = await migrateLegacyFile(folderId);
+    if (legacy) {
+      // Migration just wrote the files; resolve IDs and merge what we got
+      mergeFilesIntoData(
+        { _v: legacy._v||0, settings: legacy.settings, colorDecks: legacy.colorDecks,
+          scores: legacy.scores, history: legacy.history, undoStack: legacy.undoStack },
+        { deckWants: legacy.deckWants || {} },
+        { deckLists: {} }
+      );
+    } else {
+      await resolveFileIds(folderId);
+      if (!driveDecksId) {
+        hasFetchedFromDrive = true; lastFetchTime = Date.now();
+        setSyncStatus('ok','No Drive files yet — will save on first change');
+        renderAll(); return;
+      }
+      const [decks, wants, lists] = await Promise.all([
+        driveDecksId ? driveReadFile(driveDecksId) : null,
+        driveWantsId ? driveReadFile(driveWantsId) : null,
+        driveListsId ? driveReadFile(driveListsId) : null
+      ]);
+      if (!decks) { setSyncStatus('red','Load error'); return; }
+      mergeFilesIntoData(decks, wants, lists);
+    }
+
+    localVersion = data._v || 0;
+    if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
+    hasFetchedFromDrive = true; lastFetchTime = Date.now();
+    migrateDataToUuids(); cleanStaleScores(); deduplicateHistory();
+    saveLocal(); renderAll();
+    setSyncStatus('ok', legacy ? 'Migrated & loaded ' : 'Loaded ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
   } catch(e){ setSyncStatus('red','Offline — using local'); }
 }
 function scheduleSync() {
