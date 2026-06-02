@@ -1575,6 +1575,7 @@ function showPage(id, btn) {
 function wrClass(wr, total) {
   const s=cfg();
   if(total<s.threshold) return 'wr-new';
+  if(wr>=(s.pubStompWin||60)) return 'wr-pubstomp';
   if(wr>=s.maxWin)      return 'wr-tostrong';
   if(wr>=s.strongWin)   return 'wr-strong';
   if(wr<=s.fallBehind)  return 'wr-behind';
