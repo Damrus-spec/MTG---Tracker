@@ -155,7 +155,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-sec-toggle{font-size:14px;color:var(--text3);transition:transform .2s}
 .deck-sec-toggle.open{transform:rotate(180deg)}
 .deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:0 12px}
-.deck-sec-body .want-card-row:first-child{border-top:.5px solid var(--border)}
+.deck-sec-body .want-card-row:first-child{border-top:none}
 .deck-sec-body.open{display:block}
 .want-card-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:44px}
 .want-card-row:last-child{border-bottom:none}
@@ -194,7 +194,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .add-deck-form{margin-bottom:12px}
 .deck-mgr-row{display:flex;align-items:center;gap:8px;padding:0;border-bottom:.5px solid var(--border);overflow:hidden;min-height:56px}
 .deck-mgr-row:last-child{border-bottom:none}
-.deck-mgr-art{width:110px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-mgr-art{width:150px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .deck-mgr-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .deck-mgr-fields{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -2832,7 +2832,7 @@ function renderDeckMgr() {
     return header+`<div class="deck-mgr-row">
       <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;align-self:stretch;position:relative">
         <div class="deck-mgr-art${hasArt?'':d.name?' loading':''}" data-art="${key}"
-             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:110px">
+             onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:150px">
           ${deckArtHtml(d.uuid)}
           ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
 
@@ -3051,7 +3051,7 @@ let _artPickerPosX     = 50;
 let _artPickerPosY     = 0;
 let _artPickerPosScale = 1;
 // Actual display dimensions (px) for the frame overlay
-const ART_FRAME_W = 110; // deck-mgr-art width
+const ART_FRAME_W = 150; // deck-mgr-art width
 const ART_FRAME_H = 110; // approx full row height (art fills stretch)
 
 function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
