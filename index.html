@@ -2869,13 +2869,13 @@ function renderDeckMgr() {
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
     </div>
     <!-- Decklist panel -->
-    <div class="decklist-panel" id="dl-mgr-${i}" style="display:none;padding:10px 12px;border-bottom:.5px solid var(--border)">
-      <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},'${d.uuid||''}')">
-      <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},'${d.uuid||''}')"></textarea>
+    <div class="decklist-panel" id="dl-mgr-${i}" data-uuid="${d.uuid||''}" style="display:none;padding:10px 12px;border-bottom:.5px solid var(--border)">
+      <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},this)">
+      <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},this)"></textarea>
       <div class="decklist-meta" id="dl-mgr-meta-${i}"></div>
       <div class="decklist-actions">
-        <button class="decklist-save-btn" onclick="saveDecklistMgr(${i},'${d.uuid||''}')">Save</button>
-        <button class="decklist-push-btn" id="dl-mgr-push-${i}" onclick="pushToMoxfieldMgr(${i},'${d.uuid||''}')" disabled>Copy &amp; open Moxfield</button>
+        <button class="decklist-save-btn" id="dl-mgr-save-${i}" onclick="saveDecklistMgr(${i})">Save</button>
+        <button class="decklist-push-btn" id="dl-mgr-push-${i}" onclick="pushToMoxfieldMgr(${i})" disabled>Copy &amp; open Moxfield</button>
       </div>
     </div>`;
   }).join('')||'<div class="empty">No decks added yet.</div>';
@@ -3865,32 +3865,37 @@ function toggleDeckMgrList(i, uuid) {
   const chev = document.getElementById('dl-mgr-chev-'+i);
   if (chev) chev.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
   if (isOpen) {
-    const entry = (data.deckLists||{})[uuid] || {};
+    const resolvedUuid = uuid || (panel ? panel.dataset.uuid : '');
+    const entry = (data.deckLists||{})[resolvedUuid] || {};
     const urlEl = document.getElementById('dl-mgr-url-'+i);
     const taEl  = document.getElementById('dl-mgr-ta-'+i);
     if (urlEl) urlEl.value = entry.url  || '';
     if (taEl)  taEl.value  = entry.list || '';
-    updateDecklistMetaMgr(i, uuid);
+    updateDecklistMetaMgr(i, resolvedUuid);
   }
 }
 
 function updateDecklistMetaMgr(i, uuid) {
+  const panel   = document.getElementById('dl-mgr-'+i);
+  const resolvedUuid = uuid || (panel ? panel.dataset.uuid : '');
   const metaEl  = document.getElementById('dl-mgr-meta-'+i);
   const pushBtn = document.getElementById('dl-mgr-push-'+i);
-  const entry   = (data.deckLists||{})[uuid] || {};
+  const entry   = (data.deckLists||{})[resolvedUuid] || {};
   const lines   = (entry.list||'').split('\n').filter(l=>l.trim()).length;
   if (metaEl)  metaEl.textContent = lines ? `${lines} cards stored` : '';
   if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
 }
 
-function decklistUrlChangedMgr(i, uuid) {
+function decklistUrlChangedMgr(i) {
   const urlEl  = document.getElementById('dl-mgr-url-'+i);
   const taEl   = document.getElementById('dl-mgr-ta-'+i);
   const pushBtn = document.getElementById('dl-mgr-push-'+i);
   if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
 }
 
-function saveDecklistMgr(i, uuid) {
+function saveDecklistMgr(i) {
+  const panel = document.getElementById('dl-mgr-'+i);
+  const uuid  = panel ? panel.dataset.uuid : '';
   if (!uuid) return;
   const urlEl = document.getElementById('dl-mgr-url-'+i);
   const taEl  = document.getElementById('dl-mgr-ta-'+i);
@@ -3914,7 +3919,9 @@ function saveDecklistMgr(i, uuid) {
   }
 }
 
-function pushToMoxfieldMgr(i, uuid) {
+function pushToMoxfieldMgr(i) {
+  const panel = document.getElementById('dl-mgr-'+i);
+  const uuid  = panel ? panel.dataset.uuid : '';
   const entry = (data.deckLists||{})[uuid];
   if (!entry || !entry.list || !entry.url) return;
   navigator.clipboard.writeText(entry.list).catch(()=>{});
