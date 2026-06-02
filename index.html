@@ -4485,15 +4485,17 @@ function renderGraph() {
         },
         y: {
           min: (() => {
-            const dataMin = Math.min(...thinned.map(p=>p.y));
-            // Start 10% below lowest data point
+            const vals = thinned.map(p=>p.y).sort((a,b)=>a-b);
+            // Use 10th percentile to ignore early outlier zeros (e.g. first game was a loss)
+            const p10idx = Math.floor(vals.length * 0.10);
+            const dataMin = vals[Math.min(p10idx, vals.length-1)];
+            // Start 10% below that
             const fromData = dataMin - 10;
             // But must show lowest threshold with 5% buffer below it
             const lowestThreshold = Math.min(s.fallBehind, s.strongWin, s.maxWin);
             const fromThreshold = lowestThreshold - 5;
-            // Take the lower of the two, rounded down to nearest 5, min 0 only if data touches 0
             const raw = Math.min(fromData, fromThreshold);
-            return Math.max(dataMin > 5 ? raw : 0, Math.floor(raw / 5) * 5);
+            return Math.max(0, Math.floor(raw / 5) * 5);
           })(),
           max: (() => {
             const dataMax = Math.max(...thinned.map(p=>p.y));
