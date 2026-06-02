@@ -154,7 +154,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-sec-header.buy-excluded{opacity:.55}
 .deck-sec-toggle{font-size:14px;color:var(--text3);transition:transform .2s}
 .deck-sec-toggle.open{transform:rotate(180deg)}
-.deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:4px 12px 0}
+.deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:10px 12px 0}
 .deck-sec-body .want-card-row:first-child{border-top:none}
 .deck-sec-body.open{display:block}
 .want-card-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:44px}
@@ -2393,7 +2393,7 @@ function updateBuyTotal() {
 function removeBuyItem(name) {
   showModal(
     `Remove "${name}" from buy list?`,
-    'Steps: Buy → Considering, or Considering+replacement → Owned.',
+    'Steps: Buy → Maybe, or Maybe+replacement → Owned.',
     () => {
       const k = name.toLowerCase().trim();
       let changed = false;
@@ -2516,28 +2516,35 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       ${(()=>{ const rows=[]; for(let idx=0;idx<entries.length;idx++){ const e=entries[idx];
         const artUrl=artCache[scryfallKey(e.in)]||'';
         const hasList = !!(data.deckLists&&data.deckLists[uuid]&&data.deckLists[uuid].list);
-        const canProcess = hasList && !!e.out && !!e.in;
-        rows.push(`<div class="want-card-row">
-          ${canProcess
-            ? `<button class="w-confirm" data-deck="${uuid}" data-idx="${idx}" onclick="processWantReplacement('${uuid}',${idx})" title="Apply replacement to decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;padding:2px 5px;font-size:13px;line-height:1;margin-left:2px"><i class="ti ti-check"></i></button>`
-            : `<div style="width:26px;flex-shrink:0"></div>`
+        const deckCards = hasList ? (data.deckLists[uuid].list||'').split('\n').map(l=>l.trim().replace(/^\d+\s+/,'').toLowerCase()) : [];
+        const outInDeck = e.out && deckCards.includes(e.out.trim().toLowerCase());
+        const statusLabel = e.inStatus === 'considering' ? 'maybe' : e.inStatus;
+        // Checkmark state: green+enabled if out card found in deck, red+disabled if not found, hidden if no list
+        let confirmBtn = `<div style="width:28px;flex-shrink:0"></div>`;
+        if (hasList && e.out && e.in) {
+          if (outInDeck) {
+            confirmBtn = `<button class="w-confirm" data-deck="${uuid}" data-idx="${idx}" onclick="processWantReplacement('${uuid}',${idx})" title="Apply: remove ${e.out} → add ${e.in}" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center"><i class="ti ti-check"></i></button>`;
+          } else {
+            confirmBtn = `<button class="w-confirm" disabled title="${e.out} not found in stored decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--red);border-radius:4px;color:var(--red);cursor:not-allowed;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center;opacity:.6"><i class="ti ti-check"></i></button>`;
           }
+        }
+        rows.push(`<div class="want-card-row">
+          ${confirmBtn}
           <div class="w-card-art${artUrl?'':' loading'}" data-art="${scryfallKey(e.in)}">
             ${artUrl?`<img src="${artUrl}" alt="${e.in}" loading="lazy">`:''}
           </div>
           <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>
-          
-          <input type="text"
-            id="wout-${uuid}-${idx}"
-            value="${e.out||''}"
-            placeholder="replacement..."
-            data-deck="${uuid}"
-            data-idx="${idx}"
-            onchange="updateWantOut(this.dataset.deck,parseInt(this.dataset.idx),this.value)"
-            style="font-size:11px;width:110px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0;align-self:center">
-          <div style="display:flex;gap:4px;flex-shrink:0;align-self:center;padding-right:4px">
-            <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))">${e.inStatus}</button>
-            <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))"><i class="ti ti-x"></i></button>
+          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;padding-right:6px">
+            <input type="text"
+              id="wout-${uuid}-${idx}"
+              value="${e.out||''}"
+              placeholder="replacement..."
+              data-deck="${uuid}"
+              data-idx="${idx}"
+              onchange="updateWantOut(this.dataset.deck,parseInt(this.dataset.idx),this.value)"
+              style="font-size:11px;width:100px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
+            <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))" style="width:52px;text-align:center;flex-shrink:0">${statusLabel}</button>
+            <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))" style="flex-shrink:0"><i class="ti ti-x"></i></button>
           </div>
         </div>`);
       } return rows.join(''); })()}
@@ -2551,7 +2558,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
           <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
             <div class="add-status-row" id="astatus-${key}">
               <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
-              <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Considering</button>
+              <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Maybe</button>
               <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Owned</button>
             </div>
             <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
