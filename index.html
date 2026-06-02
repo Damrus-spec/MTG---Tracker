@@ -251,7 +251,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-summary{margin-top:8px;padding:6px 8px;background:var(--surface);border-radius:var(--radius-sm);font-size:11px;color:var(--text2)}
 
 /* ISSUE HISTORY SIDE PANEL */
-.issue-hist-panel{position:absolute;top:0;right:-320px;width:300px;max-width:100%;min-height:100%;background:var(--surface);border-left:.5px solid var(--border-md);z-index:300;transition:right .25s ease;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.18)}
+.issue-hist-panel{position:fixed;top:0;right:-320px;width:min(300px,100vw);height:100dvh;background:var(--surface);border-left:.5px solid var(--border-md);z-index:300;transition:right .25s ease;overflow-y:auto;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.18)}
 .issue-hist-panel.open{right:0}
 .issue-hist-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:299;display:none}
 .issue-hist-overlay.open{display:block}
@@ -2097,7 +2097,17 @@ function openIssuePanelFull(deckName, uuid) {
     body.innerHTML = aggHtml + entriesHtml;
   }
 
-  document.getElementById('issue-hist-panel').classList.add('open');
+  const panel = document.getElementById('issue-hist-panel');
+  panel.classList.add('open');
+  // Clamp panel to app right edge on wide screens
+  const app = document.querySelector('.app');
+  if (app) {
+    const appRect = app.getBoundingClientRect();
+    const rightEdge = window.innerWidth - appRect.right;
+    panel.style.right = Math.max(0, rightEdge) + 'px';
+    panel.style.transition = 'none';
+    requestAnimationFrame(() => { panel.style.transition = ''; });
+  }
   document.getElementById('issue-hist-overlay').classList.add('open');
 }
 
@@ -3893,7 +3903,17 @@ function openIssuePanel(deckName, uuid) {
     body.innerHTML = aggHtml + entriesHtml;
   }
 
-  document.getElementById('issue-hist-panel').classList.add('open');
+  const panel = document.getElementById('issue-hist-panel');
+  panel.classList.add('open');
+  // Clamp panel to app right edge on wide screens
+  const app = document.querySelector('.app');
+  if (app) {
+    const appRect = app.getBoundingClientRect();
+    const rightEdge = window.innerWidth - appRect.right;
+    panel.style.right = Math.max(0, rightEdge) + 'px';
+    panel.style.transition = 'none';
+    requestAnimationFrame(() => { panel.style.transition = ''; });
+  }
   document.getElementById('issue-hist-overlay').classList.add('open');
 }
 
