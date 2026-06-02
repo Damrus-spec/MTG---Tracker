@@ -3140,7 +3140,7 @@ function renderEditor() {
   tbody.innerHTML = indexed.map(({h,i}, rowNum)=>`
     <tr class="editor-row" data-idx="${i}">
       <td style="color:var(--text3);padding-left:12px;white-space:nowrap">#${rowNum+1}</td>
-      <td style="padding:4px 4px 4px 8px">${(()=>{
+      <td style="padding:0">${(()=>{
         const cmdName=(h.deck||'').split(' // ')[0].trim();
         const k=scryfallKey(cmdName);
         const artHtml = h.deckUuid ? deckArtHtml(h.deckUuid) : (()=>{
