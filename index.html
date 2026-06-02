@@ -2099,14 +2099,12 @@ function openIssuePanelFull(deckName, uuid) {
 
   const panel = document.getElementById('issue-hist-panel');
   panel.classList.add('open');
-  // Clamp panel to app right edge on wide screens
+  // On wide screens clamp to app right edge; on mobile right:0 is correct
   const app = document.querySelector('.app');
   if (app) {
     const appRect = app.getBoundingClientRect();
-    const rightEdge = window.innerWidth - appRect.right;
-    panel.style.right = Math.max(0, rightEdge) + 'px';
-    panel.style.transition = 'none';
-    requestAnimationFrame(() => { panel.style.transition = ''; });
+    const rightOffset = Math.max(0, Math.round(window.innerWidth - appRect.right));
+    panel.style.right = rightOffset + 'px';
   }
   document.getElementById('issue-hist-overlay').classList.add('open');
 }
@@ -3905,20 +3903,20 @@ function openIssuePanel(deckName, uuid) {
 
   const panel = document.getElementById('issue-hist-panel');
   panel.classList.add('open');
-  // Clamp panel to app right edge on wide screens
+  // On wide screens clamp to app right edge; on mobile right:0 is correct
   const app = document.querySelector('.app');
   if (app) {
     const appRect = app.getBoundingClientRect();
-    const rightEdge = window.innerWidth - appRect.right;
-    panel.style.right = Math.max(0, rightEdge) + 'px';
-    panel.style.transition = 'none';
-    requestAnimationFrame(() => { panel.style.transition = ''; });
+    const rightOffset = Math.max(0, Math.round(window.innerWidth - appRect.right));
+    panel.style.right = rightOffset + 'px';
   }
   document.getElementById('issue-hist-overlay').classList.add('open');
 }
 
 function closeIssuePanel() {
-  document.getElementById('issue-hist-panel').classList.remove('open');
+  const panel = document.getElementById('issue-hist-panel');
+  panel.classList.remove('open');
+  panel.style.right = '';  // clear inline override so CSS -320px takes effect
   document.getElementById('issue-hist-overlay').classList.remove('open');
 }
 
