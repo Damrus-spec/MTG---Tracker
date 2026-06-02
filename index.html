@@ -154,7 +154,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-sec-header.buy-excluded{opacity:.55}
 .deck-sec-toggle{font-size:14px;color:var(--text3);transition:transform .2s}
 .deck-sec-toggle.open{transform:rotate(180deg)}
-.deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:0 12px}
+.deck-sec-body{display:none;background:var(--surface);border:.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:4px 12px 0}
 .deck-sec-body .want-card-row:first-child{border-top:none}
 .deck-sec-body.open{display:block}
 .want-card-row{display:flex;align-items:stretch;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:44px}
@@ -2568,6 +2568,22 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
           </div>
         </div>
       </div>
+      <!-- Decklist panel -->
+      <div style="border-top:.5px solid var(--border);margin-top:4px">
+        <button class="issues-toggle" id="wdl-toggle-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px">
+          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+          <i id="wdl-chev-${uuid}" class="ti ti-chevron-down" style="font-size:11px;margin-left:auto"></i>
+        </button>
+        <div id="wdl-panel-${uuid}" style="display:none;flex-direction:column;gap:8px;padding-bottom:10px">
+          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')">
+          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')"></textarea>
+          <div class="decklist-meta" id="wdl-meta-${uuid}"></div>
+          <div class="decklist-actions">
+            <button class="decklist-save-btn" id="wdl-save-${uuid}" onclick="wdlSave('${uuid}')">Save</button>
+            <button class="decklist-push-btn" id="wdl-push-${uuid}" onclick="wdlPush('${uuid}')" disabled>Copy &amp; open Moxfield</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -2871,26 +2887,11 @@ function renderDeckMgr() {
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </div>
-        <button id="dl-mgr-toggle-${i}" onclick="toggleDeckMgrList(${i},'${d.uuid||''}')"
-          style="background:none;border:none;cursor:pointer;color:var(--text3);padding:3px 0;font-size:11px;display:flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.5px;font-weight:500;font-family:inherit;width:100%;text-align:left">
-          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
-          <i id="dl-mgr-chev-${i}" class="ti ti-chevron-down" style="font-size:11px;margin-left:auto"></i>
-        </button>
       </div>
       ${d.status==='Retired'?`
         <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
       `:''}
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
-    </div>
-    <!-- Decklist panel -->
-    <div class="decklist-panel" id="dl-mgr-${i}" data-uuid="${d.uuid||''}" style="display:none;padding:10px 12px;border-bottom:.5px solid var(--border)">
-      <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},this)">
-      <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},this)"></textarea>
-      <div class="decklist-meta" id="dl-mgr-meta-${i}"></div>
-      <div class="decklist-actions">
-        <button class="decklist-save-btn" id="dl-mgr-save-${i}" onclick="saveDecklistMgr(${i})">Save</button>
-        <button class="decklist-push-btn" id="dl-mgr-push-${i}" onclick="pushToMoxfieldMgr(${i})" disabled>Copy &amp; open Moxfield</button>
-      </div>
     </div>`;
   }).join('')||'<div class="empty">No decks added yet.</div>';
 
@@ -3864,91 +3865,85 @@ function closeIssuePanel() {
   document.getElementById('issue-hist-overlay').classList.remove('open');
 }
 
+
 // ============================================================
-// DECKLIST PANEL
+// WANTS TAB DECKLIST PANEL
 // ============================================================
-function toggleDeckMgrList(i, uuid) {
-  const panel = document.getElementById('dl-mgr-'+i);
+function toggleWantsDecklistPanel(uuid) {
+  const panel = document.getElementById('wdl-panel-'+uuid);
   if (!panel) return;
-  const isOpen = panel.style.display === 'none' || panel.style.display === '';
-  panel.style.display       = isOpen ? 'flex' : 'none';
+  const isOpen = panel.style.display === 'none' || !panel.style.display;
+  panel.style.display    = isOpen ? 'flex' : 'none';
   panel.style.flexDirection = 'column';
-  panel.style.gap           = '8px';
-  const btn = document.getElementById('dl-mgr-toggle-'+i);
-  if (btn) btn.style.color = isOpen ? 'var(--accent)' : 'var(--text3)';
-  const chev = document.getElementById('dl-mgr-chev-'+i);
-  if (chev) chev.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  panel.style.gap        = '8px';
+  const btn  = document.getElementById('wdl-toggle-'+uuid);
+  const chev = document.getElementById('wdl-chev-'+uuid);
+  if (btn)  btn.style.color  = isOpen ? 'var(--accent)' : 'var(--text3)';
+  if (chev) chev.className   = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
   if (isOpen) {
-    const resolvedUuid = uuid || (panel ? panel.dataset.uuid : '');
-    const entry = (data.deckLists||{})[resolvedUuid] || {};
-    const urlEl = document.getElementById('dl-mgr-url-'+i);
-    const taEl  = document.getElementById('dl-mgr-ta-'+i);
+    const entry = (data.deckLists||{})[uuid] || {};
+    const urlEl = document.getElementById('wdl-url-'+uuid);
+    const taEl  = document.getElementById('wdl-ta-'+uuid);
     if (urlEl) urlEl.value = entry.url  || '';
     if (taEl)  taEl.value  = entry.list || '';
-    updateDecklistMetaMgr(i, resolvedUuid);
+    wdlUpdateMeta(uuid);
   }
 }
 
-function updateDecklistMetaMgr(i, uuid) {
-  const panel   = document.getElementById('dl-mgr-'+i);
-  const resolvedUuid = uuid || (panel ? panel.dataset.uuid : '');
-  const metaEl  = document.getElementById('dl-mgr-meta-'+i);
-  const pushBtn = document.getElementById('dl-mgr-push-'+i);
-  const entry   = (data.deckLists||{})[resolvedUuid] || {};
-  const total = (entry.list||'').split('\n').reduce((sum, l) => {
-    const m = l.trim().match(/^(\d+)\s+/);
-    return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
-  }, 0);
-  if (metaEl) metaEl.textContent = total ? `${total} cards stored` : '';
-  if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
-}
-
-function decklistUrlChangedMgr(i) {
-  const urlEl  = document.getElementById('dl-mgr-url-'+i);
-  const taEl   = document.getElementById('dl-mgr-ta-'+i);
-  const pushBtn = document.getElementById('dl-mgr-push-'+i);
+function wdlChanged(uuid) {
+  const urlEl  = document.getElementById('wdl-url-'+uuid);
+  const taEl   = document.getElementById('wdl-ta-'+uuid);
+  const pushBtn = document.getElementById('wdl-push-'+uuid);
   if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
 }
 
-function saveDecklistMgr(i) {
-  const panel = document.getElementById('dl-mgr-'+i);
-  const uuid  = panel ? panel.dataset.uuid : '';
-  if (!uuid) return;
-  const urlEl = document.getElementById('dl-mgr-url-'+i);
-  const taEl  = document.getElementById('dl-mgr-ta-'+i);
-  if (!data.deckLists) data.deckLists = {};
-  data.deckLists[uuid] = {
-    url:  (urlEl ? urlEl.value.trim() : ''),
-    list: (taEl  ? taEl.value.trim()  : '')
-  };
-  updateDecklistMetaMgr(i, uuid);
-  scheduleSync();
-  const saveBtn = document.getElementById('dl-mgr-save-'+i);
-  if (saveBtn) {
-    saveBtn.textContent = 'Saved ✓';
-    saveBtn.style.color = 'var(--green)';
-    saveBtn.style.borderColor = 'var(--green)';
-    setTimeout(() => {
-      saveBtn.textContent = 'Save';
-      saveBtn.style.color = '';
-      saveBtn.style.borderColor = '';
-    }, 1500);
-  }
+function wdlUpdateMeta(uuid) {
+  const metaEl  = document.getElementById('wdl-meta-'+uuid);
+  const pushBtn = document.getElementById('wdl-push-'+uuid);
+  const entry   = (data.deckLists||{})[uuid] || {};
+  const total   = (entry.list||'').split('\n').reduce((sum, l) => {
+    const m = l.trim().match(/^(\d+)\s+/);
+    return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
+  }, 0);
+  if (metaEl)  metaEl.textContent = total ? `${total} cards stored` : '';
+  if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
 }
 
-function pushToMoxfieldMgr(i) {
-  const panel = document.getElementById('dl-mgr-'+i);
-  const uuid  = panel ? panel.dataset.uuid : '';
+function wdlSave(uuid) {
+  const urlEl = document.getElementById('wdl-url-'+uuid);
+  const taEl  = document.getElementById('wdl-ta-'+uuid);
+  if (!data.deckLists) data.deckLists = {};
+  data.deckLists[uuid] = {
+    url:  urlEl ? urlEl.value.trim() : '',
+    list: taEl  ? taEl.value.trim()  : ''
+  };
+  wdlUpdateMeta(uuid);
+  scheduleSync();
+  const btn = document.getElementById('wdl-save-'+uuid);
+  if (btn) {
+    btn.textContent = 'Saved ✓';
+    btn.style.color = 'var(--green)';
+    btn.style.borderColor = 'var(--green)';
+    setTimeout(() => { btn.textContent='Save'; btn.style.color=''; btn.style.borderColor=''; }, 1500);
+  }
+  // Refresh wants so checkmarks update
+  renderDeckWants();
+}
+
+function wdlPush(uuid) {
   const entry = (data.deckLists||{})[uuid];
   if (!entry || !entry.list || !entry.url) return;
   navigator.clipboard.writeText(entry.list).catch(()=>{});
   const base = entry.url.replace(/\/+$/, '');
   const editUrl = base.endsWith('/edit') ? base : base + '/edit';
   window.open(editUrl, '_blank');
-  const btn = document.getElementById('dl-mgr-push-'+i);
-  if (btn) { btn.textContent = 'Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
+  const btn = document.getElementById('wdl-push-'+uuid);
+  if (btn) { btn.textContent='Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
 }
 
+// ============================================================
+// DECKLIST PANEL
+// ============================================================
 function toggleDecklistPanel(eid, uuid) {
   const panel = document.getElementById('dl-'+eid);
   if (!panel) return;
