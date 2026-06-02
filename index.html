@@ -858,6 +858,7 @@ let priceCache = {}; // card name -> {eur, usd, updated}
 let wantsTab = 'buy';
 // per-deck open/close state for wants by-deck
 let deckSectionOpen = {};
+let wdlPanelOpen = {}; // tracks open decklist panels in wants tab
 // UUIDs of Building decks excluded from the buy list (default: all included)
 let deckBuylistExcluded = new Set();
 
@@ -2456,6 +2457,18 @@ function renderDeckWants() {
     html += renderDeckWantsSection(uuid, displayName, dw, group);
   }
   document.getElementById('deck-wants-list').innerHTML = html || '<div class="empty">No wants tracked yet.</div>';
+  // Re-populate any open decklist panels (data may have loaded after they were opened)
+  document.querySelectorAll('[id^="wdl-panel-"]').forEach(panel => {
+    if (panel.style.display !== 'none') {
+      const uuid = panel.id.replace('wdl-panel-', '');
+      const entry = (data.deckLists||{})[uuid] || {};
+      const urlEl = document.getElementById('wdl-url-'+uuid);
+      const taEl  = document.getElementById('wdl-ta-'+uuid);
+      if (urlEl && !urlEl.value) urlEl.value = entry.url  || '';
+      if (taEl  && !taEl.value)  taEl.value  = entry.list || '';
+      wdlUpdateMeta(uuid);
+    }
+  });
   fetchMissingArt(allDecks.map(d=>d.displayName.split(' // ')[0]));
   // Also fetch art for all want card names
   const wantCardNames = [];
@@ -2577,14 +2590,14 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       </div>
       <!-- Decklist panel -->
       <div style="border-top:.5px solid var(--border);margin-top:4px">
-        <button class="issues-toggle" id="wdl-toggle-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px">
+        <button class="issues-toggle" id="wdl-toggle-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[uuid]?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-cards" style="font-size:12px"></i> Decklist
-          <i id="wdl-chev-${uuid}" class="ti ti-chevron-down" style="font-size:11px;margin-left:auto"></i>
+          <i id="wdl-chev-${uuid}" class="ti ti-${wdlPanelOpen[uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
         </button>
-        <div id="wdl-panel-${uuid}" style="display:none;flex-direction:column;gap:8px;padding-bottom:10px">
-          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')">
-          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')"></textarea>
-          <div class="decklist-meta" id="wdl-meta-${uuid}"></div>
+        <div id="wdl-panel-${uuid}" style="display:${wdlPanelOpen[uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
+          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')" value="${wdlPanelOpen[uuid]?((data.deckLists||{})[uuid]||{}).url||'':''}">
+          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')">${wdlPanelOpen[uuid]?((data.deckLists||{})[uuid]||{}).list||'':''}</textarea>
+          <div class="decklist-meta" id="wdl-meta-${uuid}">${wdlPanelOpen[uuid]?decklistCardCount(uuid):''}</div>
           <div class="decklist-actions">
             <button class="decklist-save-btn" id="wdl-save-${uuid}" onclick="wdlSave('${uuid}')">Save</button>
             <button class="decklist-push-btn" id="wdl-push-${uuid}" onclick="wdlPush('${uuid}')" disabled>Copy &amp; open Moxfield</button>
@@ -3876,6 +3889,12 @@ function closeIssuePanel() {
 // ============================================================
 // WANTS TAB DECKLIST PANEL
 // ============================================================
+function decklistCardCount(uuid) {
+  const list = ((data.deckLists||{})[uuid]||{}).list||'';
+  const n = list.split('\n').reduce((s,l)=>{const m=l.trim().match(/^(\d+)\s+/);return s+(m?parseInt(m[1]):(l.trim()?1:0));},0);
+  return n ? n+' cards stored' : '';
+}
+
 function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
   if (!panel) return;
@@ -3887,6 +3906,7 @@ function toggleWantsDecklistPanel(uuid) {
   const chev = document.getElementById('wdl-chev-'+uuid);
   if (btn)  btn.style.color  = isOpen ? 'var(--accent)' : 'var(--text3)';
   if (chev) chev.className   = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  wdlPanelOpen[uuid] = isOpen;
   if (isOpen) {
     const entry = (data.deckLists||{})[uuid] || {};
     const urlEl = document.getElementById('wdl-url-'+uuid);
