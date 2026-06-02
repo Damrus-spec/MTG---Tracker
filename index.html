@@ -2465,12 +2465,20 @@ function renderDeckWants() {
     document.querySelectorAll('[id^="wout-"]').forEach(el => {
       if (!el._acInit) {
         el._acInit = true;
+        // Scope to decklist if available
+        const deckUuid = el.dataset.deck;
+        const deckEntry = data.deckLists && data.deckLists[deckUuid];
+        if (deckEntry && deckEntry.list) {
+          // Parse card names from stored decklist
+          const deckCards = deckEntry.list.split('\n').map(l => l.trim().replace(/^\d+\s+/, '')).filter(Boolean);
+          acLocalLists[el.id] = deckCards;
+        }
         initAC(el.id, null);
-        // When a card is picked, save it
         acCallbacks[el.id] = (name) => {
           updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), name);
           el.value = name;
           el.style.color = 'var(--red)';
+          renderDeckWants(); // refresh to show/hide ✓ button
         };
       }
     });
@@ -2500,7 +2508,13 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
     <div class="deck-sec-body${isOpen?' open':''}">
       ${(()=>{ const rows=[]; for(let idx=0;idx<entries.length;idx++){ const e=entries[idx];
         const artUrl=artCache[scryfallKey(e.in)]||'';
+        const hasList = !!(data.deckLists&&data.deckLists[uuid]&&data.deckLists[uuid].list);
+        const canProcess = hasList && !!e.out && !!e.in;
         rows.push(`<div class="want-card-row">
+          ${canProcess
+            ? `<button class="w-confirm" data-deck="${uuid}" data-idx="${idx}" onclick="processWantReplacement('${uuid}',${idx})" title="Apply replacement to decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;padding:2px 5px;font-size:13px;line-height:1;margin-left:2px"><i class="ti ti-check"></i></button>`
+            : `<div style="width:26px;flex-shrink:0"></div>`
+          }
           <div class="w-card-art${artUrl?'':' loading'}" data-art="${scryfallKey(e.in)}">
             ${artUrl?`<img src="${artUrl}" alt="${e.in}" loading="lazy">`:''}
           </div>
@@ -2597,6 +2611,55 @@ function deleteWantEntry(deck, idx) {
   if(!data.deckWants[deck]) return;
   data.deckWants[deck].splice(idx,1);
   renderWants(); scheduleSync();
+}
+
+function processWantReplacement(uuid, idx) {
+  const entry = (data.deckWants[uuid]||[])[idx];
+  if (!entry || !entry.in || !entry.out) return;
+  const deckEntry = data.deckLists && data.deckLists[uuid];
+  if (!deckEntry || !deckEntry.list) return;
+
+  const cardIn  = entry.in.trim();
+  const cardOut = entry.out.trim();
+
+  // Parse lines, remove one copy of cardOut, append cardIn
+  let lines = deckEntry.list.split('\n').map(l => l.trim()).filter(Boolean);
+  let removed = false;
+  lines = lines.filter(l => {
+    if (!removed) {
+      const name = l.replace(/^\d+\s+/, '').trim();
+      if (name.toLowerCase() === cardOut.toLowerCase()) { removed = true; return false; }
+    }
+    return true;
+  });
+  lines.push('1 ' + cardIn);
+  data.deckLists[uuid].list = lines.join('\n');
+
+  // Remove the want entry
+  data.deckWants[uuid].splice(idx, 1);
+
+  scheduleSync();
+  renderWants();
+
+  // Show confirmation toast
+  showDeckUpdatedToast(uuid);
+}
+
+function showDeckUpdatedToast(uuid) {
+  let toast = document.getElementById('deck-updated-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'deck-updated-toast';
+    toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap';
+    document.body.appendChild(toast);
+  }
+  // Find deck name
+  const deck = (data.colorDecks||[]).find(d => d._uuid === uuid || d.uuid === uuid);
+  const name = deck ? (deck.label || deck.name) : 'Deck';
+  toast.textContent = '✓ ' + name + ' decklist updated';
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 }
 function setAddStatus(key, status, btn) {
   const row=document.getElementById('astatus-'+key);
@@ -3838,8 +3901,17 @@ function saveDecklistMgr(i, uuid) {
   };
   updateDecklistMetaMgr(i, uuid);
   scheduleSync();
-  const btn = document.getElementById('dl-mgr-push-'+i) && document.querySelector(`#dl-mgr-${i} .decklist-save-btn`);
-  if (btn) { btn.textContent = 'Saved ✓'; setTimeout(()=>{ btn.textContent='Save'; },1500); }
+  const saveBtn = document.querySelector(`#dl-mgr-${i} .decklist-save-btn`);
+  if (saveBtn) {
+    saveBtn.textContent = 'Saved ✓';
+    saveBtn.style.color = 'var(--green)';
+    saveBtn.style.borderColor = 'var(--green)';
+    setTimeout(() => {
+      saveBtn.textContent = 'Save';
+      saveBtn.style.color = '';
+      saveBtn.style.borderColor = '';
+    }, 1500);
+  }
 }
 
 function pushToMoxfieldMgr(i, uuid) {
@@ -4435,6 +4507,8 @@ function initAC(inputId, onSelect) {
 
 // Track which inputs are in commander mode
 const acCommanderMode = new Set();
+// Track which inputs use a local card list (deck-scoped out fields)
+const acLocalLists = {}; // inputId -> string[]
 
 async function acOnInput(inputId, onSelect) {
   const input = document.getElementById(inputId);
@@ -4447,6 +4521,14 @@ async function acOnInput(inputId, onSelect) {
   acTimers[inputId] = setTimeout(async () => {
     try {
       let names = [];
+      // Local list mode — filter from decklist, no Scryfall call
+      if (acLocalLists[inputId]) {
+        const q2 = input.value.trim().toLowerCase();
+        names = acLocalLists[inputId].filter(n => n.toLowerCase().includes(q2)).slice(0, 12);
+        if (!names.length) { acMarkInvalid(inputId); return; }
+        acShowDropdown(inputId, names, onSelect);
+        return;
+      }
       if (acCommanderMode.has(inputId)) {
         // Use Scryfall search with is:commander filter
         const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q + ' is:commander')}&unique=names&order=name`);
