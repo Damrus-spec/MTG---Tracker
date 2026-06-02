@@ -2647,7 +2647,7 @@ function processWantReplacement(uuid, idx) {
     return acc;
   }, []);
   lines.push('1 ' + cardIn);
-  data.deckLists[uuid].list = lines.join('\n');
+  data.deckLists[uuid].list = lines.join('\\n');
 
   // Remove the want entry
   data.deckWants[uuid].splice(idx, 1);
@@ -2885,7 +2885,8 @@ function renderDeckMgr() {
     <!-- Decklist panel -->
     <div class="decklist-panel" id="dl-mgr-${i}" data-uuid="${d.uuid||''}" style="display:none;padding:10px 12px;border-bottom:.5px solid var(--border)">
       <input class="decklist-url-input" id="dl-mgr-url-${i}" type="url" placeholder="Moxfield deck URL…" oninput="decklistUrlChangedMgr(${i},this)">
-      <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here…" oninput="decklistUrlChangedMgr(${i},this)"></textarea>
+      <button class="decklist-save-btn" id="dl-mgr-fetch-${i}" onclick="fetchMoxfieldDecklist(${i})" style="width:100%;margin-bottom:2px">Fetch from Moxfield</button>
+      <textarea class="decklist-textarea" id="dl-mgr-ta-${i}" placeholder="Paste Moxfield export here… or hit Fetch above" oninput="decklistUrlChangedMgr(${i},this)"></textarea>
       <div class="decklist-meta" id="dl-mgr-meta-${i}"></div>
       <div class="decklist-actions">
         <button class="decklist-save-btn" id="dl-mgr-save-${i}" onclick="saveDecklistMgr(${i})">Save</button>
@@ -3933,6 +3934,86 @@ function saveDecklistMgr(i) {
       saveBtn.style.color = '';
       saveBtn.style.borderColor = '';
     }, 1500);
+  }
+}
+
+async function fetchMoxfieldDecklist(i) {
+  const urlEl  = document.getElementById('dl-mgr-url-'+i);
+  const taEl   = document.getElementById('dl-mgr-ta-'+i);
+  const fetchBtn = document.getElementById('dl-mgr-fetch-'+i);
+  if (!urlEl || !urlEl.value.trim()) {
+    fetchBtn.textContent = 'Enter URL first';
+    fetchBtn.style.color = 'var(--red)';
+    setTimeout(() => { fetchBtn.textContent = 'Fetch from Moxfield'; fetchBtn.style.color = ''; }, 2000);
+    return;
+  }
+
+  // Confirm if textarea already has content
+  if (taEl && taEl.value.trim()) {
+    const ok = confirm('This will overwrite the existing decklist. Continue?');
+    if (!ok) return;
+  }
+
+  // Extract deck ID from URL — handle both /decks/ID and /decks/ID/anything
+  const url = urlEl.value.trim();
+  const match = url.match(/moxfield\.com\/decks\/([^/?#\/]+)/);
+  if (!match) {
+    fetchBtn.textContent = 'Invalid Moxfield URL';
+    fetchBtn.style.color = 'var(--red)';
+    setTimeout(() => { fetchBtn.textContent = 'Fetch from Moxfield'; fetchBtn.style.color = ''; }, 2000);
+    return;
+  }
+  const deckId = match[1];
+
+  fetchBtn.textContent = 'Fetching…';
+  fetchBtn.disabled = true;
+
+  try {
+    const apiUrl = `https://api2.moxfield.com/v3/decks/all/${deckId}`;
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(apiUrl)}`;
+    const res = await fetch(proxyUrl, {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+
+    // Parse mainboard cards from Moxfield JSON
+    const boards = ['mainboard', 'commanders', 'companions'];
+    const lines = [];
+    for (const board of boards) {
+      const cards = json[board]?.cards || {};
+      for (const [, entry] of Object.entries(cards)) {
+        const qty  = entry.quantity || 1;
+        const name = entry.card?.name || entry.name || '';
+        if (name) lines.push(`${qty} ${name}`);
+      }
+    }
+
+    if (!lines.length) throw new Error('No cards found');
+
+    taEl.value = lines.join('\n');
+    decklistUrlChangedMgr(i, taEl);
+    fetchBtn.textContent = 'Fetched ✓';
+    fetchBtn.style.color = 'var(--green)';
+    fetchBtn.style.borderColor = 'var(--green)';
+    setTimeout(() => {
+      fetchBtn.textContent = 'Fetch from Moxfield';
+      fetchBtn.style.color = '';
+      fetchBtn.style.borderColor = '';
+      fetchBtn.disabled = false;
+    }, 2000);
+
+    // Update meta count
+    const panel = document.getElementById('dl-mgr-'+i);
+    const uuid  = panel ? panel.dataset.uuid : '';
+    updateDecklistMetaMgr(i, uuid);
+
+  } catch(e) {
+    fetchBtn.textContent = 'Failed — try paste instead';
+    fetchBtn.style.color = 'var(--red)';
+    fetchBtn.disabled = false;
+    setTimeout(() => { fetchBtn.textContent = 'Fetch from Moxfield'; fetchBtn.style.color = ''; }, 3000);
   }
 }
 
