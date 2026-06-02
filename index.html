@@ -726,7 +726,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="0" max="100" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-100" max="200" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -3162,7 +3162,12 @@ function artPickerInitPos() {
     img.style.display = 'none';
     if (noArt) noArt.style.display = 'flex';
   }
-  if (slX) slX.value = _artPickerPosX;
+  // Invert horizontal back to slider space
+  if (slX) {
+    const xMin2 = parseFloat(slX.min ?? 0);
+    const xMax2 = parseFloat(slX.max ?? 100);
+    slX.value = xMax2 + xMin2 - (_artPickerPosX ?? 50);
+  }
   if (slY) slY.value = _artPickerPosY;
   const slS = document.getElementById('ap-s');
   if (slS) slS.value = Math.round((_artPickerPosScale || 1) * 100);
@@ -3170,16 +3175,18 @@ function artPickerInitPos() {
 }
 
 function artPickerUpdatePos() {
-  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 50);
-  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
-  const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  const slX = parseFloat(document.getElementById('ap-x')?.value ?? 50);
+  const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  const sc  = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  // Invert horizontal: sliding right moves image right (lower object-position x)
+  const sl = document.getElementById('ap-x');
+  const xMin = parseFloat(sl?.min ?? 0);
+  const xMax = parseFloat(sl?.max ?? 100);
+  const x = xMax + xMin - slX; // invert within range
   const img = document.getElementById('ap-pos-img');
   if (img && _artPickerPosArt) {
     img.src = _artPickerPosArt;
     img.style.display = 'block';
-    // Match exactly how deckArtHtml/splitArtHtml renders:
-    // object-fit:cover fills the container, object-position sets the focal point,
-    // transform:scale() zooms from that focal point.
     const posStr = `${x}% ${y}%`;
     img.style.objectPosition  = posStr;
     img.style.transformOrigin = posStr;
@@ -3193,9 +3200,13 @@ function artPickerUpdatePos() {
   if (sv) sv.textContent = `${sc.toFixed(1)}×`;
 }
 function artPickerSavePos() {
-  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 50);
-  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
-  const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  const slX = parseFloat(document.getElementById('ap-x')?.value ?? 50);
+  const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  const sc  = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  const sl  = document.getElementById('ap-x');
+  const xMin = parseFloat(sl?.min ?? 0);
+  const xMax = parseFloat(sl?.max ?? 100);
+  const x = xMax + xMin - slX; // invert to match display
   if (_artPickerPosCallback) _artPickerPosCallback(x, y, sc);
   closeArtPicker();
 }
