@@ -2625,13 +2625,20 @@ function processWantReplacement(uuid, idx) {
   // Parse lines, remove one copy of cardOut, append cardIn
   let lines = deckEntry.list.split('\n').map(l => l.trim()).filter(Boolean);
   let removed = false;
-  lines = lines.filter(l => {
+  lines = lines.reduce((acc, l) => {
     if (!removed) {
-      const name = l.replace(/^\d+\s+/, '').trim();
-      if (name.toLowerCase() === cardOut.toLowerCase()) { removed = true; return false; }
+      const match = l.match(/^(\d+)\s+(.+)$/);
+      const qty  = match ? parseInt(match[1]) : 1;
+      const name = match ? match[2].trim() : l.trim();
+      if (name.toLowerCase() === cardOut.toLowerCase()) {
+        removed = true;
+        if (qty > 1) acc.push((qty - 1) + ' ' + name);
+        return acc;
+      }
     }
-    return true;
-  });
+    acc.push(l);
+    return acc;
+  }, []);
   lines.push('1 ' + cardIn);
   data.deckLists[uuid].list = lines.join('\n');
 
@@ -3881,8 +3888,11 @@ function updateDecklistMetaMgr(i, uuid) {
   const metaEl  = document.getElementById('dl-mgr-meta-'+i);
   const pushBtn = document.getElementById('dl-mgr-push-'+i);
   const entry   = (data.deckLists||{})[resolvedUuid] || {};
-  const lines   = (entry.list||'').split('\n').filter(l=>l.trim()).length;
-  if (metaEl)  metaEl.textContent = lines ? `${lines} cards stored` : '';
+  const total = (entry.list||'').split('\n').reduce((sum, l) => {
+    const m = l.trim().match(/^(\d+)\s+/);
+    return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
+  }, 0);
+  if (metaEl) metaEl.textContent = total ? `${total} cards stored` : '';
   if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
 }
 
@@ -3958,8 +3968,11 @@ function updateDecklistMeta(eid, uuid) {
   const metaEl = document.getElementById('dl-meta-'+eid);
   const pushBtn = document.getElementById('dl-push-'+eid);
   const entry = (data.deckLists||{})[uuid] || {};
-  const lines = (entry.list||'').split('\n').filter(l=>l.trim()).length;
-  if (metaEl) metaEl.textContent = lines ? `${lines} cards stored` : '';
+  const total = (entry.list||'').split('\n').reduce((sum, l) => {
+    const m = l.trim().match(/^(\d+)\s+/);
+    return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
+  }, 0);
+  if (metaEl) metaEl.textContent = total ? `${total} cards stored` : '';
   if (pushBtn) pushBtn.disabled = !entry.list || !entry.url;
 }
 
