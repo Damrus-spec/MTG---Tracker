@@ -1131,6 +1131,7 @@ function setSyncStatus(state, msg) {
 // ── Folder lookup ──
 async function getDriveFolder() {
   if (driveFolderId) return driveFolderId;
+  // Search for existing folder the app owns
   const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
     {headers:{Authorization:`Bearer ${accessToken}`}});
@@ -1138,7 +1139,18 @@ async function getDriveFolder() {
   if (j.files && j.files.length > 0) {
     driveFolderId = j.files[0].id;
     try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
+    return driveFolderId;
   }
+  // Not found — create it
+  const res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST',
+    headers: {Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json'},
+    body: JSON.stringify({name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder'})
+  });
+  if (!res.ok) return null;
+  const created = await res.json();
+  driveFolderId = created.id;
+  try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
   return driveFolderId;
 }
 
