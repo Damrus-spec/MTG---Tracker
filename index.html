@@ -16,7 +16,7 @@
 :root{
   --bg:#f5f5f0;--surface:#fff;--border:rgba(0,0,0,.10);--border-md:rgba(0,0,0,.18);
   --text:#1a1a1a;--text2:#666;--text3:#999;
-  --blue:#2d6bcb;--green:#3b6d11;--green-bg:#eaf3de;
+  --blue:#2d6bcb;--green:#3b6d11;--green-bg:#eaf3de;--purple:#7d3c98;--purple-bg:#f3e5f5;
   --red:#a32d2d;--red-bg:#fcebeb;--amber:#ba7517;--amber-bg:#faeeda;
   --info:#185fa5;--info-bg:#e6f1fb;--radius:10px;--radius-sm:7px;
 }
@@ -24,7 +24,7 @@
   --bg:#1a1a1a;--surface:#252525;--border:rgba(255,255,255,.10);--border-md:rgba(255,255,255,.18);
   --text:#f0f0f0;--text2:#aaa;--text3:#555;
   --green-bg:#1a2e0a;--green:#6abf3a;--red-bg:#2e0a0a;--red:#e06060;
-  --amber-bg:#2e1f00;--amber:#d4921f;--info-bg:#0a1e30;--info:#5ba3e8;
+  --amber-bg:#2e1f00;--amber:#d4921f;--info-bg:#0a1e30;--info:#5ba3e8;--purple:#9b59b6;--purple-bg:#2a1040;
 }}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
@@ -77,7 +77,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .deck-wr{font-size:16px;font-weight:700;flex-shrink:0;padding-right:12px;text-align:right}
 .deck-art.loading{background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.wr-tostrong{color:var(--red)}.wr-strong{color:var(--amber)}.wr-justright{color:var(--green)}.wr-behind{color:var(--info)}.wr-new{color:var(--text3)}
+.wr-tostrong{color:var(--red)}.wr-strong{color:var(--amber)}.wr-justright{color:var(--green)}.wr-behind{color:var(--info)}.wr-new{color:var(--text3)}.wr-pubstomp{color:var(--purple)}
 
 /* LEGACY SECTION */
 .legacy-header{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;background:var(--bg);border-bottom:.5px solid var(--border)}
@@ -251,7 +251,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .issue-summary{margin-top:8px;padding:6px 8px;background:var(--surface);border-radius:var(--radius-sm);font-size:11px;color:var(--text2)}
 
 /* ISSUE HISTORY SIDE PANEL */
-.issue-hist-panel{position:absolute;top:0;right:-320px;width:300px;max-width:100%;height:100%;min-height:100vh;background:var(--surface);border-left:.5px solid var(--border-md);z-index:300;transition:right .25s ease;overflow-y:auto;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.18)}
+.issue-hist-panel{position:absolute;top:0;right:-320px;width:300px;max-width:100%;min-height:100%;background:var(--surface);border-left:.5px solid var(--border-md);z-index:300;transition:right .25s ease;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.18)}
 .issue-hist-panel.open{right:0}
 .issue-hist-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:299;display:none}
 .issue-hist-overlay.open{display:block}
@@ -532,6 +532,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     </div>
     <div class="settings-body">
       <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Pub stomper</div>
+          <div class="setting-desc">At or above this % → pub stomper (purple)</div>
+          <input type="number" class="setting-input" id="s-pubStompWin" min="0" max="100" step="1" oninput="saveSetting('pubStompWin',this.value)">
+        </div>
         <div class="setting-block">
           <div class="setting-name">Max win rate</div>
           <div class="setting-desc">At or above this % → too strong (red)</div>
@@ -820,7 +825,7 @@ function colorManaHtml(colorLabel) {
 // ============================================================
 const INITIAL_DATA = {
   settings: {
-    maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:30,
+    maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:30, pubStompWin:60,
     cardSeller:'cardmarket', artPref:'oldest', showEditor:false, issueLimit:10
   },
   colorDecks: [],
@@ -1573,7 +1578,7 @@ function wrClass(wr, total) {
   if(wr<=s.fallBehind)  return 'wr-behind';
   return 'wr-justright';
 }
-const WR_FILL = {'wr-tostrong':'#e06060','wr-strong':'#d4921f','wr-justright':'#6abf3a','wr-behind':'#5ba3e8','wr-new':'rgba(255,255,255,.35)'};
+const WR_FILL = {'wr-tostrong':'#e06060','wr-strong':'#d4921f','wr-justright':'#6abf3a','wr-behind':'#5ba3e8','wr-new':'rgba(255,255,255,.35)','wr-pubstomp':'#9b59b6'};
 
 // ============================================================
 // SCORE
@@ -2060,7 +2065,7 @@ function openIssuePanelFull(deckName, uuid) {
 
   const title = document.getElementById('issue-hist-panel-title');
   const body  = document.getElementById('issue-hist-panel-body');
-  if (title) title.textContent = deckName;
+  if (title) title.textContent = (resolvedUuid ? (displayNameForUuid(resolvedUuid) || deckName) : deckName);
 
   if (!entries.length) {
     body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues logged for this deck.</p>';
@@ -3734,6 +3739,7 @@ function updateEditorTab() {
 
 function renderSettings() {
   const s=cfg();
+  document.getElementById('s-pubStompWin').value = s.pubStompWin||60;
   document.getElementById('s-maxWin').value     = s.maxWin;
   document.getElementById('s-strongWin').value  = s.strongWin;
   document.getElementById('s-fallBehind').value = s.fallBehind;
@@ -3752,7 +3758,8 @@ function renderSettings() {
 function renderSettingsLegend() {
   const s=cfg();
   const bands=[
-    {label:`≥ ${s.maxWin}% — too strong`,     color:'var(--red)',   bg:'var(--red-bg)'},
+    {label:`≥ ${s.pubStompWin||60}% — pub stomper`,  color:'var(--purple)', bg:'var(--purple-bg)'},
+    {label:`${s.maxWin}–${(s.pubStompWin||60)-0.1}% — too strong`, color:'var(--red)',    bg:'var(--red-bg)'},
     {label:`${s.strongWin}–${s.maxWin-0.1}% — strong`,color:'var(--amber)',bg:'var(--amber-bg)'},
     {label:`${s.fallBehind+0.1}–${s.strongWin-0.1}% — just right`,color:'var(--green)',bg:'var(--green-bg)'},
     {label:`≤ ${s.fallBehind}% — falling behind`,color:'var(--info)', bg:'var(--info-bg)'},
@@ -3849,7 +3856,7 @@ function openIssuePanel(deckName, uuid) {
 
   const title = document.getElementById('issue-hist-panel-title');
   const body  = document.getElementById('issue-hist-panel-body');
-  if (title) title.textContent = deckName;
+  if (title) title.textContent = (resolvedUuid ? (displayNameForUuid(resolvedUuid) || deckName) : deckName);
 
   if (!entries.length) {
     body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues logged yet for this deck.</p>';
@@ -4494,6 +4501,7 @@ function renderGraph() {
       const s2 = cfg(); // always read current settings
       const {ctx:cx, chartArea:{left,right,top,bottom}, scales:{y}} = chart;
       const lines = [
+        {val:s2.pubStompWin||60, col:'rgba(155,89,182,.85)', label:(s2.pubStompWin||60)+'%'},
         {val:s2.maxWin,    col:'rgba(224,96,96,.85)',   label:s2.maxWin+'%'},
         {val:s2.strongWin, col:'rgba(212,146,31,.85)',  label:s2.strongWin+'%'},
         {val:s2.strongWin, col:'rgba(80,180,80,.5)',    label:null, fill:true, fillTop:s2.fallBehind, fillBot:s2.strongWin},
