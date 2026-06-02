@@ -1297,12 +1297,13 @@ async function resolveFileIds(folderId) {
 function mergeFilesIntoData(decks, wants, lists) {
   data = Object.assign({}, INITIAL_DATA);
   if (decks) {
-    data._v        = decks._v       || 0;
-    data.settings  = decks.settings  || INITIAL_DATA.settings;
-    data.colorDecks= decks.colorDecks|| [];
-    data.scores    = decks.scores    || {};
-    data.history   = decks.history   || [];
-    data.undoStack = decks.undoStack || [];
+    data._v             = decks._v              || 0;
+    data.settings       = decks.settings       || INITIAL_DATA.settings;
+    data.colorDecks     = decks.colorDecks     || [];
+    data.scores         = decks.scores         || {};
+    data.history        = decks.history        || [];
+    data.undoStack      = decks.undoStack      || [];
+    data.buylistExcluded = decks.buylistExcluded || [];
   }
   if (wants) {
     data.deckWants = wants.deckWants || {};
@@ -1329,11 +1330,12 @@ async function syncDrive(silent) {
 
     const decksPayload = {
       _v: localVersion,
-      settings:   data.settings   || INITIAL_DATA.settings,
-      colorDecks: data.colorDecks || [],
-      scores:     data.scores     || {},
-      history:    data.history    || [],
-      undoStack:  data.undoStack  || []
+      settings:       data.settings       || INITIAL_DATA.settings,
+      colorDecks:     data.colorDecks     || [],
+      scores:         data.scores         || {},
+      history:        data.history        || [],
+      undoStack:      data.undoStack      || [],
+      buylistExcluded: data.buylistExcluded || []
     };
     const wantsPayload = { deckWants: data.deckWants || {} };
     const listsPayload = { deckLists: data.deckLists || {} };
