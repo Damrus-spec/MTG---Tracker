@@ -538,8 +538,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
           <input type="number" class="setting-input" id="s-pubStompWin" min="0" max="100" step="1" oninput="saveSetting('pubStompWin',this.value)">
         </div>
         <div class="setting-block">
-          <div class="setting-name">Very strong win rate</div>
-          <div class="setting-desc">At or above this % → too strong (red)</div>
+          <div class="setting-name">Too strong</div>
+          <div class="setting-desc">At or above this % → too strong (red) · below pub stomper</div>
           <input type="number" class="setting-input" id="s-maxWin" min="0" max="100" step="1" oninput="saveSetting('maxWin',this.value)">
         </div>
         <div class="setting-block">
@@ -832,6 +832,7 @@ const INITIAL_DATA = {
   scores: {},
   deckWants: {},
   deckLists: {},
+  buylistExcluded: [],
   history: [],
   undoStack: []
 }
@@ -969,10 +970,11 @@ function loadLocal() {
       const loaded = JSON.parse(s);
       data = Object.assign({}, INITIAL_DATA, loaded);
       localVersion = data._v || 0;
-      if (!data.settings)   data.settings  = INITIAL_DATA.settings;
-      if (!data.deckWants)  data.deckWants = INITIAL_DATA.deckWants;
-      if (!data.history)    data.history   = INITIAL_DATA.history;
-      if (!data.undoStack)  data.undoStack = [];
+      if (!data.settings)        data.settings        = INITIAL_DATA.settings;
+      if (!data.deckWants)       data.deckWants       = INITIAL_DATA.deckWants;
+      if (!data.history)         data.history         = INITIAL_DATA.history;
+      if (!data.undoStack)       data.undoStack       = [];
+      if (!data.buylistExcluded) data.buylistExcluded = [];
       if ((data.history||[]).filter(h=>h.last).length > 0) {
         rebuildAllScoresFromHistory();
       }
@@ -1397,6 +1399,12 @@ async function loadFromDrive(force) {
       if (userIsEditing) return;
       const driveVersion = decks._v || 0;
       if (driveVersion < localVersion) { setSyncStatus('ok', '↑ saving…'); return; }
+      if (driveVersion === localVersion) {
+        // Same version — no new data, skip render to avoid art flicker
+        hasFetchedFromDrive = true; lastFetchTime = Date.now();
+        setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+        return;
+      }
       mergeFilesIntoData(decks, wants, lists);
       localVersion = data._v || 0;
       if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
