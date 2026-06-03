@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-title" content="MTG Tracker">
 <meta name="theme-color" content="#1a1a1a">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
 <title>MTG Tracker</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
 <script src="https://accounts.google.com/gsi/client" onload="initGSI()" async defer></script>
@@ -1023,9 +1026,14 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   const sb = sc2 || 1;
   const imgStyle = (pos, sc) => `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${pos||'50% 0%'};transform:scale(${sc});transform-origin:${pos||'50% 0%'}`;
   if (a && b) {
-    return `<img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
-            <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)};clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%)">
-            <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
+    return `
+      <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
+        <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
+      </div>
+      <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
+        <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)}">
+      </div>
+      <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
   return `<img src="${a||b}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">`;
 }
