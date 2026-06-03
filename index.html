@@ -2538,9 +2538,6 @@ function renderDeckWants() {
         initAC(el.id, null);
         acCallbacks[el.id] = (name) => {
           updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), name);
-          el.value = name;
-          el.style.color = 'var(--red)';
-          renderDeckWants(); // refresh to show/hide ✓ button
         };
       }
     });
@@ -2596,7 +2593,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
               placeholder="replacement..."
               data-deck="${uuid}"
               data-idx="${idx}"
-              onchange="updateWantOut(this.dataset.deck,parseInt(this.dataset.idx),this.value)"
+              oninput="debouncedWantOut(this)"
               style="font-size:11px;width:100px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))" style="width:52px;text-align:center;flex-shrink:0">${statusLabel}</button>
             <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))" style="flex-shrink:0"><i class="ti ti-x"></i></button>
@@ -2677,12 +2674,22 @@ function toggleWantsDeckSection(uuidOrDeck) {
   deckSectionOpen[uuidOrDeck] = !(deckSectionOpen[uuidOrDeck]===true);
   renderDeckWants();
 }
+let _wantOutTimer = null;
+function debouncedWantOut(el) {
+  clearTimeout(_wantOutTimer);
+  // Update colour immediately for feedback
+  el.style.color = el.value.trim() ? 'var(--red)' : 'var(--text3)';
+  _wantOutTimer = setTimeout(() => {
+    updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), el.value);
+  }, 600);
+}
+
 function updateWantOut(deck, idx, value) {
   if (!data.deckWants[deck]||data.deckWants[deck][idx]===undefined) return;
   data.deckWants[deck][idx].out = value.trim() || null;
   scheduleSync();
-  // Re-render buy list in case this card now qualifies
-  renderBuyList();
+  // Re-render to update checkmark state (red/green/hidden)
+  renderDeckWants();
 }
 
 function cycleWantStatus(deck, idx) {
