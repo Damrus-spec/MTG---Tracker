@@ -1093,6 +1093,11 @@ function initGSI() {
         loadFromDrive(true);
       }
     });
+    // If boot already requested a silent sign-in before the library was ready, do it now
+    if (pendingSilentSignIn) {
+      pendingSilentSignIn = false;
+      try { gsiClient.requestAccessToken({ prompt: 'none' }); } catch(e) { updateSignInBtn(); }
+    }
     return true;
   } catch(e) {
     setSyncStatus('red', 'GSI init failed: ' + e.message);
@@ -1100,9 +1105,16 @@ function initGSI() {
   }
 }
 
+let pendingSilentSignIn = false;
+
 // Try to silently re-acquire a token (no popup). Falls back to showing sign-in button.
 function silentSignIn() {
-  if (!initGSI()) return;
+  if (!initGSI()) {
+    // GSI library not loaded yet — set flag so initGSI() retries when it fires
+    pendingSilentSignIn = true;
+    return;
+  }
+  pendingSilentSignIn = false;
   try {
     gsiClient.requestAccessToken({ prompt: 'none' });
   } catch(e) {
@@ -4841,12 +4853,13 @@ updateSignInBtn();
 if (accessToken) {
   loadFromDrive(true); // force fetch on boot
 } else {
-  // Try silent re-auth first — if user is still logged into Google this works without a popup
+  // Try silent re-auth — silentSignIn() is safe to call now; if GSI isn't ready yet
+  // initGSI() will return false and pendingSilentSignIn will trigger it once the
+  // library fires its onload callback.
   setSyncStatus('amber', 'Reconnecting…');
-  setTimeout(() => {
-    if (!accessToken) silentSignIn();
-  }, 1500); // wait for GSI library to load
+  silentSignIn();
 }
 </script>
 </body>
 </html>
+
