@@ -344,6 +344,9 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .editor-del:hover{color:var(--red)}
 #quick-stats-card{display:none}
 /* ── RIVALS TAB ── */
+.rival-art{position:relative;width:52px;height:52px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;background:var(--bg)}
+.rival-deck-art{position:relative;width:36px;height:36px;border-radius:4px;overflow:hidden;flex-shrink:0;background:var(--bg)}
+.rival-retired{opacity:.5}
 .rival-card{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius);margin-bottom:10px;overflow:hidden}
 .rival-header{display:flex;align-items:center;padding:10px 12px;gap:10px;cursor:pointer}
 .rival-name{font-size:13px;font-weight:600;flex:1}
@@ -555,7 +558,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 <div id="page-rivals" class="page">
   <div style="padding:12px 12px 0;display:flex;align-items:center;justify-content:space-between">
     <span style="font-size:13px;font-weight:600;color:var(--text)">Rivals</span>
-    <button onclick="openAddRivalModal()" style="padding:6px 14px;background:var(--blue);border:none;border-radius:var(--radius-sm);color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Add player</button>
+    <button onclick="openAddRivalModal()" style="padding:6px 14px;background:var(--blue);border:none;border-radius:var(--radius-sm);color:#fff;font-size:12px;font-weight:600;cursor:pointer">+ Add rival</button>
   </div>
   <div id="rivals-list" style="padding:8px 12px 80px"></div>
 </div>
@@ -871,7 +874,8 @@ const INITIAL_DATA = {
   buylistExcluded: [],
   history: [],
   undoStack: [],
-  opponents: []
+  opponents: [],
+  retiredOpponents: []
 }
 
 // ============================================================
@@ -1360,7 +1364,8 @@ function mergeFilesIntoData(decks, wants, lists) {
     data.history        = decks.history        || [];
     data.undoStack      = decks.undoStack      || [];
     data.buylistExcluded = decks.buylistExcluded || [];
-    data.opponents       = decks.opponents       || [];
+    data.opponents        = decks.opponents        || [];
+    data.retiredOpponents = decks.retiredOpponents || [];
   }
   if (wants) {
     data.deckWants = wants.deckWants || {};
@@ -1374,7 +1379,8 @@ function mergeFilesIntoData(decks, wants, lists) {
   if (!data.colorDecks) data.colorDecks = [];
   if (!data.undoStack)  data.undoStack  = [];
   if (!data.deckLists)  data.deckLists  = {};
-  if (!data.opponents)  data.opponents  = [];
+  if (!data.opponents)        data.opponents        = [];
+  if (!data.retiredOpponents) data.retiredOpponents = [];
 }
 
 async function syncDrive(silent) {
@@ -1394,7 +1400,8 @@ async function syncDrive(silent) {
       history:        data.history        || [],
       undoStack:      data.undoStack      || [],
       buylistExcluded: data.buylistExcluded || [],
-      opponents:       data.opponents       || []
+      opponents:        data.opponents        || [],
+      retiredOpponents: data.retiredOpponents || []
     };
     const wantsPayload = { deckWants: data.deckWants || {} };
     const listsPayload = { deckLists: data.deckLists || {} };
@@ -2123,7 +2130,7 @@ function renderHistory() {
       : '';
     const oppHtml = (h.opponents && h.opponents.length)
       ? `<div class="h-issues">${h.opponents.filter(o=>o.playerId).map(o=>{
-          const riv = (data.opponents||[]).find(r=>r.id===o.playerId);
+          const riv = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===o.playerId);
           const dk = riv?.decks?.find(d=>d.id===o.deckId);
           return `<span class="h-issue-tag" style="color:var(--text2);border-color:var(--border-md)">${riv?riv.name:'?'}${dk?' · '+dk.name:''}</span>`;
         }).join('')}</div>`
@@ -4933,8 +4940,9 @@ function onOppPlayerChange(eid, deckKey, slot) {
   if (!playerId) { deckSel.style.display='none'; deckSel.innerHTML='<option value="">— Deck —</option>'; }
   else {
     const rival = (data.opponents||[]).find(r=>r.id===playerId);
+    const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     deckSel.innerHTML = '<option value="">— Deck —</option>' +
-      (rival?.decks||[]).map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+      activeDecks.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
     deckSel.style.display='';
   }
   saveOppSlot(eid, deckKey, slot);
@@ -4959,9 +4967,28 @@ function clearOppSlot(eid, deckKey, slot) {
   if (pendingOpponents[deckKey]) pendingOpponents[deckKey][slot] = {};
 }
 
-// ── Rival win/loss stats computed from history ──
+// ── Rival deck art ──
+function rivalDeckArtHtml(deck) {
+  // deck: rival deck object with optional artOverride, artPosition, artScale, partner fields
+  if (!deck) return '';
+  const art1raw = deck.artOverride || artCache[scryfallKey(deck.name||'')] || null;
+  const art2raw = deck.partner ? (deck.partnerArtOverride || artCache[scryfallKey(deck.partner||'')] || null) : null;
+  const pos1 = deck.artPosition || '50% 0%';
+  const pos2 = deck.partnerArtPosition || '50% 0%';
+  const sc1  = deck.artScale || 1;
+  const sc2  = deck.partnerArtScale || 1;
+  return splitArtHtml(art1raw, art2raw, deck.name, false, pos1, pos2, sc1, sc2);
+}
+
+// Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
+function fetchRivalDeckArt(deck) {
+  if (!deck || !deck.name) return;
+  fetchMissingArt([deck.name]);
+  if (deck.partner) fetchMissingArt([deck.partner]);
+}
+
+// ── Rival stats computed from history ──
 function rivalStats() {
-  // Returns { rivalId: { total, wins, losses, decks: { deckId: {total,wins,losses} } } }
   const stats = {};
   (data.opponents||[]).forEach(r => {
     stats[r.id] = { total:0, wins:0, losses:0, decks:{} };
@@ -4969,8 +4996,7 @@ function rivalStats() {
   });
   (data.history||[]).filter(h=>h.opponents&&h.last).forEach(h=>{
     h.opponents.forEach(o=>{
-      if (!o.playerId) return;
-      if (!stats[o.playerId]) return;
+      if (!o.playerId || !stats[o.playerId]) return;
       stats[o.playerId].total++;
       if (h.last==='Win') stats[o.playerId].wins++;
       else stats[o.playerId].losses++;
@@ -4989,7 +5015,7 @@ function renderRivals() {
   if (!container) return;
   const rivals = data.opponents||[];
   if (!rivals.length) {
-    container.innerHTML='<div class="empty" style="margin-top:40px">No rivals yet.<br>Add a player to start tracking opponents.</div>';
+    container.innerHTML='<div class="empty" style="margin-top:40px">No rivals yet.<br>Add a rival to start tracking opponents.</div>';
     return;
   }
   const stats = rivalStats();
@@ -4997,13 +5023,29 @@ function renderRivals() {
     const st = stats[r.id]||{total:0,wins:0,losses:0,decks:{}};
     const wr = st.total>0 ? Math.round(st.wins/st.total*100) : null;
     const wrCls = wr==null?'wr-new':wrClass(wr, st.total);
-    const deckRows = (r.decks||[]).map(d=>{
+    const activeDecks = (r.decks||[]).filter(d=>!d.retired);
+    const retiredDecks = (r.decks||[]).filter(d=>d.retired);
+    const deckRows = activeDecks.map(d=>{
       const ds = st.decks[d.id]||{total:0,wins:0,losses:0};
       const dwr = ds.total>0 ? Math.round(ds.wins/ds.total*100) : null;
+      const artHtml = rivalDeckArtHtml(d);
+      fetchRivalDeckArt(d);
+      const partnerHtml = d.partner ? `<span style="font-size:10px;color:var(--text3)"> // ${d.partner}</span>` : '';
       return `<div class="rival-deck-row">
-        <span class="rival-deck-name">${d.name}</span>
+        <div class="rival-deck-art">${artHtml}</div>
+        <span class="rival-deck-name">${d.name}${partnerHtml}</span>
         <span class="rival-deck-stats">${ds.total>0?`${ds.wins}W ${ds.losses}L · ${dwr}%`:'No games'}</span>
-        <button onclick="deleteRivalDeck('${r.id}','${d.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px" title="Remove deck">×</button>
+        <button onclick="openRivalDeckArtPicker('${r.id}','${d.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;padding:0 3px" title="Choose art">🎨</button>
+        <button onclick="retireRivalDeck('${r.id}','${d.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px" title="Retire deck">−</button>
+      </div>`;
+    }).join('');
+    const retiredRows = retiredDecks.map(d=>{
+      const ds = st.decks[d.id]||{total:0,wins:0,losses:0};
+      return `<div class="rival-deck-row rival-retired">
+        <div class="rival-deck-art" style="opacity:.4"></div>
+        <span class="rival-deck-name" style="color:var(--text3)">${d.name} <span style="font-size:10px">(retired)</span></span>
+        <span class="rival-deck-stats">${ds.total>0?`${ds.wins}W ${ds.losses}L`:'—'}</span>
+        <button onclick="unretireRivalDeck('${r.id}','${d.id}')" style="background:none;border:none;color:var(--blue);cursor:pointer;font-size:11px;padding:0 4px" title="Restore">↩</button>
       </div>`;
     }).join('');
     return `<div class="rival-card">
@@ -5015,60 +5057,169 @@ function renderRivals() {
       </div>
       <div class="rival-body" id="rb-${r.id}">
         <div style="margin-top:8px">
-          ${deckRows||'<div style="font-size:12px;color:var(--text3);padding:4px 0">No decks added.</div>'}
+          ${(deckRows+retiredRows)||'<div style="font-size:12px;color:var(--text3);padding:4px 0">No decks added.</div>'}
         </div>
         <div class="rival-actions">
           <button onclick="openAddRivalDeckModal('${r.id}')" style="padding:5px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text2);font-size:11px;cursor:pointer">+ Add deck</button>
-          <button onclick="deleteRival('${r.id}')" style="padding:5px 10px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text3);font-size:11px;cursor:pointer">Delete player</button>
+          <button onclick="promptRenameRival('${r.id}')" style="padding:5px 10px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text3);font-size:11px;cursor:pointer">Rename</button>
+          <button onclick="retireRival('${r.id}')" style="padding:5px 10px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text3);font-size:11px;cursor:pointer">Retire rival</button>
         </div>
       </div>
     </div>`;
   }).join('');
+
+  // Show retired rivals section
+  const retiredRivals = (data.retiredOpponents||[]);
+  if (retiredRivals.length) {
+    container.innerHTML += `<div style="margin-top:16px;padding-top:12px;border-top:.5px solid var(--border)">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Retired rivals</div>
+      ${retiredRivals.map(r=>`<div class="rival-card rival-retired">
+        <div class="rival-header" style="cursor:default">
+          <span class="rival-name" style="color:var(--text3)">${r.name}</span>
+          <span class="rival-meta" style="font-size:10px">${(r.decks||[]).length} deck${(r.decks||[]).length!==1?'s':''}</span>
+          <button onclick="unretireRival('${r.id}')" style="padding:4px 8px;background:var(--blue);border:none;border-radius:var(--radius-sm);color:#fff;font-size:11px;cursor:pointer">Restore</button>
+        </div>
+      </div>`).join('')}
+    </div>`;
+  }
 }
 
 function toggleRivalBody(id) {
   document.getElementById('rb-'+id)?.classList.toggle('open');
 }
 
+// ── Add rival modal (with text input, no prompt) ──
 function openAddRivalModal() {
-  const name = prompt('Player name:');
-  if (!name?.trim()) return;
-  if (!data.opponents) data.opponents=[];
-  data.opponents.push({ id: genUUID(), name: name.trim(), decks: [] });
-  scheduleSync();
-  renderRivals();
+  const html = `<div style="display:flex;flex-direction:column;gap:10px;padding:4px 0">
+    <input id="add-rival-name" type="text" placeholder="Player name" style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+  </div>`;
+  showModal('Add rival', html, ()=>{
+    const name = document.getElementById('add-rival-name')?.value?.trim();
+    if (!name) return;
+    if (!data.opponents) data.opponents=[];
+    data.opponents.push({ id: genUUID(), name, decks: [] });
+    scheduleSync(); renderRivals();
+  });
+  setTimeout(()=>document.getElementById('add-rival-name')?.focus(),100);
 }
 
+// ── Add rival deck modal with commander autocomplete + partner ──
 function openAddRivalDeckModal(rivalId) {
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
   if (!rival) return;
-  const name = prompt(`Deck name for ${rival.name}:`);
-  if (!name?.trim()) return;
-  if (!rival.decks) rival.decks=[];
-  rival.decks.push({ id: genUUID(), name: name.trim() });
-  scheduleSync();
-  renderRivals();
-  // Reopen the body
-  setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
-}
-
-function deleteRivalDeck(rivalId, deckId) {
-  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
-  if (!rival) return;
-  showModal('Remove deck', 'Remove this deck from the rival?', ()=>{
-    rival.decks = (rival.decks||[]).filter(d=>d.id!==deckId);
+  const html = `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0">
+    <label style="font-size:11px;color:var(--text3)">Commander name</label>
+    <div style="position:relative">
+      <input id="rdm-name" type="text" placeholder="Legendary creature…" autocomplete="off"
+        style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+      <div id="ac-dd-rdm-name" class="ac-dropdown" style="position:fixed;z-index:9999"></div>
+    </div>
+    <label style="font-size:11px;color:var(--text3)">Partner (optional)</label>
+    <div style="position:relative">
+      <input id="rdm-partner" type="text" placeholder="Partner commander…" autocomplete="off"
+        style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+      <div id="ac-dd-rdm-partner" class="ac-dropdown" style="position:fixed;z-index:9999"></div>
+    </div>
+  </div>`;
+  showModal(`Add deck for ${rival.name}`, html, ()=>{
+    const name = document.getElementById('rdm-name')?.value?.trim();
+    if (!name) return;
+    const partner = document.getElementById('rdm-partner')?.value?.trim() || null;
+    if (!rival.decks) rival.decks=[];
+    const newDeck = { id: genUUID(), name, partner: partner||undefined };
+    rival.decks.push(newDeck);
+    // Fetch art immediately
+    fetchMissingArt([name]);
+    if (partner) fetchMissingArt([partner]);
     scheduleSync(); renderRivals();
     setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
   });
+  // Wire autocomplete after modal DOM is ready
+  setTimeout(()=>{
+    acCommanderMode.add('rdm-name');
+    acCommanderMode.add('rdm-partner');
+    initAC('rdm-name', null);
+    initAC('rdm-partner', null);
+  }, 80);
 }
 
-function deleteRival(rivalId) {
+// ── Art picker for rival decks ──
+function openRivalDeckArtPicker(rivalId, deckId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  if (!deck) return;
+  const posArt = deck.artOverride || artCache[scryfallKey(deck.name||'')] || null;
+  const posStr = deck.artPosition || '50% 0%';
+  const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
+  _artPickerPosScale = deck.artScale || 1;
+  openArtPicker(
+    `${deck.name} — art`,
+    deck.artOverrideName || deck.name,
+    (url, cardName) => {
+      if (!url) { delete deck.artOverride; delete deck.artOverrideName; }
+      else { deck.artOverride = url; deck.artOverrideName = cardName; artCache[scryfallKey(cardName||deck.name)] = url; saveArtCache(); }
+      scheduleSync(); renderRivals();
+      setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
+    },
+    posArt, px, py,
+    (x, y, sc) => { deck.artPosition = `${x}% ${y}%`; deck.artScale = sc||1; scheduleSync(); renderRivals(); setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50); }
+  );
+}
+
+// ── Retire / restore rival decks ──
+function retireRivalDeck(rivalId, deckId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  if (!deck) return;
+  deck.retired = true;
+  scheduleSync(); renderRivals();
+  setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
+}
+
+function unretireRivalDeck(rivalId, deckId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  if (!deck) return;
+  delete deck.retired;
+  scheduleSync(); renderRivals();
+  setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
+}
+
+// ── Retire / restore rival players ──
+function retireRival(rivalId) {
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
   if (!rival) return;
-  showModal('Delete rival', `Remove ${rival.name}? Their game history data is preserved.`, ()=>{
+  showModal('Retire rival', `Retire ${rival.name}? They'll be hidden from active lists but history is kept.`, ()=>{
     data.opponents = (data.opponents||[]).filter(r=>r.id!==rivalId);
+    if (!data.retiredOpponents) data.retiredOpponents=[];
+    data.retiredOpponents.push(rival);
     scheduleSync(); renderRivals();
   });
+}
+
+function unretireRival(rivalId) {
+  const rival = (data.retiredOpponents||[]).find(r=>r.id===rivalId);
+  if (!rival) return;
+  data.retiredOpponents = (data.retiredOpponents||[]).filter(r=>r.id!==rivalId);
+  if (!data.opponents) data.opponents=[];
+  data.opponents.push(rival);
+  scheduleSync(); renderRivals();
+}
+
+function promptRenameRival(rivalId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  if (!rival) return;
+  const html = `<div style="padding:4px 0">
+    <input id="rename-rival-input" type="text" value="${rival.name}" style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+  </div>`;
+  showModal('Rename rival', html, ()=>{
+    const name = document.getElementById('rename-rival-input')?.value?.trim();
+    if (!name) return;
+    rival.name = name;
+    scheduleSync(); renderRivals();
+    setTimeout(()=>document.getElementById('rb-'+rivalId)?.classList.add('open'),50);
+  });
+  setTimeout(()=>{ const el=document.getElementById('rename-rival-input'); if(el){el.focus();el.select();}},100);
 }
 
 // ============================================================
