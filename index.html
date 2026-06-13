@@ -5089,15 +5089,17 @@ function getPreferredRivals() {
 
 // ── Rival deck art ──
 function rivalDeckArtHtml(deck) {
-  // deck: rival deck object with optional artOverride, artPosition, artScale, partner fields
   if (!deck) return '';
   const art1raw = deck.artOverride || artCache[scryfallKey(deck.name||'')] || null;
   const art2raw = deck.partner ? (deck.partnerArtOverride || artCache[scryfallKey(deck.partner||'')] || null) : null;
-  const pos1 = deck.artPosition || '50% 0%';
-  const pos2 = deck.partnerArtPosition || '50% 0%';
-  const sc1  = deck.artScale || 1;
-  const sc2  = deck.partnerArtScale || 1;
-  return splitArtHtml(art1raw, art2raw, deck.name, false, pos1, pos2, sc1, sc2);
+  const flipped = !!deck.artFlipped;
+  const art1 = flipped && art2raw ? art2raw : art1raw;
+  const art2 = flipped && art2raw ? art1raw : art2raw;
+  const pos1 = flipped && art2raw ? (deck.partnerArtPosition||'50% 0%') : (deck.artPosition||'50% 0%');
+  const pos2 = flipped && art2raw ? (deck.artPosition||'50% 0%') : (deck.partnerArtPosition||'50% 0%');
+  const sc1  = flipped && art2raw ? (deck.partnerArtScale||1) : (deck.artScale||1);
+  const sc2  = flipped && art2raw ? (deck.artScale||1) : (deck.partnerArtScale||1);
+  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2);
 }
 
 // Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
@@ -5280,7 +5282,8 @@ function addRival() {
 function updateRivalDeckField(rivalId, deckId, field, value) {
   const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
   const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
-  if (!deck || deck[field] === value) return;
+  if (!deck) return;
+  if (typeof value === 'boolean' ? !!deck[field] === value : deck[field] === value) return;
   deck[field] = value;
   if (field==='name'||field==='partner') fetchMissingArt([value]);
   renderRivals(); scheduleSync();
@@ -5351,21 +5354,106 @@ function openRivalDeckArtPicker(rivalId, deckId) {
   const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
   const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
   if (!deck) return;
-  const posArt = deck.artOverride || artCache[scryfallKey(deck.name||'')] || null;
-  const posStr = deck.artPosition || '50% 0%';
+
+  const openSlot = (isPartner) => {
+    const fieldKey = isPartner ? 'partnerArtOverride'    : 'artOverride';
+    const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
+    const posKey   = isPartner ? 'partnerArtPosition'    : 'artPosition';
+    const scaleKey = isPartner ? 'partnerArtScale'       : 'artScale';
+    const cmdName  = isPartner ? (deck.partner||'')       : deck.name;
+    const posStr   = deck[posKey] || '50% 0%';
+    const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
+    const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
+    _artPickerPosScale = deck[scaleKey] || 1;
+    openArtPicker(
+      `${cmdName} — ${isPartner?'partner':'commander'} art`,
+      deck[nameKey] || cmdName,
+      (url, cardName) => {
+        if (!url) { delete deck[fieldKey]; delete deck[nameKey]; }
+        else { deck[fieldKey] = url; deck[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
+        scheduleSync(); renderRivals();
+      },
+      posArt, px, py,
+      (x, y, sc) => { deck[posKey]=`${x}% ${y}%`; deck[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+    );
+  };
+
+  // No partner — go straight to commander slot
+  if (!deck.partner) { openSlot(false); return; }
+
+  // Partner deck: show slot picker modal, same as decks tab
+  showModal('Which art to change?', '', null);
+  setTimeout(() => {
+    const body = document.getElementById('modal-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',false),50)"
+          style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
+          <div style="font-weight:500">${deck.name}</div>
+          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
+        </button>
+        <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',true),50)"
+          style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
+          <div style="font-weight:500">${deck.partner}</div>
+          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
+        </button>
+        <div style="display:flex;gap:6px">
+          <button onclick="closeModal();rivalDeckResetArt('${rivalId}','${deckId}',false)"
+            style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
+            Reset commander
+          </button>
+          <button onclick="closeModal();rivalDeckResetArt('${rivalId}','${deckId}',true)"
+            style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
+            Reset partner
+          </button>
+        </div>
+      </div>`;
+    const confirmBtn = document.querySelector('#modal-overlay .modal-confirm');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    const okBtn = document.getElementById('modal-ok');
+    if (okBtn) okBtn.style.display = 'none';
+  }, 20);
+}
+
+// Called from the slot-picker modal buttons
+function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
+  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  if (!deck) return;
+  const fieldKey = isPartner ? 'partnerArtOverride'    : 'artOverride';
+  const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
+  const posKey   = isPartner ? 'partnerArtPosition'    : 'artPosition';
+  const scaleKey = isPartner ? 'partnerArtScale'       : 'artScale';
+  const cmdName  = isPartner ? (deck.partner||'')       : deck.name;
+  const posStr   = deck[posKey] || '50% 0%';
   const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
-  _artPickerPosScale = deck.artScale || 1;
+  const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
+  _artPickerPosScale = deck[scaleKey] || 1;
   openArtPicker(
-    `${deck.name} — art`,
-    deck.artOverrideName || deck.name,
+    `${cmdName} — ${isPartner?'partner':'commander'} art`,
+    deck[nameKey] || cmdName,
     (url, cardName) => {
-      if (!url) { delete deck.artOverride; delete deck.artOverrideName; }
-      else { deck.artOverride = url; deck.artOverrideName = cardName; artCache[scryfallKey(cardName||deck.name)] = url; saveArtCache(); }
+      if (!url) { delete deck[fieldKey]; delete deck[nameKey]; }
+      else { deck[fieldKey] = url; deck[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
-    (x, y, sc) => { deck.artPosition=`${x}% ${y}%`; deck.artScale=sc||1; scheduleSync(); renderRivals(); }
+    (x, y, sc) => { deck[posKey]=`${x}% ${y}%`; deck[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
   );
+}
+
+function rivalDeckResetArt(rivalId, deckId, isPartner) {
+  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  if (!deck) return;
+  const fieldKey = isPartner ? 'partnerArtOverride'    : 'artOverride';
+  const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
+  const cmdName  = isPartner ? (deck.partner||'')       : deck.name;
+  delete deck[fieldKey]; delete deck[nameKey];
+  delete artCache[scryfallKey(cmdName)];
+  scheduleSync(); renderRivals();
+  showToast('Art reset');
 }
 
 function retireRivalDeck(rivalId, deckId) {
