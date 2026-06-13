@@ -1815,7 +1815,7 @@ function renderScore() {
           </div>
         </div>
         <!-- Opponents tracking -->
-        <div class="opp-row">
+        <div class="opp-row" data-deckkey="${sn}">
           <button class="opp-toggle" onclick="toggleOppGrid('${eid}')">
             <i class="ti ti-users" style="font-size:12px"></i> Rivals
             <i class="ti ti-chevron-down" style="font-size:11px"></i>
@@ -4986,7 +4986,44 @@ const pendingOpponents = {};
 function toggleOppGrid(eid) {
   const el = document.getElementById('og-'+eid);
   if (!el) return;
+  const opening = !el.classList.contains('open');
   el.classList.toggle('open');
+  if (opening) autofillPreferredRivals(eid);
+}
+
+function autofillPreferredRivals(eid) {
+  // Only autofill slots that are currently empty
+  const preferred = getPreferredRivals();
+  if (!preferred.length) return;
+  preferred.forEach(({playerId, deckId}, slot) => {
+    const ps = document.getElementById(`opp-player-${eid}-${slot}`);
+    const ds = document.getElementById(`opp-deck-${eid}-${slot}`);
+    if (!ps || ps.value) return; // skip if already set
+    ps.value = playerId;
+    // Populate deck dropdown
+    const rival = (data.opponents||[]).find(r=>r.id===playerId);
+    const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
+    if (ds) {
+      ds.innerHTML = '<option value="">— Deck —</option>' +
+        activeDecks.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+      ds.value = deckId;
+      ds.style.display = '';
+    }
+    // Save into pendingOpponents — extract deckKey from the grid's parent structure
+    // eid is the expand container id; deckKey is the pending key (uuid or name)
+    // We walk up to find the containing card and get sn from the score element
+    const grid = document.getElementById('og-'+eid);
+    if (grid) {
+      const card = grid.closest('[data-sn]') || grid.closest('.deck-expand-body');
+      // deckKey is stored as data-deckkey on the opp-row
+      const oppRow = grid.closest('.opp-row');
+      const deckKey = oppRow?.dataset?.deckkey;
+      if (deckKey) {
+        if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
+        pendingOpponents[deckKey][slot] = { playerId, deckId };
+      }
+    }
+  });
 }
 
 function onOppPlayerChange(eid, deckKey, slot) {
@@ -5021,6 +5058,31 @@ function clearOppSlot(eid, deckKey, slot) {
   if (ps) ps.value = '';
   if (ds) { ds.innerHTML='<option value="">— Deck —</option>'; ds.style.display='none'; }
   if (pendingOpponents[deckKey]) pendingOpponents[deckKey][slot] = {};
+}
+
+function toggleRivalDeckPreferred(rivalId, deckId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  if (!rival) return;
+  // Toggle: if this deck is already preferred, unset it; otherwise set it (and clear others)
+  const deck = (rival.decks||[]).find(d=>d.id===deckId);
+  if (!deck || deck.retired) return;
+  const wasPreferred = !!deck.preferred;
+  // Clear all preferred flags on this rival's decks first
+  (rival.decks||[]).forEach(d => delete d.preferred);
+  // Set this one unless it was already preferred (toggle off)
+  if (!wasPreferred) deck.preferred = true;
+  scheduleSync(); renderRivals();
+}
+
+// Returns up to 3 preferred rivals (rival + their preferred deck), for autofill
+function getPreferredRivals() {
+  const result = [];
+  for (const r of (data.opponents||[])) {
+    const prefDeck = (r.decks||[]).find(d=>d.preferred && !d.retired);
+    if (prefDeck) result.push({ playerId: r.id, deckId: prefDeck.id });
+    if (result.length === 3) break;
+  }
+  return result;
 }
 
 // ── Rival deck art ──
@@ -5158,6 +5220,14 @@ function renderRivals() {
         ${d.retired
           ? `<button onclick="unretireRivalDeck('${r.id}','${d.id}')" title="Restore deck" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>`
           : `<button onclick="retireRivalDeck('${r.id}','${d.id}')" title="Retire deck" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;padding:8px"><i class="ti ti-archive"></i></button>`
+        }
+        ${!d.retired && !isRetiredRival
+          ? `<button onclick="toggleRivalDeckPreferred('${r.id}','${d.id}')"
+               title="${d.preferred ? 'Preferred deck — click to unset' : 'Set as preferred deck'}"
+               style="background:none;border:none;cursor:pointer;font-size:18px;padding:8px;color:${d.preferred?'var(--blue)':'var(--text3)'}">
+               <i class="ti ti-${d.preferred?'star-filled':'star'}"></i>
+             </button>`
+          : ''
         }
         <button class="deck-mgr-del" onclick="confirmDeleteRivalDeck('${r.id}','${d.id}')" title="Permanently delete"><i class="ti ti-trash"></i></button>
       </div>`;
