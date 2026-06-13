@@ -2050,7 +2050,8 @@ function showModal(title, body, onConfirm) {
   const ov = document.getElementById('modal-overlay');
   if (!ov) return;
   document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-body').innerText = body || '';
+  const mb = document.getElementById('modal-body');
+  if (body && body.trim().startsWith('<')) { mb.innerHTML = body; } else { mb.innerText = body || ''; }
   // Always restore confirm button (art picker hides it)
   const okBtn = document.getElementById('modal-ok');
   if (okBtn) okBtn.style.display = '';
