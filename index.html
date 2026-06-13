@@ -5366,21 +5366,28 @@ function openRivalDeckArtPicker(rivalId, deckId) {
     const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
     const posKey   = isPartner ? 'partnerArtPosition'    : 'artPosition';
     const scaleKey = isPartner ? 'partnerArtScale'       : 'artScale';
-    const cmdName  = isPartner ? (deck.partner||'')       : deck.name;
-    const posStr   = deck[posKey] || '50% 0%';
+    // Re-fetch deck fresh each time to avoid stale closure
+    const freshDeck = () => {
+      const r = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+      return (r?.decks||[]).find(d=>d.id===deckId);
+    };
+    const d0 = freshDeck();
+    const cmdName  = isPartner ? (d0?.partner||'') : (d0?.name||'');
+    const posStr   = d0?.[posKey] || '50% 0%';
     const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
-    const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
-    _artPickerPosScale = deck[scaleKey] || 1;
+    const posArt   = d0?.[fieldKey] || artCache[scryfallKey(cmdName)] || null;
+    _artPickerPosScale = d0?.[scaleKey] || 1;
     openArtPicker(
       `${cmdName} — ${isPartner?'partner':'commander'} art`,
-      deck[nameKey] || cmdName,
+      d0?.[nameKey] || cmdName,
       (url, cardName) => {
-        if (!url) { delete deck[fieldKey]; delete deck[nameKey]; }
-        else { deck[fieldKey] = url; deck[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
+        const dk = freshDeck(); if (!dk) return;
+        if (!url) { delete dk[fieldKey]; delete dk[nameKey]; }
+        else { dk[fieldKey] = url; dk[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
         scheduleSync(); renderRivals();
       },
       posArt, px, py,
-      (x, y, sc) => { deck[posKey]=`${x}% ${y}%`; deck[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+      (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
     );
   };
 
@@ -5424,8 +5431,11 @@ function openRivalDeckArtPicker(rivalId, deckId) {
 
 // Called from the slot-picker modal buttons
 function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
-  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
-  const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
+  const freshDeck = () => {
+    const r = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+    return (r?.decks||[]).find(d=>d.id===deckId);
+  };
+  const deck = freshDeck();
   if (!deck) return;
   const fieldKey = isPartner ? 'partnerArtOverride'    : 'artOverride';
   const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
@@ -5440,12 +5450,13 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
     `${cmdName} — ${isPartner?'partner':'commander'} art`,
     deck[nameKey] || cmdName,
     (url, cardName) => {
-      if (!url) { delete deck[fieldKey]; delete deck[nameKey]; }
-      else { deck[fieldKey] = url; deck[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
+      const dk = freshDeck(); if (!dk) return;
+      if (!url) { delete dk[fieldKey]; delete dk[nameKey]; }
+      else { dk[fieldKey] = url; dk[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
-    (x, y, sc) => { deck[posKey]=`${x}% ${y}%`; deck[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
   );
 }
 
