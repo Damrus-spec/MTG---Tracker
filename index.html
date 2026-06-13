@@ -1989,7 +1989,9 @@ function submitPending() {
     const parts=[];
     if(v.wins>0)   parts.push(`${v.wins} Win${v.wins>1?'s':''}`);
     if(v.losses>0) parts.push(`${v.losses} Loss${v.losses>1?'es':''}`);
-    return `${name.split(',')[0]}: ${parts.join(' + ')}`;
+    const deck = (data.colorDecks||[]).find(d=>d.uuid===name);
+    const label = deck ? deckDisplayName(deck) : (displayNameForUuid(name) || name.split(',')[0]);
+    return `${label}: ${parts.join(' + ')}`;
   }).join('\n');
   if (totalEntries > 1) {
     showModal(
@@ -2256,7 +2258,7 @@ function openIssuePanelFull(deckName, uuid) {
       }).join('');
       issuesHtml = aggHtml + entriesHtml;
     }
-    body.innerHTML = rivalsHtml + issuesHtml;
+    body.innerHTML = issuesHtml + rivalsHtml;
   }
 
   const panel = document.getElementById('issue-hist-panel');
