@@ -5065,10 +5065,16 @@ function clearOppSlot(eid, deckKey, slot) {
 function toggleRivalDeckPreferred(rivalId, deckId) {
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
   if (!rival) return;
-  // Toggle: if this deck is already preferred, unset it; otherwise set it (and clear others)
   const deck = (rival.decks||[]).find(d=>d.id===deckId);
   if (!deck || deck.retired) return;
   const wasPreferred = !!deck.preferred;
+  // Count total starred decks across all active rivals (excluding this one)
+  const starredElsewhere = (data.opponents||[]).reduce((n, r) =>
+    n + (r.decks||[]).filter(d => d.preferred && !d.retired && !(r.id===rivalId && d.id===deckId)).length, 0);
+  // Block if trying to add a 4th star
+  if (!wasPreferred && starredElsewhere >= 3) {
+    showToast('Max 3 preferred decks across all rivals'); return;
+  }
   // Clear all preferred flags on this rival's decks first
   (rival.decks||[]).forEach(d => delete d.preferred);
   // Set this one unless it was already preferred (toggle off)
