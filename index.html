@@ -5053,7 +5053,9 @@ function onOppPlayerChange(eid, deckKey, slot) {
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     deckSel.innerHTML = '<option value="">— Deck —</option>' +
       activeDecks.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
-    deckSel.style.display='';
+    deckSel.style.display = activeDecks.length > 1 ? '' : 'none';
+    // Auto-select if only one deck
+    if (activeDecks.length === 1) deckSel.value = activeDecks[0].id;
   }
   saveOppSlot(eid, deckKey, slot);
 }
