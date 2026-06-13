@@ -1640,6 +1640,8 @@ async function fetchMissingArt(names) {
 // NAVIGATION
 // ============================================================
 function showPage(id, btn) {
+  // Close any lingering autocomplete dropdowns
+  document.querySelectorAll('.ac-dropdown').forEach(dd=>{ dd.innerHTML=''; dd.style.display='none'; });
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
@@ -3512,8 +3514,8 @@ function openArtOverride(idx, isPartner) {
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
-          <div style="font-weight:500">${deck.name}</div>
-          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
+          <div style="font-weight:500">${(deck.name||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+(deck.artOverrideName||'').replace(/</g,'&lt;'):' · default'}</div>
         </button>
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
@@ -5536,7 +5538,7 @@ function promptRenameRival(rivalId) {
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
   if (!rival) return;
   const html = `<div style="padding:4px 0">
-    <input id="rename-rival-input" type="text" value="${rival.name}" style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+    <input id="rename-rival-input" type="text" value="${(rival.name||'').replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
   </div>`;
   showModal('Rename rival', html, ()=>{
     const name = document.getElementById('rename-rival-input')?.value?.trim();
