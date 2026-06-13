@@ -121,6 +121,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-badge{flex-shrink:0;font-size:11px;font-weight:500;padding:2px 8px;border-radius:10px;width:44px;text-align:center;margin:0 6px}
 .h-win{background:var(--green-bg);color:var(--green)}.h-loss{background:var(--red-bg);color:var(--red)}
 .h-del-btn{flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 6px 2px 2px;transition:color .15s}
+#page-history.delete-mode *:not(#hist-delete-bar):not(#hist-delete-bar *):not(.h-del-btn){pointer-events:none!important;user-select:none}
+#page-history.delete-mode .h-del-btn{pointer-events:auto!important}
+#page-history.delete-mode #hist-delete-bar{pointer-events:auto!important}
+#page-history.delete-mode .h-row{opacity:.6}
+#page-history.delete-mode .h-del-active{opacity:1!important}
 .h-del-btn:active,.h-del-active{color:var(--red)!important}
 .h-selected{background:var(--red-bg)}
 
@@ -2286,8 +2291,10 @@ function toggleHistorySelect(realIdx, evt) {
 function updateHistoryDeleteBar() {
   const bar     = document.getElementById('hist-delete-bar');
   const countEl = document.getElementById('hist-delete-count');
+  const page    = document.getElementById('page-history');
   const n = historySelected.size;
-  if(bar) bar.style.display = n>0 ? '' : 'none';
+  if(bar)  bar.style.display = n>0 ? '' : 'none';
+  if(page) page.classList.toggle('delete-mode', n>0);
   if(countEl) countEl.textContent = `${n} entr${n===1?'y':'ies'} selected`;
 }
 
