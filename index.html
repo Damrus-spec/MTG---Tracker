@@ -5456,7 +5456,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
-    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); showToast(`Saved: ${posKey} = ${Math.round(x)}% ${Math.round(y)}% scale ${sc.toFixed(2)}`); }
   );
 }
 
