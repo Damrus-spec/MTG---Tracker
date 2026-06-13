@@ -5383,7 +5383,7 @@ function openRivalDeckArtPicker(rivalId, deckId) {
       (url, cardName) => {
         const dk = freshDeck(); if (!dk) return;
         if (!url) { delete dk[fieldKey]; delete dk[nameKey]; }
-        else { dk[fieldKey] = url; dk[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
+        else { dk[fieldKey] = url; dk[nameKey] = cardName; }
         scheduleSync(); renderRivals();
       },
       posArt, px, py,
@@ -5452,7 +5452,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
     (url, cardName) => {
       const dk = freshDeck(); if (!dk) return;
       if (!url) { delete dk[fieldKey]; delete dk[nameKey]; }
-      else { dk[fieldKey] = url; dk[nameKey] = cardName; artCache[scryfallKey(cardName||cmdName)] = url; saveArtCache(); }
+      else { dk[fieldKey] = url; dk[nameKey] = cardName; }
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
