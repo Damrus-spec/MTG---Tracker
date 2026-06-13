@@ -5326,6 +5326,23 @@ function openAddRivalDeckModal(rivalId) {
   setTimeout(()=>{
     acCommanderMode.add('rdm-name'); acCommanderMode.add('rdm-partner');
     initAC('rdm-name', null); initAC('rdm-partner', null);
+    acCallbacks['rdm-name'] = async (name) => {
+      // Try to fetch partner keyword from Scryfall and autofill partner field
+      try {
+        const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
+        if (!res.ok) return;
+        const card = await res.json();
+        const partnerText = (card.keywords||[]).find(k=>k==='Partner' || k==='Partner with');
+        const partnerWith = card.all_parts?.find(p=>p.component==='combo_piece' && p.name!==name);
+        const partnerEl = document.getElementById('rdm-partner');
+        if (!partnerEl || partnerEl.value) return; // don't overwrite if already filled
+        if (partnerWith) {
+          partnerEl.value = partnerWith.name;
+          partnerEl.classList.add('ac-valid');
+        }
+      } catch(e) {}
+    };
+    acCallbacks['rdm-partner'] = () => {};
     document.getElementById('rdm-name')?.focus();
   }, 80);
 }
