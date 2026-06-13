@@ -1817,7 +1817,7 @@ function renderScore() {
         <!-- Opponents tracking -->
         <div class="opp-row">
           <button class="opp-toggle" onclick="toggleOppGrid('${eid}')">
-            <i class="ti ti-users" style="font-size:12px"></i> Opponents
+            <i class="ti ti-users" style="font-size:12px"></i> Rivals
             <i class="ti ti-chevron-down" style="font-size:11px"></i>
           </button>
           <div class="opp-grid" id="og-${eid}">
@@ -2133,13 +2133,7 @@ function renderHistory() {
     const issueHtml = (h.issues && h.issues.length)
       ? `<div class="h-issues">${h.issues.map(iss=>`<span class="h-issue-tag">${iss.issue}</span>`).join('')}</div>`
       : '';
-    const oppHtml = (h.opponents && h.opponents.length)
-      ? `<div class="h-issues">${h.opponents.filter(o=>o.playerId).map(o=>{
-          const riv = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===o.playerId);
-          const dk = riv?.decks?.find(d=>d.id===o.deckId);
-          return `<span class="h-issue-tag" style="color:var(--text2);border-color:var(--border-md)">${riv?riv.name:'?'}${dk?' · '+dk.name:''}</span>`;
-        }).join('')}</div>`
-      : '';
+
     return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
       <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
@@ -2147,7 +2141,7 @@ function renderHistory() {
       </div>
       <div class="h-main">
         <div class="h-deck">${(()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })()}</div>
-        ${issueHtml}${oppHtml}
+        ${issueHtml}
       </div>
       <span class="h-col-date">${fmtDate(h.date)}</span>
       ${h.wins!=null?`<span class="h-col-w">${h.wins}</span><span class="h-col-l">${h.losses}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
@@ -2180,34 +2174,89 @@ function openIssuePanelFull(deckName, uuid) {
   const body  = document.getElementById('issue-hist-panel-body');
   if (title) title.textContent = (resolvedUuid ? (displayNameForUuid(resolvedUuid) || deckName) : deckName);
 
-  if (!entries.length) {
-    body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues logged for this deck.</p>';
-  } else {
-    const agg = {};
-    for (const h of entries) {
-      for (const iss of (h.issues||[])) {
-        if (!agg[iss.issue]) agg[iss.issue] = 0;
-        agg[iss.issue]++;
+  // Rivals data — all history entries for this deck that have opponents
+  const allRivalsKnown = [...(data.opponents||[]),...(data.retiredOpponents||[])];
+  const rivalEntries = (data.history||[])
+    .filter(h => (h.deckUuid === resolvedUuid || h.deck === deckName) && h.opponents && h.opponents.filter(o=>o.playerId).length > 0)
+    .slice().reverse();
+
+  // Aggregate rival stats
+  const rivalAgg = {}; // rivalId → { name, deckStats: { deckId → { name, wins, losses } }, wins, losses }
+  for (const h of rivalEntries) {
+    for (const o of (h.opponents||[])) {
+      if (!o.playerId) continue;
+      if (!rivalAgg[o.playerId]) {
+        const riv = allRivalsKnown.find(r=>r.id===o.playerId);
+        rivalAgg[o.playerId] = { name: riv?.name||'Unknown', wins:0, losses:0, decks:{} };
+      }
+      const ra = rivalAgg[o.playerId];
+      if (h.last==='Win') ra.wins++; else ra.losses++;
+      if (o.deckId) {
+        if (!ra.decks[o.deckId]) {
+          const riv = allRivalsKnown.find(r=>r.id===o.playerId);
+          const dk = riv?.decks?.find(d=>d.id===o.deckId);
+          ra.decks[o.deckId] = { name: dk?.name||'Unknown deck', wins:0, losses:0 };
+        }
+        if (h.last==='Win') ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
       }
     }
-    const aggSorted = Object.entries(agg).sort((a,b)=>b[1]-a[1]);
-    const aggHtml = `
-      <div class="issue-hist-agg">
-        <div class="issue-hist-agg-title">All-time totals (${entries.length} games with issues)</div>
-        ${aggSorted.map(([iss,count])=>`
-          <div class="issue-hist-agg-row">
-            <span style="color:var(--text);font-weight:600;min-width:28px">${count}×</span>
-            <span style="color:var(--text);flex:1">${iss}</span>
-          </div>`).join('')}
-      </div>`;
-    const entriesHtml = entries.map(h => {
-      const tags = (h.issues||[]).map(iss=>`<span class="issue-hist-tag">${iss.issue}</span>`).join('');
-      return `<div class="issue-hist-entry">
-        <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
-        <div class="issue-hist-tags">${tags}</div>
-      </div>`;
-    }).join('');
-    body.innerHTML = aggHtml + entriesHtml;
+  }
+  const rivalsHtml = Object.values(rivalAgg).length ? `
+    <div style="margin-bottom:16px">
+      <div class="issue-hist-agg-title">Rivals</div>
+      ${Object.values(rivalAgg).map(ra=>{
+        const tot = ra.wins+ra.losses;
+        const wr  = tot>0 ? Math.round(ra.wins/tot*100) : null;
+        const deckRows = Object.values(ra.decks).map(dk=>{
+          const dtot = dk.wins+dk.losses;
+          const dwr  = dtot>0 ? Math.round(dk.wins/dtot*100) : null;
+          return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 12px;font-size:11px;color:var(--text2)">
+            <span style="flex:1">${dk.name}</span>
+            <span style="color:var(--text3)">${dk.wins}W ${dk.losses}L${dwr!=null?' · '+dwr+'%':''}</span>
+          </div>`;
+        }).join('');
+        return `<div style="padding:5px 0;border-bottom:.5px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+            <span style="flex:1;font-weight:600;color:var(--text)">${ra.name}</span>
+            <span style="color:var(--text3);font-size:11px">${ra.wins}W ${ra.losses}L${wr!=null?' · '+wr+'%':''}</span>
+          </div>
+          ${deckRows}
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  if (!entries.length && !rivalsHtml) {
+    body.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:8px 0">No issues or rivals logged for this deck.</p>';
+  } else {
+    let issuesHtml = '';
+    if (entries.length) {
+      const agg = {};
+      for (const h of entries) {
+        for (const iss of (h.issues||[])) {
+          if (!agg[iss.issue]) agg[iss.issue] = 0;
+          agg[iss.issue]++;
+        }
+      }
+      const aggSorted = Object.entries(agg).sort((a,b)=>b[1]-a[1]);
+      const aggHtml = `
+        <div class="issue-hist-agg">
+          <div class="issue-hist-agg-title">All-time totals (${entries.length} games with issues)</div>
+          ${aggSorted.map(([iss,count])=>`
+            <div class="issue-hist-agg-row">
+              <span style="color:var(--text);font-weight:600;min-width:28px">${count}×</span>
+              <span style="color:var(--text);flex:1">${iss}</span>
+            </div>`).join('')}
+        </div>`;
+      const entriesHtml = entries.map(h => {
+        const tags = (h.issues||[]).map(iss=>`<span class="issue-hist-tag">${iss.issue}</span>`).join('');
+        return `<div class="issue-hist-entry">
+          <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
+          <div class="issue-hist-tags">${tags}</div>
+        </div>`;
+      }).join('');
+      issuesHtml = aggHtml + entriesHtml;
+    }
+    body.innerHTML = rivalsHtml + issuesHtml;
   }
 
   const panel = document.getElementById('issue-hist-panel');
