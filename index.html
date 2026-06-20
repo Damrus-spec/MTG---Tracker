@@ -1141,11 +1141,23 @@ function initGSI() {
           } else {
             setSyncStatus('red', 'Sign-in failed: ' + resp.error);
           }
+          // Reject any awaiting token-refresh callers
+          if (_tokenWaiters.length) {
+            const ws = _tokenWaiters.splice(0);
+            ws.forEach(w => { try { w.reject(new Error(resp.error)); } catch(e){} });
+          }
+          _refreshInFlight = false;
           return;
         }
         accessToken = resp.access_token;
         try { localStorage.setItem('mtg_token', accessToken); } catch(e) {}
         updateSignInBtn();
+        // Resolve any awaiting token-refresh callers with the fresh token
+        if (_tokenWaiters.length) {
+          const ws = _tokenWaiters.splice(0);
+          ws.forEach(w => { try { w.resolve(accessToken); } catch(e){} });
+        }
+        _refreshInFlight = false;
         loadFromDrive(true);
       }
     });
@@ -1162,6 +1174,41 @@ function initGSI() {
 }
 
 let pendingSilentSignIn = false;
+// Callers awaiting a fresh token after a 401. Resolved/rejected by the GSI callback.
+let _tokenWaiters = [];
+let _refreshInFlight = false;
+
+// Await a silent token refresh. Resolves with a new access token, or rejects if
+// the user needs to interactively sign in. Multiple concurrent callers share one refresh.
+function tokenRefresh() {
+  return new Promise((resolve, reject) => {
+    _tokenWaiters.push({ resolve, reject });
+    if (_refreshInFlight) return;
+    _refreshInFlight = true;
+    // Clear the in-flight flag once this round settles (waiters get drained in the callback)
+    const clearFlag = () => { _refreshInFlight = false; };
+    if (!initGSI()) {
+      // GSI not ready — reject; caller will fall back to showing sign-in
+      _tokenWaiters.splice(0).forEach(w => w.reject(new Error('gsi_not_ready')));
+      clearFlag();
+      return;
+    }
+    try {
+      // The shared callback (set in initGSI) drains _tokenWaiters on success/error.
+      gsiClient.requestAccessToken({ prompt: 'none' });
+      // Safety timeout: if no callback in 15s, reject waiters so callers don't hang
+      setTimeout(() => {
+        if (_tokenWaiters.length) {
+          _tokenWaiters.splice(0).forEach(w => { try { w.reject(new Error('refresh_timeout')); } catch(e){} });
+        }
+        clearFlag();
+      }, 15000);
+    } catch(e) {
+      _tokenWaiters.splice(0).forEach(w => { try { w.reject(e); } catch(err){} });
+      clearFlag();
+    }
+  });
+}
 
 // Try to silently re-acquire a token (no popup). Falls back to showing sign-in button.
 function silentSignIn() {
@@ -1233,35 +1280,67 @@ function setSyncStatus(state, msg) {
 // ============================================================
 
 // ── Folder lookup ──
-async function getDriveFolder() {
+// Returns: a folder ID string on success, or null only when the folder genuinely
+// can't be found/created. Throws Error('offline') / Error('auth') for transient
+// failures so callers can show "Reconnecting…" instead of a false "folder not found".
+async function getDriveFolder(_retried) {
   if (driveFolderId) {
     // Verify the cached ID is still valid
-    const check = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFolderId}?fields=id`,
-      {headers:{Authorization:`Bearer ${accessToken}`}});
-    if (check.status === 401) { accessToken=null; silentSignIn(); return null; }
+    let check;
+    try {
+      check = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFolderId}?fields=id`,
+        {headers:{Authorization:`Bearer ${accessToken}`}});
+    } catch(e) { throw new Error('offline'); }
+    if (check.status === 401) {
+      if (_retried) throw new Error('auth');
+      // Token expired — refresh in place and retry once with the new token
+      try { await tokenRefresh(); } catch(e) { throw new Error('auth'); }
+      return await getDriveFolder(true);
+    }
     if (check.ok) return driveFolderId;
-    // Stale/deleted — clear cache and re-search
-    driveFolderId = null;
-    try{localStorage.removeItem('mtg_folder_id');}catch(e){}
+    if (check.status === 404) {
+      // Folder truly gone — clear cache and fall through to re-search/create
+      driveFolderId = null;
+      try{localStorage.removeItem('mtg_folder_id');}catch(e){}
+    } else {
+      // 5xx or other transient server error — keep cache, signal transient
+      throw new Error('offline');
+    }
   }
   // Search for existing folder the app owns
   const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
-    {headers:{Authorization:`Bearer ${accessToken}`}});
-  if (!r.ok) return null;
+  let r;
+  try {
+    r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+      {headers:{Authorization:`Bearer ${accessToken}`}});
+  } catch(e) { throw new Error('offline'); }
+  if (r.status === 401) {
+    if (_retried) throw new Error('auth');
+    try { await tokenRefresh(); } catch(e) { throw new Error('auth'); }
+    return await getDriveFolder(true);
+  }
+  if (!r.ok) throw new Error('offline');
   const j = await r.json();
   if (j.files && j.files.length > 0) {
     driveFolderId = j.files[0].id;
     try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
     return driveFolderId;
   }
-  // Not found — create it
-  const res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
-    method: 'POST',
-    headers: {Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json'},
-    body: JSON.stringify({name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder'})
-  });
-  if (!res.ok) return null;
+  // Genuinely not found — create it
+  let res;
+  try {
+    res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+      method: 'POST',
+      headers: {Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json'},
+      body: JSON.stringify({name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder'})
+    });
+  } catch(e) { throw new Error('offline'); }
+  if (res.status === 401) {
+    if (_retried) throw new Error('auth');
+    try { await tokenRefresh(); } catch(e) { throw new Error('auth'); }
+    return await getDriveFolder(true);
+  }
+  if (!res.ok) throw new Error('offline');
   const created = await res.json();
   driveFolderId = created.id;
   try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
@@ -1276,6 +1355,10 @@ function openDriveFolder() {
     getDriveFolder().then(fid => {
       if (fid) window.open(`https://drive.google.com/drive/folders/${fid}`, '_blank');
       else alert('Could not find the MTG Tracker Data folder on Drive.');
+    }).catch(e => {
+      alert(e.message==='auth'
+        ? 'Reconnecting to Google — try again in a moment.'
+        : 'Could not reach Google Drive — check your connection and try again.');
     });
   }
 }
@@ -1406,7 +1489,16 @@ async function syncDrive(silent) {
   syncing=true; dirty=false;
   if (!silent) setSyncStatus('busy','Syncing...');
   try {
-    const folderId = await getDriveFolder();
+    let folderId;
+    try {
+      folderId = await getDriveFolder();
+    } catch(e) {
+      // Transient: token refresh in progress or offline. Keep local data, retry later.
+      dirty = true;
+      setSyncStatus(e.message==='auth'?'busy':'red',
+        e.message==='auth' ? 'Reconnecting…' : 'Offline — saved locally');
+      syncing=false; return;
+    }
     if (!folderId) { setSyncStatus('red','Drive folder not found'); syncing=false; return; }
     await resolveFileIds(folderId);
 
@@ -1501,7 +1593,15 @@ async function loadFromDrive(force) {
   // Forced load
   setSyncStatus('busy','Loading...');
   try {
-    const folderId = await getDriveFolder();
+    let folderId;
+    try {
+      folderId = await getDriveFolder();
+    } catch(e) {
+      // Transient: don't show a false "folder not found". Local data already shown.
+      setSyncStatus(e.message==='auth'?'busy':'red',
+        e.message==='auth' ? 'Reconnecting…' : 'Offline — using local data');
+      return;
+    }
     if (!folderId) { setSyncStatus('red','Drive folder not found'); return; }
 
     // Check for legacy file and migrate if found
