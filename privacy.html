@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — MTG Tracker</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+:root{
+  --bg:#f5f5f0;--surface:#fff;--border:rgba(0,0,0,.10);--border-md:rgba(0,0,0,.18);
+  --text:#1a1a1a;--text2:#666;--text3:#999;--blue:#2d6bcb;--radius:10px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1a1a1a;--surface:#252525;--border:rgba(255,255,255,.10);--border-md:rgba(255,255,255,.18);
+  --text:#f0f0f0;--text2:#aaa;--text3:#555;--blue:#5ba3e8;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:32px 20px}
+.wrap{max-width:680px;margin:0 auto}
+.home{display:inline-flex;align-items:center;gap:6px;color:var(--blue);text-decoration:none;font-size:14px;font-weight:600;margin-bottom:24px}
+.home:hover{text-decoration:underline}
+h1{font-size:26px;font-weight:700;margin-bottom:6px}
+.updated{color:var(--text3);font-size:13px;margin-bottom:28px}
+h2{font-size:17px;font-weight:700;margin:26px 0 10px}
+p{color:var(--text2);margin-bottom:12px;font-size:15px}
+ul{color:var(--text2);font-size:15px;margin:0 0 12px 20px}
+li{margin-bottom:7px}
+strong{color:var(--text)}
+.card{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius);padding:18px 20px;margin-top:14px}
+code{background:var(--surface);border:.5px solid var(--border);border-radius:5px;padding:1px 6px;font-size:13px}
+a{color:var(--blue)}
+.foot{margin-top:36px;padding-top:18px;border-top:.5px solid var(--border);color:var(--text3);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="home" href="index.html">&larr; Back to MTG Tracker</a>
+  <h1>Privacy Policy</h1>
+  <div class="updated">MTG Tracker &middot; Last updated 20 June 2026</div>
+
+  <p>MTG Tracker is a personal tool for tracking Magic: The Gathering (Commander) games — deck win rates, game history, wishlists, and opponents. This policy explains exactly what data the app handles and how.</p>
+
+  <div class="card">
+    <p style="margin:0"><strong>The short version:</strong> Your data lives only in your own Google Drive. There is no server, no database, and no analytics. We never see, collect, or share your data, and nobody else can either.</p>
+  </div>
+
+  <h2>What data the app stores</h2>
+  <p>MTG Tracker stores the information you enter yourself, including:</p>
+  <ul>
+    <li>Your decks, commanders, and chosen card art</li>
+    <li>Game results and history</li>
+    <li>Card wishlists and buy lists</li>
+    <li>Opponents (rivals) and their decks</li>
+    <li>App settings and preferences</li>
+  </ul>
+
+  <h2>Where your data is stored</h2>
+  <p>All of your data is saved as JSON files inside a folder called <strong>MTG Tracker Data</strong> in <strong>your own Google Drive</strong>. The app does not run any backend server and stores nothing on our side. Your data never leaves your Google account except when your browser talks directly to Google Drive.</p>
+
+  <h2>How the app accesses Google Drive</h2>
+  <p>MTG Tracker requests a single, narrowly-scoped Google permission:</p>
+  <div class="card">
+    <p style="margin:0"><code>drive.file</code> — Create new Drive files, or modify files the app itself created.</p>
+  </div>
+  <p style="margin-top:12px">This is Google's most limited Drive scope. The app can only see and change the files it creates for you. It <strong>cannot</strong> read, browse, or touch any other file in your Google Drive. We do not request access to your email, contacts, profile, or any other Google data.</p>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>We do not have a server that stores or processes your data.</li>
+    <li>We do not collect analytics, telemetry, or usage tracking.</li>
+    <li>We do not sell, share, or transmit your data to any third party.</li>
+    <li>We do not use your data for advertising or for training any model.</li>
+    <li>We do not use cookies for tracking.</li>
+  </ul>
+
+  <h2>Third-party services</h2>
+  <p>The app talks directly from your browser to a few external services purely to function:</p>
+  <ul>
+    <li><strong>Google Drive API</strong> — to save and load your data files in your own Drive.</li>
+    <li><strong>Scryfall API</strong> — to look up card names, art, and prices. These are public, anonymous requests; no personal data is sent.</li>
+    <li><strong>jsDelivr / Google Fonts CDNs</strong> — to load the app's icons and chart library.</li>
+  </ul>
+  <p>Each of these services has its own privacy policy governing its own handling of requests.</p>
+
+  <h2>Revoking access</h2>
+  <p>You can disconnect MTG Tracker from your Google account at any time at <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>. You can also delete the <strong>MTG Tracker Data</strong> folder from your Drive to remove all stored data.</p>
+
+  <h2>Children</h2>
+  <p>This app is a personal hobby tool and is not directed at children under 13.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the "last updated" date above will change with it.</p>
+
+  <h2>Contact</h2>
+  <p>This is a personal, non-commercial project. For questions, contact the app owner through the GitHub repository.</p>
+
+  <div class="foot">MTG Tracker is an unofficial fan project. Magic: The Gathering is a trademark of Wizards of the Coast. This app is not affiliated with or endorsed by Wizards of the Coast or Scryfall.</div>
+</div>
+</body>
+</html>
