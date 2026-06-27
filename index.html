@@ -3853,17 +3853,28 @@ function renderDeckMgr() {
       return (a.name||'').localeCompare(b.name||'');
     });
 
+  // Count decks per status group (for the header count + collapse)
+  const groupCounts = {};
+  sorted.forEach(d => { const s=d.status||'—'; groupCounts[s]=(groupCounts[s]||0)+1; });
+
   let lastStatus='';
   document.getElementById('deck-mgr-list').innerHTML=sorted.map(d=>{
     const i=d._i; // actual data index
     const key=d.name?scryfallKey(d.name):'';
     const art=key&&artCache[key];
-    // Group header
+    // Group header (collapsible)
     let header='';
     if(d.status!==lastStatus){
       lastStatus=d.status;
-      header=`<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 14px 4px;background:var(--bg)">${d.status}</div>`;
+      const collapsed = collapsedDeckGroups.has(d.status);
+      header=`<div onclick="toggleDeckGroup('${d.status}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 14px 4px;background:var(--bg);display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+        <i class="ti ti-chevron-${collapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
+        <span style="flex:1">${d.status}</span>
+        <span style="font-weight:400;color:var(--text3);font-size:9px;text-transform:none;letter-spacing:0">${groupCounts[d.status]} deck${groupCounts[d.status]!==1?'s':''}</span>
+      </div>`;
     }
+    // Skip the deck row body when its group is collapsed (header still shows)
+    if(collapsedDeckGroups.has(d.status)) return header;
     // deckArtHtml is the source of truth — all settings come from deck object
     const flipped = !!d.artFlipped;
     const hasArt = !!(d.artOverride || artCache[scryfallKey(d.name||'')]);
@@ -5968,6 +5979,12 @@ function initStaticAC() {
 const pendingOpponents = {};
 // rivals collapsed by the user (Set of rival IDs)
 const collapsedRivals = new Set();
+const collapsedDeckGroups = new Set();
+function toggleDeckGroup(status) {
+  if (collapsedDeckGroups.has(status)) collapsedDeckGroups.delete(status);
+  else collapsedDeckGroups.add(status);
+  renderDeckMgr();
+}
 
 function toggleRivalCollapse(rivalId) {
   if (collapsedRivals.has(rivalId)) collapsedRivals.delete(rivalId);
