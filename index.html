@@ -1107,7 +1107,7 @@ function showShareCodeModal(title, desc, code) {
   const html = `
     <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${desc}</div>
     <textarea readonly id="share-code-ta" style="width:100%;min-height:90px;font-size:11px;font-family:monospace;padding:8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical;box-sizing:border-box">${code}</textarea>
-    <button onclick="(()=>{const t=document.getElementById('share-code-ta');t.select();navigator.clipboard.writeText(t.value).then(()=>showToast('Copied!')).catch(()=>{document.execCommand('copy');showToast('Copied!');});})()" class="submit-btn" style="width:100%;margin-top:8px;padding:10px">Copy to clipboard</button>`;
+    <button onclick="(()=>{const t=document.getElementById('share-code-ta');t.select();const done=()=>{closeModal();showToast('Copied!');};navigator.clipboard.writeText(t.value).then(done).catch(()=>{document.execCommand('copy');done();});})()" class="submit-btn" style="width:100%;margin-top:8px;padding:10px">Copy to clipboard</button>`;
   showModal(title, html, null);
   const okBtn = document.getElementById('modal-ok');
   if (okBtn) okBtn.style.display = 'none';
