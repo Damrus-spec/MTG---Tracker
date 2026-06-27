@@ -6090,7 +6090,10 @@ function toggleRivalDeckPreferred(rivalId, deckId) {
   (rival.decks||[]).forEach(d => delete d.preferred);
   // Set this one unless it was already preferred (toggle off)
   if (!wasPreferred) deck.preferred = true;
-  scheduleSync(); renderRivals();
+  // Preferred set changed → reset the Score tab's auto-filled rival selections so
+  // they re-seed from the new preferred rivals on the next render.
+  Object.keys(pendingOpponents).forEach(k => delete pendingOpponents[k]);
+  scheduleSync(); renderRivals(); renderScore();
 }
 
 // Returns up to 3 preferred rivals (rival + their preferred deck), for autofill
