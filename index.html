@@ -1002,42 +1002,69 @@ function deckDisplayName(d) {
 // ============================================================
 const DECK_SHARE_VERSION = 1;
 
+// Extract the Scryfall card/print ID (UUID) from a stored art_crop override URL.
+function scryfallIdFromArt(url) {
+  if (!url) return '';
+  const m = String(url).match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  return m ? m[1] : '';
+}
+
 // Pull the shareable fields from a deck (owned-deck or rival-deck shape).
+// - name (+ partner): always.
+// - framing (position/scale/snap): so the visual setup matches.
+// - i1/i2: a compact 36-char Scryfall print ID, ONLY when a custom art override is
+//   set (so the exact chosen art transfers). Default-art decks carry no ID — the
+//   recipient resolves art from the name, and framing applies to that same default.
 function extractShareDeck(d) {
   const o = { name: d.name || '' };
   if (d.partner) o.partner = d.partner;
-  // Art overrides: fall back to cached resolved art so the recipient sees the same image
-  const a1 = d.artOverride || artCache[scryfallKey(d.name||'')] || '';
-  const a2 = d.partner ? (d.partnerArtOverride || artCache[scryfallKey(d.partner||'')] || '') : '';
-  if (a1) o.a1 = a1;
-  if (a2) o.a2 = a2;
-  if (d.artOverrideName)        o.an1 = d.artOverrideName;
-  if (d.partnerArtOverrideName) o.an2 = d.partnerArtOverrideName;
+  const id1 = scryfallIdFromArt(d.artOverride);
+  const id2 = d.partner ? scryfallIdFromArt(d.partnerArtOverride) : '';
+  if (id1) o.i1 = id1;
+  if (id2) o.i2 = id2;
   if (d.artPosition)        o.p1 = d.artPosition;
   if (d.partnerArtPosition) o.p2 = d.partnerArtPosition;
-  if (d.artScale)        o.s1 = d.artScale;
-  if (d.partnerArtScale) o.s2 = d.partnerArtScale;
+  if (d.artScale && d.artScale !== DEFAULT_ART_SCALE)               o.s1 = d.artScale;
+  if (d.partnerArtScale && d.partnerArtScale !== DEFAULT_ART_SCALE) o.s2 = d.partnerArtScale;
   if (d.artSnap)        o.sn1 = 1;
   if (d.partnerArtSnap) o.sn2 = 1;
   return o;
 }
 
-// Apply shared art fields onto a deck object (mutates), overwriting.
-function applyShareArt(target, src) {
-  if (src.a1)  target.artOverride = src.a1;         else delete target.artOverride;
-  if (src.a2)  target.partnerArtOverride = src.a2;  else delete target.partnerArtOverride;
-  if (src.an1) target.artOverrideName = src.an1;
-  if (src.an2) target.partnerArtOverrideName = src.an2;
+// Apply shared fields onto a deck (mutates). Framing applies directly; a print ID
+// (i1/i2) is resolved to its exact art via Scryfall asynchronously.
+function applyShareFields(target, src) {
   if (src.p1)  target.artPosition = src.p1;
   if (src.p2)  target.partnerArtPosition = src.p2;
   if (src.s1)  target.artScale = src.s1;
   if (src.s2)  target.partnerArtScale = src.s2;
   target.artSnap = !!src.sn1;
   target.partnerArtSnap = !!src.sn2;
-  // Cache the shared art so it shows immediately
-  if (src.a1 && src.name) { artCache[scryfallKey(src.name)] = src.a1; }
-  if (src.a2 && src.partner) { artCache[scryfallKey(src.partner)] = src.a2; }
-  saveArtCache();
+  // Resolve exact art from print IDs (if any); fall back to name resolution otherwise.
+  if (src.i1) resolveArtById(src.i1).then(url => {
+    if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } renderRivals(); }
+  });
+  if (src.i2) resolveArtById(src.i2).then(url => {
+    if (url) { target.partnerArtOverride = url; if (target.partner) { artCache[scryfallKey(target.partner)] = url; saveArtCache(); } renderRivals(); }
+  });
+}
+
+// Fetch an exact printing's art_crop URL by Scryfall card ID (cached, retried).
+const _artByIdCache = {};
+async function resolveArtById(id) {
+  if (!id) return '';
+  if (_artByIdCache[id] !== undefined) return _artByIdCache[id];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/${id}`, {headers:{Accept:'application/json'}});
+      if (!res.ok) { if (res.status===404) { _artByIdCache[id]=''; return ''; } continue; }
+      const card = await res.json();
+      const url = card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || '';
+      _artByIdCache[id] = url;
+      return url;
+    } catch(e) { await sleep(150); }
+  }
+  return '';
 }
 
 // Encode a payload {rival?, decks:[...]} to a compact base64 string.
@@ -1064,7 +1091,7 @@ function exportOwnedDecks() {
   const decks = ownedDecks().map(extractShareDeck);
   if (!decks.length) { showToast('No owned decks to export'); return; }
   const code = encodeDeckShare({ decks });
-  showShareCodeModal('Export owned decks', `${decks.length} deck${decks.length>1?'s':''} encoded. Share this string:`, code);
+  showShareCodeModal('Export owned decks', `${decks.length} deck${decks.length>1?'s':''} encoded with framing. Custom art picks transfer exactly; others resolve from card name. Share this string:`, code);
 }
 
 // ── Rival export: that rival's decks + art ──
@@ -1150,7 +1177,7 @@ function importDecksIntoRival(rivalId, decks) {
   // Add all non-conflicting decks immediately
   for (const sd of fresh) {
     const nd = { id: genUUID(), name: sd.name, partner: sd.partner||undefined };
-    applyShareArt(nd, sd);
+    applyShareFields(nd, sd);
     rival.decks.push(nd);
   }
   // Resolve conflicts one at a time via modal
@@ -1159,6 +1186,13 @@ function importDecksIntoRival(rivalId, decks) {
 
 function resolveImportConflicts(rivalId, conflicts, addedCount) {
   if (!conflicts.length) {
+    // Resolve art from commander names for this rival's decks (no art travels in the share)
+    const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+    if (rival) {
+      const names = [];
+      (rival.decks||[]).forEach(d=>{ if(d.name) names.push(d.name); if(d.partner) names.push(d.partner); });
+      if (names.length) fetchMissingArt(names);
+    }
     scheduleSync(); renderRivals();
     showToast(`Imported ${addedCount} deck${addedCount!==1?'s':''}`);
     return;
@@ -1168,30 +1202,33 @@ function resolveImportConflicts(rivalId, conflicts, addedCount) {
   window.__importState = { rivalId, sd, match, rest, addedCount };
   const html = `
     <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px">
-      This rival already has <b>${match.name}${match.partner?' // '+match.partner:''}</b>. Merge the imported art &amp; setup into it (keeping existing history), or add it as a separate deck?
+      This rival already has <b>${match.name}${match.partner?' // '+match.partner:''}</b>. Choose how to handle the imported copy:
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      <button onclick="__importMerge('${rivalId}',true)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">Merge — keep history, take imported art/setup</button>
-      <button onclick="__importMerge('${rivalId}',false)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px;text-align:left">Keep both — add as separate deck</button>
+      <button onclick="__importConflict('${rivalId}','merge')" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">Merge — keep history, apply imported art &amp; framing</button>
+      <button onclick="__importConflict('${rivalId}','skip')" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px;text-align:left">Skip — leave existing deck untouched</button>
+      <button onclick="__importConflict('${rivalId}','dup')" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px;text-align:left">Add duplicate — separate deck</button>
     </div>`;
-  showModal(`Merge "${sd.name}${sd.partner?' // '+sd.partner:''}"?`, html, null);
+  showModal(`"${sd.name}${sd.partner?' // '+sd.partner:''}" already exists`, html, null);
   const okBtn = document.getElementById('modal-ok');
   if (okBtn) okBtn.style.display = 'none';
 }
 
-function __importMerge(rivalId, doMerge) {
+function __importConflict(rivalId, action) {
   const st = window.__importState; if (!st) return;
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
-  if (doMerge) {
-    applyShareArt(st.match, st.sd); // overwrite art on the existing deck, history untouched
-    st.addedCount += 0;
-  } else {
+  let added = 0;
+  if (action === 'merge') {
+    // Apply imported art/framing onto the existing deck; history untouched
+    applyShareFields(st.match, st.sd);
+  } else if (action === 'dup') {
     const nd = { id: genUUID(), name: st.sd.name, partner: st.sd.partner||undefined };
-    applyShareArt(nd, st.sd);
+    applyShareFields(nd, st.sd);
     rival.decks.push(nd);
-  }
+    added = 1;
+  } // 'skip' => do nothing
   closeModal();
-  resolveImportConflicts(rivalId, st.rest, st.addedCount + (doMerge?0:1));
+  resolveImportConflicts(rivalId, st.rest, st.addedCount + added);
 }
 // HTML version — renders partner on a second line
 function deckDisplayNameHtml(d) {
