@@ -768,17 +768,24 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       <div id="art-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px 12px 8px;overflow-y:auto;flex:1"></div>
       <div id="art-picker-status" style="padding:4px 12px 10px;font-size:12px;color:var(--text3);text-align:center;flex-shrink:0"></div>
     </div>
-    <!-- Reposition tab -->
+    <!-- Reposition tab: full art shown whole; labeled crop-frames show how each
+         app location crops it. Drag the art or use the sliders — both edit the
+         same stored translate+scale. -->
     <div id="ap-panel-position" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:14px 16px;gap:14px">
-      <!-- Preview: same object-fit:cover approach as the real deck art display.
-           Container is portrait (matches deck art column width:height ratio ~110:100).
-           The white frame shows the exact crop that will appear in the deck list. -->
-      <div style="position:relative;width:100%;padding-bottom:83%;overflow:hidden;border-radius:6px;background:var(--bg)" id="ap-pos-bg">
-        <img id="ap-pos-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center">
+      <div style="position:relative;width:100%;padding-bottom:75%;overflow:hidden;border-radius:6px;background:var(--bg);touch-action:none;cursor:grab" id="ap-pos-bg">
+        <img id="ap-pos-img" src="" alt="" draggable="false" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center;user-select:none;pointer-events:none">
+        <!-- Crop-frame overlays (positioned by JS) -->
+        <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:none;box-sizing:border-box">
+          <span style="position:absolute;top:-9px;left:4px;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">Score</span>
+        </div>
+        <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box">
+          <span style="position:absolute;bottom:-9px;right:4px;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">History / Wants</span>
+        </div>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
       </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:-8px">Drag the art to reposition. The frames show how each tab crops it.</div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
@@ -3643,6 +3650,7 @@ function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSaveP
   document.body.style.overflow = 'hidden';
 
   // Init reposition panel
+  artPickerBindDrag();
   artPickerInitPos();
   artPickerTab('choose');
 
@@ -3688,6 +3696,12 @@ function artPickerInitPos() {
   artPickerUpdatePos();
 }
 
+// Crop-frame aspect ratios (width/height) matching real app cells:
+//   Score  -> .deck-art 80x68
+//   Hist/Wants -> .h-art / .w-card-art ~52x52 (square)
+const AP_FRAME_SCORE_AR = 80/68;
+const AP_FRAME_SQ_AR    = 1;
+
 function artPickerUpdatePos() {
   let x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
   let y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
@@ -3696,47 +3710,78 @@ function artPickerUpdatePos() {
   const img = document.getElementById('ap-pos-img');
   const bg  = document.getElementById('ap-pos-bg');
 
+  // Snap: clamp x/y to where a crop edge meets the art edge (per axis).
+  // In the frames model the crop can pan until its frame edge reaches the art
+  // edge; that limit is (1 - 1/sc)/... handled below via fitted geometry.
   if (snap && img && bg && img.complete && img.naturalWidth) {
-    // Compute the translate % at which each image edge goes flush with the frame.
-    // Preview uses object-fit:contain, so before scale the image is FITTED inside
-    // the frame (touches the constraining axis, gaps on the other). After scale,
-    // the rendered size is fitted*sc. The flush offset on an axis is the distance
-    // its edge can travel to meet the frame edge = |rendered - frame| / 2.
-    const fw = bg.clientWidth, fh = bg.clientHeight;       // frame size
-    const iw = img.clientWidth, ih = img.clientHeight;     // img layout box (== frame)
-    const nAR = img.naturalWidth / img.naturalHeight;      // image aspect
-    const fAR = fw / fh;                                    // frame aspect
-    // Contain (fitted) size before scale
+    const fw = bg.clientWidth, fh = bg.clientHeight;
+    const nAR = img.naturalWidth / img.naturalHeight;
+    const fAR = fw / fh;
     let fitW, fitH;
-    if (nAR > fAR) { fitW = fw; fitH = fw / nAR; }          // wide: fits width
-    else           { fitH = fh; fitW = fh * nAR; }          // tall: fits height
-    fitW *= sc; fitH *= sc;
-    // Distance each edge can travel to go flush (px), half to each side.
-    // Math.abs handles both underflow (image smaller) and overflow (image larger).
-    const flushPxX = Math.abs(fitW - fw) / 2;
-    const flushPxY = Math.abs(fitH - fh) / 2;
-    // translate % is relative to the image layout box (iw/ih)
-    const flushX = iw ? (flushPxX / iw) * 100 : 0;
-    const flushY = ih ? (flushPxY / ih) * 100 : 0;
-    const TH = 6; // snap threshold in % units
-    for (const t of [-flushX, 0, flushX]) {
-      if (Math.abs(x - t) <= TH) { x = Math.round(t); break; }
-    }
-    for (const t of [-flushY, 0, flushY]) {
-      if (Math.abs(y - t) <= TH) { y = Math.round(t); break; }
-    }
-    // Reflect the snapped value back into the sliders
+    if (nAR > fAR) { fitW = fw; fitH = fw / nAR; }
+    else           { fitH = fh; fitW = fh * nAR; }
+    // The largest crop (square is widest-spanning vertically; score widest horizontally)
+    // We snap to the art edges: max pan where crop edge hits art edge.
+    // Pan range as % of fitted art = (1 - 1/sc) * 50 each direction (approx, cover crop).
+    const lim = Math.max(0, (1 - 1/sc)) * 50;
+    const TH = 5;
+    for (const t of [-lim, 0, lim]) { if (Math.abs(x - t) <= TH) { x = Math.round(t); break; } }
+    for (const t of [-lim, 0, lim]) { if (Math.abs(y - t) <= TH) { y = Math.round(t); break; } }
     const slX = document.getElementById('ap-x'); if (slX) slX.value = x;
     const slY = document.getElementById('ap-y'); if (slY) slY.value = y;
   }
 
+  // Art is shown WHOLE and still (contain, centered). Frames move over it.
   if (img && _artPickerPosArt) {
     img.src = _artPickerPosArt;
     img.style.display = 'block';
     img.style.objectPosition  = 'center';
     img.style.transformOrigin = 'center';
-    img.style.transform       = `translate(${x}%,${y}%) scale(${sc})`;
+    img.style.transform       = 'none';
   }
+
+  // Position the crop-frames to show what each location captures.
+  if (img && bg && img.complete && img.naturalWidth) {
+    const fw = bg.clientWidth, fh = bg.clientHeight;
+    const nAR = img.naturalWidth / img.naturalHeight;
+    const fAR = fw / fh;
+    // Displayed (contain) art box within the preview
+    let dispW, dispH, dispL, dispT;
+    if (nAR > fAR) { dispW = fw; dispH = fw / nAR; }
+    else           { dispH = fh; dispW = fh * nAR; }
+    dispL = (fw - dispW) / 2; dispT = (fh - dispH) / 2;
+
+    const placeFrame = (el, cellAR) => {
+      if (!el) return;
+      // Crop window in art space: cover-fit the cell aspect into the art, then
+      // shrink by 1/sc (zoom). Fraction of art width/height the cell shows.
+      const artAR = nAR;
+      let cropWFrac, cropHFrac; // fraction of displayed art (0..1) before zoom
+      if (cellAR > artAR) { cropWFrac = 1; cropHFrac = artAR / cellAR; }
+      else                { cropHFrac = 1; cropWFrac = cellAR / artAR; }
+      // Apply zoom: higher sc = smaller crop window
+      cropWFrac /= sc; cropHFrac /= sc;
+      cropWFrac = Math.min(1, cropWFrac); cropHFrac = Math.min(1, cropHFrac);
+      const w = dispW * cropWFrac, h = dispH * cropHFrac;
+      // Center offset: translate % is relative to fitted art; max travel keeps frame inside art
+      const freeX = (dispW - w), freeY = (dispH - h);
+      // Frame center: stored translate(+x) moves art right in the cell, i.e. the
+      // cell shows the LEFT part of the art. So a +x crop sits left on the art —
+      // negate to map stored offset to frame position.
+      const cx = dispL + dispW/2 - (x/100) * (dispW/2);
+      const cy = dispT + dispH/2 - (y/100) * (dispH/2);
+      // Clamp frame within displayed art
+      let left = cx - w/2, top = cy - h/2;
+      left = Math.max(dispL, Math.min(dispL + dispW - w, left));
+      top  = Math.max(dispT, Math.min(dispT + dispH - h, top));
+      el.style.display = 'block';
+      el.style.left = left + 'px'; el.style.top = top + 'px';
+      el.style.width = w + 'px';   el.style.height = h + 'px';
+    };
+    placeFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR);
+    placeFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR);
+  }
+
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
   const sv = document.getElementById('ap-s-val');
@@ -3744,6 +3789,47 @@ function artPickerUpdatePos() {
   if (yv) yv.textContent = `${Math.round(y)}%`;
   if (sv) sv.textContent = `${sc.toFixed(2)}×`;
 }
+let _apDragBound = false;
+function artPickerBindDrag() {
+  if (_apDragBound) return;
+  const bg = document.getElementById('ap-pos-bg');
+  if (!bg) return;
+  _apDragBound = true;
+  let dragging = false, lastX = 0, lastY = 0;
+  const onDown = (e) => {
+    if (!_artPickerPosArt) return;
+    dragging = true; bg.style.cursor = 'grabbing';
+    const p = e.touches ? e.touches[0] : e;
+    lastX = p.clientX; lastY = p.clientY;
+    e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const p = e.touches ? e.touches[0] : e;
+    const dxPx = p.clientX - lastX, dyPx = p.clientY - lastY;
+    lastX = p.clientX; lastY = p.clientY;
+    const rect = bg.getBoundingClientRect();
+    // Convert px drag to % offset (relative to half the box, matching slider scale)
+    const dxPct = (dxPx / (rect.width/2)) * 100;
+    const dyPct = (dyPx / (rect.height/2)) * 100;
+    const slX = document.getElementById('ap-x');
+    const slY = document.getElementById('ap-y');
+    // Dragging right should move the crop frame right (capture right part of art),
+    // which corresponds to a NEGATIVE stored translate (art shifts left in cell).
+    if (slX) slX.value = Math.max(-100, Math.min(100, parseFloat(slX.value||0) - dxPct));
+    if (slY) slY.value = Math.max(-100, Math.min(100, parseFloat(slY.value||0) - dyPct));
+    artPickerUpdatePos();
+    e.preventDefault();
+  };
+  const onUp = () => { dragging = false; bg.style.cursor = 'grab'; };
+  bg.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  bg.addEventListener('touchstart', onDown, {passive:false});
+  window.addEventListener('touchmove', onMove, {passive:false});
+  window.addEventListener('touchend', onUp);
+}
+
 function artPickerResetPos() {
   const slX = document.getElementById('ap-x'); if (slX) slX.value = 0;
   const slY = document.getElementById('ap-y'); if (slY) slY.value = 0;
