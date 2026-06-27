@@ -289,6 +289,16 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .log-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .log-col-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:6px}
 .log-col-label.win-lbl{color:var(--green)}.log-col-label.loss-lbl{color:var(--red)}
+.setting-block.tint-purple{background:var(--purple-bg);border-left:3px solid var(--purple);padding-left:11px;border-radius:var(--radius-sm)}
+.setting-block.tint-purple .setting-name{color:var(--purple)}
+.setting-block.tint-red{background:var(--red-bg);border-left:3px solid var(--red);padding-left:11px;border-radius:var(--radius-sm)}
+.setting-block.tint-red .setting-name{color:var(--red)}
+.setting-block.tint-amber{background:var(--amber-bg);border-left:3px solid var(--amber);padding-left:11px;border-radius:var(--radius-sm)}
+.setting-block.tint-amber .setting-name{color:var(--amber)}
+.setting-block.tint-blue{background:var(--info-bg);border-left:3px solid var(--info);padding-left:11px;border-radius:var(--radius-sm)}
+.setting-block.tint-blue .setting-name{color:var(--info)}
+.log-col-label.sel-win-lbl,.log-col-label.sel-loss-lbl{color:var(--text3)}
+.log-adj-btn.selected-dim{color:var(--text3);border-color:var(--border-md);background:var(--surface);cursor:default;opacity:.7}
 .log-btn-row{display:flex;gap:16px;justify-content:center}
 .log-adj-btn{width:72px;height:48px;border-radius:var(--radius-sm);border:.5px solid var(--border-md);background:var(--surface);cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--text);transition:background .1s}
 .log-adj-btn:active{opacity:.7}
@@ -582,22 +592,22 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
     </div>
     <div class="settings-body">
       <div class="card">
-        <div class="setting-block">
+        <div class="setting-block tint-purple">
           <div class="setting-name">Pub stomper</div>
           <div class="setting-desc">At or above this % → pub stomper (purple)</div>
           <input type="number" class="setting-input" id="s-pubStompWin" min="0" max="100" step="1" oninput="saveSetting('pubStompWin',this.value)">
         </div>
-        <div class="setting-block">
+        <div class="setting-block tint-red">
           <div class="setting-name">Too strong</div>
           <div class="setting-desc">At or above this % → too strong (red) · below pub stomper</div>
           <input type="number" class="setting-input" id="s-maxWin" min="0" max="100" step="1" oninput="saveSetting('maxWin',this.value)">
         </div>
-        <div class="setting-block">
+        <div class="setting-block tint-amber">
           <div class="setting-name">Strong win rate</div>
           <div class="setting-desc">At or above this % → strong (amber)</div>
           <input type="number" class="setting-input" id="s-strongWin" min="0" max="100" step="1" oninput="saveSetting('strongWin',this.value)">
         </div>
-        <div class="setting-block">
+        <div class="setting-block tint-blue">
           <div class="setting-name">Fall behind</div>
           <div class="setting-desc">At or below this % → underperforming (blue)</div>
           <input type="number" class="setting-input" id="s-fallBehind" min="0" max="100" step="0.5" oninput="saveSetting('fallBehind',this.value)">
@@ -606,6 +616,15 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
           <div class="setting-name">Threshold</div>
           <div class="setting-desc">Min games before colour applies (grey below)</div>
           <input type="number" class="setting-input" id="s-threshold" min="0" max="100" step="1" oninput="saveSetting('threshold',this.value)">
+        </div>
+        <div class="setting-block" style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="setting-name">Rivals open by default</div>
+            <div class="setting-desc">Expand the Rivals section automatically on each deck in the Score tab</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0">
+            <input type="checkbox" id="s-rivalsOpenByDefault" onchange="saveStrSetting('rivalsOpenByDefault',this.checked);renderScore()" style="accent-color:var(--blue);width:15px;height:15px;cursor:pointer">
+          </label>
         </div>
         <div style="margin-top:12px">
           <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Current colour bands</div>
@@ -900,8 +919,8 @@ function colorManaHtml(colorLabel) {
 // ============================================================
 const INITIAL_DATA = {
   settings: {
-    maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:30, pubStompWin:60,
-    cardSeller:'cardmarket', artPref:'oldest', showEditor:false, issueLimit:10
+    maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:500, pubStompWin:60,
+    cardSeller:'cardmarket', artPref:'oldest', showEditor:false, issueLimit:10, rivalsOpenByDefault:false
   },
   colorDecks: [],
   scores: {},
@@ -1966,6 +1985,12 @@ async function _doFetchMissingArt(missing) {
 // ============================================================
 // NAVIGATION
 // ============================================================
+// Navigate to a page by id by finding & clicking its nav button.
+function gotoPage(id) {
+  const btn = [...document.querySelectorAll('.nav-btn')].find(b => (b.getAttribute('onclick')||'').includes(`'${id}'`));
+  if (btn) btn.click();
+}
+
 function showPage(id, btn) {
   // Close any lingering autocomplete dropdowns
   document.querySelectorAll('.ac-dropdown').forEach(dd=>{ dd.innerHTML=''; dd.style.display='none'; });
@@ -2107,21 +2132,44 @@ function renderScore() {
         </button>
       </div>
       <div class="deck-expand" id="${eid}">
-        <div class="log-cols">
-          <div>
-            <div class="log-col-label win-lbl">Wins</div>
-            <div class="log-btn-row">
-              <button class="log-adj-btn plus-win" title="Add a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button>
-              <button class="log-adj-btn minus-win" title="Remove a win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button>
-            </div>
-          </div>
-          <div>
-            <div class="log-col-label loss-lbl">Losses</div>
-            <div class="log-btn-row">
-              <button class="log-adj-btn plus-loss" title="Add a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button>
-              <button class="log-adj-btn minus-loss" title="Remove a loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button>
-            </div>
-          </div>
+        <div class="log-cols" id="logcols-${sn}">
+          ${(() => {
+            const p = pending[sn] || {wins:0, losses:0};
+            const hasWin = p.wins > 0, hasLoss = p.losses > 0;
+            // One outcome per deck per submit.
+            if (hasWin) {
+              return `
+                <div>
+                  <div class="log-col-label sel-win-lbl">Win</div>
+                  <div class="log-btn-row"><button class="log-adj-btn plus-win selected-dim" disabled>+1</button></div>
+                </div>
+                <div>
+                  <div class="log-col-label" style="color:var(--text2)">Remove</div>
+                  <div class="log-btn-row"><button class="log-adj-btn minus-win" title="Remove this win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button></div>
+                </div>`;
+            }
+            if (hasLoss) {
+              return `
+                <div>
+                  <div class="log-col-label sel-loss-lbl">Loss</div>
+                  <div class="log-btn-row"><button class="log-adj-btn plus-loss selected-dim" disabled>+1</button></div>
+                </div>
+                <div>
+                  <div class="log-col-label" style="color:var(--text2)">Remove</div>
+                  <div class="log-btn-row"><button class="log-adj-btn minus-loss" title="Remove this loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button></div>
+                </div>`;
+            }
+            // Nothing selected: just the two +1 buttons.
+            return `
+              <div>
+                <div class="log-col-label win-lbl">Win</div>
+                <div class="log-btn-row"><button class="log-adj-btn plus-win" title="Record a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button></div>
+              </div>
+              <div>
+                <div class="log-col-label loss-lbl">Loss</div>
+                <div class="log-btn-row"><button class="log-adj-btn plus-loss" title="Record a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button></div>
+              </div>`;
+          })()}
         </div>
         <div class="log-pending-preview" id="${pid}"></div>
         <!-- Issues tracking -->
@@ -2155,8 +2203,12 @@ function renderScore() {
             <i class="ti ti-users" style="font-size:12px"></i> Rivals
             <i class="ti ti-chevron-down" style="font-size:11px"></i>
           </button>
-          <div class="opp-grid" id="og-${eid}">
-            ${[0,1,2].map(i=>`
+          <div class="opp-grid${(cfg().rivalsOpenByDefault===true||cfg().rivalsOpenByDefault==='true')?' open':''}" id="og-${eid}">
+            ${(data.opponents||[]).length === 0
+              ? `<div style="padding:10px 12px;font-size:12px;color:var(--text2);background:var(--surface);border:.5px dashed var(--border-md);border-radius:var(--radius-sm);line-height:1.4">
+                   No rivals set yet. Add players and their decks in the <button onclick="gotoPage('rivals')" style="background:none;border:none;color:var(--blue);cursor:pointer;padding:0;font:inherit;text-decoration:underline">Rivals</button> tab to track who you play against.
+                 </div>`
+              : [0,1,2].map(i=>`
             <div class="opp-slot" id="os-${eid}-${i}">
               <select id="opp-player-${eid}-${i}" onchange="onOppPlayerChange('${eid}','${sn}',${i})" style="flex:1">
                 <option value="">— Player —</option>
@@ -2250,34 +2302,75 @@ function toggleDeckExpand(eid) {
 function adjustPending(evt, name, type, delta) {
   evt.stopPropagation();
   if (!pending[name]) pending[name] = {wins:0, losses:0};
-  // If issues are tagged for this deck, cap at 1 total game
-  const ci = pendingIssues[name] || {};
-  if (Object.keys(ci).length > 0 && delta > 0) {
-    const cur = pending[name];
-    if ((cur.wins + cur.losses) >= 1) {
-      showToast('⚠ Issues tagged — limit 1 game per submission');
+  const cur = pending[name];
+  // One outcome per deck per submit: adding is only allowed when nothing is set.
+  if (delta > 0) {
+    if (cur.wins > 0 || cur.losses > 0) {
+      showToast('One result per deck — remove the current one first');
       return;
     }
-  }
-  if (type==='Win') {
-    pending[name].wins = Math.max(0, pending[name].wins + delta);
+    if (type === 'Win') cur.wins = 1; else cur.losses = 1;
   } else {
-    pending[name].losses = Math.max(0, pending[name].losses + delta);
+    // Remove
+    if (type === 'Win') cur.wins = 0; else cur.losses = 0;
   }
-  if (pending[name].wins===0 && pending[name].losses===0) delete pending[name];
+  if (cur.wins === 0 && cur.losses === 0) delete pending[name];
   renderPendingBar();
+  // Re-render this deck's log buttons (layout changes between states)
+  renderScoreLogButtons(name);
   // Update preview under this deck
-  const key = scryfallKey(name);
-  // name may be a UUID (preferred) or a display name; try UUID-direct first
-  const prev = document.getElementById('prev-'+name) || document.getElementById('prev-'+key);
+  const prev = document.getElementById('prev-'+name) || document.getElementById('prev-'+scryfallKey(name));
   if (prev) {
     const p = pending[name];
-    if (!p) { prev.textContent=''; return; }
-    const parts=[];
-    if(p.wins>0)   parts.push(`+${p.wins} Win${p.wins>1?'s':''}`);
-    if(p.losses>0) parts.push(`+${p.losses} Loss${p.losses>1?'es':''}`);
-    prev.textContent = parts.join(' · ');
+    if (!p) { prev.textContent=''; }
+    else {
+      const parts=[];
+      if(p.wins>0)   parts.push('+1 Win');
+      if(p.losses>0) parts.push('+1 Loss');
+      prev.textContent = parts.join(' · ');
+    }
   }
+}
+
+// Re-render just one deck's Win/Loss button column after a state change.
+function renderScoreLogButtons(sn) {
+  const cols = document.getElementById('logcols-'+sn);
+  if (!cols) return;
+  const p = pending[sn] || {wins:0, losses:0};
+  const hasWin = p.wins > 0, hasLoss = p.losses > 0;
+  let html;
+  if (hasWin) {
+    html = `
+      <div>
+        <div class="log-col-label sel-win-lbl">Win</div>
+        <div class="log-btn-row"><button class="log-adj-btn plus-win selected-dim" disabled>+1</button></div>
+      </div>
+      <div>
+        <div class="log-col-label" style="color:var(--text2)">Remove</div>
+        <div class="log-btn-row"><button class="log-adj-btn minus-win" title="Remove this win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button></div>
+      </div>`;
+  } else if (hasLoss) {
+    html = `
+      <div>
+        <div class="log-col-label sel-loss-lbl">Loss</div>
+        <div class="log-btn-row"><button class="log-adj-btn plus-loss selected-dim" disabled>+1</button></div>
+      </div>
+      <div>
+        <div class="log-col-label" style="color:var(--text2)">Remove</div>
+        <div class="log-btn-row"><button class="log-adj-btn minus-loss" title="Remove this loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button></div>
+      </div>`;
+  } else {
+    html = `
+      <div>
+        <div class="log-col-label win-lbl">Win</div>
+        <div class="log-btn-row"><button class="log-adj-btn plus-win" title="Record a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button></div>
+      </div>
+      <div>
+        <div class="log-col-label loss-lbl">Loss</div>
+        <div class="log-btn-row"><button class="log-adj-btn plus-loss" title="Record a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button></div>
+      </div>`;
+  }
+  cols.innerHTML = html;
 }
 
 function renderPendingBar() {
@@ -4454,6 +4547,8 @@ function renderSettings() {
   document.getElementById('s-historyLimit').value= s.historyLimit||500;
   const showEditorEl = document.getElementById('s-showEditor');
   if (showEditorEl) showEditorEl.checked = s.showEditor===true||s.showEditor==='true';
+  const rivalsOpenEl = document.getElementById('s-rivalsOpenByDefault');
+  if (rivalsOpenEl) rivalsOpenEl.checked = s.rivalsOpenByDefault===true||s.rivalsOpenByDefault==='true';
   const issueLimEl = document.getElementById('s-issueLimit');
   if (issueLimEl) issueLimEl.value = s.issueLimit||10;
   const sellerEl = document.getElementById('s-cardSeller');
