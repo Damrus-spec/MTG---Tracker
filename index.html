@@ -173,6 +173,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .w-card-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .w-buy{background:var(--blue)}.w-considering{background:var(--amber)}.w-owned{background:var(--green)}
 .w-card-name{flex:1;font-size:13px;align-self:center;padding:0 0 0 10px}
+.want-card-row.want-dragging{opacity:.4}
+.want-card-row.want-drop-target{border-top:2px solid var(--blue)}
 .w-card-out{font-size:11px;color:var(--red);max-width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-no-out{font-size:10px;color:var(--text3);font-style:italic}
 .w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px}
@@ -224,6 +226,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .setting-name{font-size:14px;font-weight:500;margin-bottom:2px}
 .setting-desc{font-size:12px;color:var(--text2);margin-bottom:6px}
 .setting-input{width:100%;margin:0;font-size:15px;font-weight:500;padding:8px 11px}
+input.setting-input[type="number"]{width:90px}
 .wr-legend{display:grid;gap:5px;margin-top:10px}
 .wr-legend-row{display:flex;align-items:center;gap:9px;font-size:12px;padding:5px 9px;border-radius:var(--radius-sm)}
 .wr-legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
@@ -430,7 +433,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 
   <!-- Sticky: graph + sort pills -->
   <div id="score-sticky" style="position:sticky;top:78px;z-index:15;background:var(--bg);margin:0 -12px;padding:4px 12px 4px">
-    <!-- WIN RATE GRAPH — collapsible, hidden when pending -->
+    <!-- WIN RATE GRAPH — collapsible, stays visible during pending -->
     <div id="graph-card" class="card" style="margin-bottom:8px;padding:0;overflow:hidden">
       <div onclick="toggleGraph()" style="display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer">
         <div style="font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;flex:1">Win rate over time</div>
@@ -625,10 +628,6 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0">
             <input type="checkbox" id="s-rivalsOpenByDefault" onchange="saveStrSetting('rivalsOpenByDefault',this.checked);renderScore()" style="accent-color:var(--blue);width:15px;height:15px;cursor:pointer">
           </label>
-        </div>
-        <div style="margin-top:12px">
-          <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Current colour bands</div>
-          <div class="wr-legend" id="wr-legend"></div>
         </div>
       </div>
     </div>
@@ -2378,10 +2377,8 @@ function renderPendingBar() {
   if (!bar) return;
   const entries = Object.entries(pending).filter(([,v])=>v.wins>0||v.losses>0);
   const hasPending = entries.length > 0;
-  // Swap: hide graph card, show pending bar in its place (both inside score-sticky)
-  const graphCard  = document.getElementById('graph-card');
+  // Only hide the stat-grid summary when pending exists; keep the graph visible.
   const statGrid   = document.querySelector('.stat-grid');
-  if (graphCard) graphCard.style.display = hasPending ? 'none' : '';
   if (statGrid)  statGrid.style.display  = hasPending ? 'none' : '';
   if (!hasPending) { bar.style.display='none'; return; }
   bar.style.display='';
@@ -3150,6 +3147,47 @@ function renderDeckWants() {
   }, 0);
 }
 
+// ── Drag-to-reorder wants within a deck ──
+let _wantDrag = null; // { uuid, idx }
+function wantDragStart(e, uuid, idx) {
+  _wantDrag = { uuid, idx };
+  window._wantJustDragged = true;
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); } catch(_){}
+  const row = e.target.closest('.want-card-row');
+  if (row) setTimeout(()=>row.classList.add('want-dragging'), 0);
+}
+function wantDragOver(e) {
+  if (!_wantDrag) return;
+  const row = e.target.closest('.want-card-row');
+  if (!row || row.dataset.wdeck !== _wantDrag.uuid) return; // only reorder within same deck
+  e.preventDefault();
+  try { e.dataTransfer.dropEffect = 'move'; } catch(_){}
+  document.querySelectorAll('.want-drop-target').forEach(el=>el.classList.remove('want-drop-target'));
+  row.classList.add('want-drop-target');
+}
+function wantDrop(e) {
+  if (!_wantDrag) return;
+  const row = e.target.closest('.want-card-row');
+  if (!row || row.dataset.wdeck !== _wantDrag.uuid) return;
+  e.preventDefault();
+  const fromIdx = _wantDrag.idx;
+  const toIdx   = parseInt(row.dataset.widx);
+  const arr = data.deckWants[_wantDrag.uuid];
+  if (arr && fromIdx !== toIdx && arr[fromIdx] !== undefined) {
+    const [moved] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, moved);
+    scheduleSync();
+    renderDeckWants();
+  }
+  _wantDrag = null;
+}
+function wantDragEnd(e) {
+  _wantDrag = null;
+  document.querySelectorAll('.want-drop-target').forEach(el=>el.classList.remove('want-drop-target'));
+  document.querySelectorAll('.want-dragging').forEach(el=>el.classList.remove('want-dragging'));
+  setTimeout(()=>{ window._wantJustDragged = false; }, 50);
+}
+
 function renderDeckWantsSection(uuid, deck, dw, group) {
   const entries = (dw||{})[uuid]||[];
   const isOpen = deckSectionOpen[uuid]===true;
@@ -3186,12 +3224,17 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
             confirmBtn = `<button class="w-confirm" disabled title="${e.out} not found in stored decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--red);border-radius:4px;color:var(--red);cursor:not-allowed;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center;opacity:.6"><i class="ti ti-check"></i></button>`;
           }
         }
-        rows.push(`<div class="want-card-row">
+        rows.push(`<div class="want-card-row" draggable="false" data-wdeck="${uuid}" data-widx="${idx}"
+            ondragover="wantDragOver(event)" ondrop="wantDrop(event)" ondragend="wantDragEnd(event)">
           ${confirmBtn}
           <div class="w-card-art${artUrl?'':' loading'}" data-art="${scryfallKey(e.in)}">
             ${artUrl?`<img src="${artUrl}" alt="${e.in}" loading="lazy">`:''}
           </div>
-          <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none">${e.in}</a>
+          <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none;cursor:grab"
+             title="Drag to reorder"
+             draggable="true"
+             ondragstart="wantDragStart(event,'${uuid}',${idx})"
+             onclick="if(window._wantJustDragged){window._wantJustDragged=false;event.preventDefault();}">${e.in}</a>
           <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;padding-right:6px">
             <input type="text"
               id="wout-${uuid}-${idx}"
@@ -4558,6 +4601,8 @@ function renderSettings() {
   renderSettingsLegend();
 }
 function renderSettingsLegend() {
+  const legendEl = document.getElementById('wr-legend');
+  if (!legendEl) return; // legend removed from UI
   const s=cfg();
   const bands=[
     {label:`≥ ${s.pubStompWin||60}% — pub stomper`,  color:'var(--purple)', bg:'var(--purple-bg)'},
@@ -4567,7 +4612,7 @@ function renderSettingsLegend() {
     {label:`≤ ${s.fallBehind}% — falling behind`,color:'var(--info)', bg:'var(--info-bg)'},
     {label:`< ${s.threshold} games — not enough data`,color:'var(--text3)',bg:'var(--bg)'}
   ];
-  document.getElementById('wr-legend').innerHTML=bands.map(b=>`
+  legendEl.innerHTML=bands.map(b=>`
     <div class="wr-legend-row" style="background:${b.bg}">
       <div class="wr-legend-dot" style="background:${b.color}"></div>
       <span style="color:${b.color};font-weight:500">${b.label}</span>
@@ -4773,8 +4818,10 @@ function wdlSave(uuid) {
   if (!data.deckLists) data.deckLists = {};
   data.deckLists[uuid] = {
     url:  urlEl ? urlEl.value.trim() : '',
-    list: taEl  ? taEl.value.trim()  : ''
+    list: taEl  ? scrubCardList(taEl.value)  : ''
   };
+  // Reflect the cleaned version back into the textarea
+  if (taEl) taEl.value = data.deckLists[uuid].list;
   wdlUpdateMeta(uuid);
   scheduleSync();
   const btn = document.getElementById('wdl-save-'+uuid);
