@@ -3045,7 +3045,7 @@ function renderDeckWants() {
         const deckEntry = data.deckLists && data.deckLists[deckUuid];
         if (deckEntry && deckEntry.list) {
           // Parse card names from stored decklist
-          const deckCards = deckEntry.list.split('\n').map(l => l.trim().replace(/^\d+\s+/, '')).filter(Boolean);
+          const deckCards = deckEntry.list.replace(/\\n/g,'\n').split('\n').map(l => l.trim().replace(/^\d+\s+/, '')).filter(Boolean);
           acLocalLists[el.id] = deckCards;
         }
         initAC(el.id, null);
@@ -3081,7 +3081,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       ${(()=>{ const rows=[]; for(let idx=0;idx<entries.length;idx++){ const e=entries[idx];
         const artUrl=artCache[scryfallKey(e.in)]||'';
         const hasList = !!(data.deckLists&&data.deckLists[uuid]&&data.deckLists[uuid].list);
-        const deckCards = hasList ? (data.deckLists[uuid].list||'').split('\n').map(l=>l.trim().replace(/^\d+\s+/,'').toLowerCase()) : [];
+        const deckCards = hasList ? (data.deckLists[uuid].list||'').replace(/\\n/g,'\n').split('\n').map(l=>l.trim().replace(/^\d+\s+/,'').toLowerCase()) : [];
         const outInDeck = e.out && deckCards.includes(e.out.trim().toLowerCase());
         const statusLabel = e.inStatus === 'considering' ? 'maybe' : e.inStatus;
         // Checkmark state: green+enabled if out card found in deck, red+disabled if not found, hidden if no list
@@ -3244,8 +3244,9 @@ function processWantReplacement(uuid, idx) {
   const cardIn  = entry.in.trim();
   const cardOut = entry.out.trim();
 
-  // Parse lines, remove one copy of cardOut, append cardIn
-  let lines = deckEntry.list.split('\n').map(l => l.trim()).filter(Boolean);
+  // Parse lines, remove one copy of cardOut, append cardIn.
+  // Tolerate older lists stored with literal "\n" (prior bug) by normalizing first.
+  let lines = deckEntry.list.replace(/\\n/g, '\n').split('\n').map(l => l.trim()).filter(Boolean);
   let removed = false;
   lines = lines.reduce((acc, l) => {
     if (!removed) {
@@ -3262,7 +3263,9 @@ function processWantReplacement(uuid, idx) {
     return acc;
   }, []);
   lines.push('1 ' + cardIn);
-  data.deckLists[uuid].list = lines.join('\\n');
+  // Use a REAL newline (was '\\n', which stored literal backslash-n) and run the
+  // result through the canonical scrubber so the stored list stays clean.
+  data.deckLists[uuid].list = scrubCardList(lines.join('\n'));
 
   // Remove the want entry
   data.deckWants[uuid].splice(idx, 1);
@@ -3322,13 +3325,10 @@ function submitBulkImport(deck, key) {
     if (!line) continue;
     // Stop at SIDEBOARD, COMMANDER, COMPANION sections
     if (/^(SIDEBOARD|COMMANDER|COMPANION|MAYBEBOARD|LAND|INSTANTS?|SORCERIES|CREATURES?|ENCHANTMENTS?|ARTIFACTS?|PLANESWALKERS?)\s*:?\s*$/i.test(line)) break;
-    // Skip lines that look like section headers with no card content
-    if (/^\/\//.test(line)) continue;
-
-    // Parse: optional quantity + card name (ignore set/collector info in parentheses/brackets)
-    const match = line.match(/^(?:(?:SB|MB):\s*)?(\d+)?\s*(.+?)(?:\s*[\(\[].+)?$/);
-    if (!match) continue;
-    const name = match[2].trim();
+    // Scrub the line to "count name", then take just the name for the want list
+    const scrubbed = scrubCardLine(line);
+    if (!scrubbed) continue;
+    const name = scrubbed.replace(/^\d+\s+/, '').trim();
     if (!name) continue;
     cards.push(name);
   }
@@ -4625,11 +4625,11 @@ function closeIssuePanel() {
 // ============================================================
 function decklistCardCount(uuid) {
   const list = ((data.deckLists||{})[uuid]||{}).list||'';
-  const n = list.split('\n').reduce((s,l)=>{const m=l.trim().match(/^(\d+)\s+/);return s+(m?parseInt(m[1]):(l.trim()?1:0));},0);
+  const n = (list||'').replace(/\\n/g,'\n').split('\n').reduce((s,l)=>{const m=l.trim().match(/^(\d+)\s+/);return s+(m?parseInt(m[1]):(l.trim()?1:0));},0);
   return n ? n+' cards stored' : '';
 }
 function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; }
-function wdlGetList(uuid) { return ((data.deckLists||{})[uuid]||{}).list || ''; }
+function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '').replace(/\\n/g, '\n'); }
 
 function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
@@ -4664,7 +4664,7 @@ function wdlUpdateMeta(uuid) {
   const metaEl  = document.getElementById('wdl-meta-'+uuid);
   const pushBtn = document.getElementById('wdl-push-'+uuid);
   const entry   = (data.deckLists||{})[uuid] || {};
-  const total   = (entry.list||'').split('\n').reduce((sum, l) => {
+  const total   = (entry.list||'').replace(/\\n/g,'\n').split('\n').reduce((sum, l) => {
     const m = l.trim().match(/^(\d+)\s+/);
     return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
   }, 0);
@@ -4733,7 +4733,7 @@ function updateDecklistMeta(eid, uuid) {
   const metaEl = document.getElementById('dl-meta-'+eid);
   const pushBtn = document.getElementById('dl-push-'+eid);
   const entry = (data.deckLists||{})[uuid] || {};
-  const total = (entry.list||'').split('\n').reduce((sum, l) => {
+  const total = (entry.list||'').replace(/\\n/g,'\n').split('\n').reduce((sum, l) => {
     const m = l.trim().match(/^(\d+)\s+/);
     return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
   }, 0);
@@ -4753,6 +4753,48 @@ function decklistTextareaChanged(uuid, eid) {
   decklistUrlChanged(uuid, eid); // same live enable/disable logic
 }
 
+// Normalize a single deck-export line down to "<count> <name>".
+// Handles Moxfield/MTGO/Archidekt style: set codes (XXX), collector numbers
+// (incl. FRF-20, 258★), foil/special markers (★ *F*), and #!Category tags.
+// Split/MDFC "A / B" keeps the front face. Returns '' for blank/section lines.
+function scrubCardLine(raw) {
+  let line = (raw||'').trim();
+  if (!line) return '';
+  // Drop comment/section markers
+  if (/^\/\//.test(line)) return '';
+  if (/^(SIDEBOARD|COMMANDER|COMPANION|MAYBEBOARD|DECK|ABOUT)\s*:?\s*$/i.test(line)) return '';
+  // 1) Strip category tags: everything from the first "#!" (or lone "#") onward
+  line = line.replace(/\s+#!.*$/,'').replace(/\s+#\S.*$/,'');
+  // 2) Leading "SB:"/"MB:" prefixes
+  line = line.replace(/^(?:SB|MB):\s*/i,'');
+  // 3) Capture optional count + the rest
+  const m = line.match(/^(\d+)?\s*(.+)$/);
+  if (!m) return '';
+  const count = m[1] ? m[1] : '1';
+  let name = m[2].trim();
+  // 4) Strip set/collector segment: "(SET) NUM" possibly with markers, to end.
+  //    e.g. "(C15) 60", "(PJOU) 122★ *F*", "(PLST) FRF-20"
+  name = name.replace(/\s*[\(\[][A-Za-z0-9]{2,6}[\)\]]\s*\S*.*$/,'').trim();
+  // 5) Strip any trailing foil/special markers if no set code was present
+  name = name.replace(/\s*(?:★|\*[A-Za-z]\*)+\s*$/,'').trim();
+  // 6) Split/MDFC: keep the front face
+  if (name.includes(' / ')) name = name.split(' / ')[0].trim();
+  if (!name) return '';
+  return `${count} ${name}`;
+}
+
+// Scrub a whole pasted list into clean "count name" lines.
+// Also splits on literal "\n" sequences in case older data was stored with
+// escaped newlines (a prior bug), so mangled lists self-heal on next save.
+function scrubCardList(text) {
+  return (text||'')
+    .replace(/\\n/g, '\n')
+    .split('\n')
+    .map(scrubCardLine)
+    .filter(Boolean)
+    .join('\n');
+}
+
 function saveDecklistData(uuid, eid) {
   if (!uuid) return;
   const urlEl = document.getElementById('dl-url-'+eid);
@@ -4760,8 +4802,10 @@ function saveDecklistData(uuid, eid) {
   if (!data.deckLists) data.deckLists = {};
   data.deckLists[uuid] = {
     url:  (urlEl ? urlEl.value.trim() : ''),
-    list: (taEl  ? taEl.value.trim()  : '')
+    list: (taEl  ? scrubCardList(taEl.value)  : '')
   };
+  // Reflect the scrubbed version back into the textarea so the user sees it
+  if (taEl) taEl.value = data.deckLists[uuid].list;
   updateDecklistMeta(eid, uuid);
   scheduleSync();
   // Brief visual feedback on save button
