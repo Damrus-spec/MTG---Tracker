@@ -756,7 +756,7 @@ input.setting-input[type="number"]{width:90px}
     <table id="editor-table" style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
       <thead>
         <tr style="border-bottom:.5px solid var(--border-md)">
-          <th style="width:32px;padding:8px 6px;text-align:right;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
+          <th style="width:46px;padding:8px 6px;text-align:right;font-weight:500;color:var(--text2);white-space:nowrap">#</th>
           <th style="width:52px;padding:0;font-weight:500;color:var(--text2)"></th>
           <th style="padding:8px 8px;text-align:left;font-weight:500;color:var(--text2)">Deck</th>
           <th style="width:108px;padding:8px 0;text-align:center;font-weight:500;color:var(--text2)">Date</th>
@@ -4611,7 +4611,7 @@ function renderEditor() {
 
   tbody.innerHTML = indexed.map(({h,i})=>`
     <tr class="editor-row" data-idx="${i}">
-      <td style="color:var(--text3);padding-left:12px;white-space:nowrap">#${rankByIdx[i]}</td>
+      <td style="color:var(--text3);padding:0 6px;text-align:right;white-space:nowrap;font-size:11px">#${rankByIdx[i]}</td>
       <td style="padding:0">${(()=>{
         const cmdName=(h.deck||'').split(' // ')[0].trim();
         const k=scryfallKey(cmdName);
