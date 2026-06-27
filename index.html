@@ -69,7 +69,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .deck-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:68px}
 .deck-row:last-child{border-bottom:none}
 .deck-art{position:relative;width:80px;height:68px;flex-shrink:0;overflow:hidden;background:var(--bg)}
-.deck-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
+.deck-art img{position:absolute;inset:0;width:100%;height:100%;display:block}
 .deck-art-overlay{display:none}
 .deck-rate{display:none}
 .deck-rate-bar{display:none}
@@ -109,7 +109,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:52px;margin:0}
 .h-row:last-child{border-bottom:none}
 .h-art{width:52px;height:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
-.h-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
+.h-art img{position:absolute;inset:0;width:100%;height:100%}
 .h-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .h-num{font-size:11px;color:var(--text3);flex-shrink:0;width:32px;text-align:right;padding:0 6px 0 6px}
 .h-main{flex:1;min-width:0;padding:0 8px}
@@ -152,7 +152,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-section{margin-bottom:12px}
 .deck-sec-header{display:flex;align-items:stretch;gap:0;padding:0;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:0;overflow:hidden;min-height:48px}
 .deck-sec-art{width:60px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
-.deck-sec-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
+.deck-sec-art img{position:absolute;inset:0;width:100%;height:100%}
 .deck-sec-name{flex:1;font-size:13px;font-weight:500;align-self:center;padding-left:10px}
 .deck-sec-count{font-size:11px;color:var(--text2);align-self:center;padding:0 8px}
 .deck-buylist-toggle{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);flex-shrink:0;cursor:pointer;padding:2px 4px;border-radius:4px;-webkit-tap-highlight-color:transparent}
@@ -337,7 +337,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .editor-input.num-input::-webkit-inner-spin-button,.editor-input.num-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .editor-input.num-input{-moz-appearance:textfield}
 .editor-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
-.editor-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
+.editor-art img{position:absolute;inset:0;width:100%;height:100%}
 .editor-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .editor-select{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:0 2px;font-family:inherit;cursor:pointer;width:100%;text-align:center;height:28px;box-sizing:border-box}
 .editor-select:focus{outline:none;border-color:var(--blue)}
@@ -774,7 +774,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
            Container is portrait (matches deck art column width:height ratio ~110:100).
            The white frame shows the exact crop that will appear in the deck list. -->
       <div style="position:relative;width:100%;padding-bottom:83%;overflow:hidden;border-radius:6px;background:var(--bg)" id="ap-pos-bg">
-        <img id="ap-pos-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;transform-origin:center">
+        <img id="ap-pos-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center">
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
@@ -797,7 +797,14 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         </div>
         <input id="ap-s" type="range" min="100" max="250" value="100" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
-      <button title="Apply crop position and zoom to this deck" onclick="artPickerSavePos()" class="submit-btn" style="padding:10px;margin-top:4px">Save position</button>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2);cursor:pointer;margin-top:2px" title="When dragging near a frame edge, snap the art flush to it">
+        <input id="ap-snap" type="checkbox" onchange="artPickerUpdatePos()" style="accent-color:var(--blue);width:13px;height:13px;margin:0;cursor:pointer">
+        Snap to edges
+      </label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button title="Reset position, zoom and snap to default" onclick="artPickerResetPos()" style="flex:0 0 auto;padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px">Reset position</button>
+        <button title="Apply crop position and zoom to this deck" onclick="artPickerSavePos()" class="submit-btn" style="flex:1;padding:10px">Save position</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1103,21 +1110,24 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   // Position string is "tx% ty%" = translate offsets (free pan, both axes).
   // Default "50% 0%" from legacy data is treated as neutral: tx is normalized
   // so legacy 50 -> 0 offset (see posToTranslate), ty already defaults to 0.
-  const imgStyle = (pos, sc) => {
+  const imgStyle = (pos, sc, fit) => {
     const [tx, ty] = posToTranslate(pos);
-    return `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;transform:translate(${tx}%,${ty}%) scale(${sc});transform-origin:center`;
+    return `position:absolute;inset:0;width:100%;height:100%;object-fit:${fit||'cover'};object-position:center;transform:translate(${tx}%,${ty}%) scale(${sc});transform-origin:center`;
   };
   if (a && b) {
+    // Split/partner art: keep cover — each diagonal wedge is an intentional crop,
+    // contain would leave each half tiny inside its slanted slice.
     return `
       <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
-        <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
+        <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa,'cover')}">
       </div>
       <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
-        <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)}">
+        <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb,'cover')}">
       </div>
       <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
-  return `<img src="${a||b}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">`;
+  // Single art: contain — show the whole painting, letterboxed in the cell bg.
+  return `<img src="${a||b}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa,'contain')}">`;
 }
 
 // Look up artFlipped for a deck by UUID or display name
@@ -1781,6 +1791,10 @@ function injectArt(key, url, name) {
     if (el.dataset.rerender==='rivals')  { renderRivals();  return; }
     if (!el.querySelector('img')) {
       const img=document.createElement('img'); img.src=url; img.alt=name||''; img.loading='lazy';
+      // Match the fit used by the full render: deck-art contexts show whole art
+      // (contain); trade/buy card thumbnails fill (cover).
+      const tradeCard = el.classList.contains('buy-item-art') || el.classList.contains('w-card-art');
+      img.style.cssText = `position:absolute;inset:0;width:100%;height:100%;object-fit:${tradeCard?'cover':'contain'};object-position:center${tradeCard?' top':''}`;
       el.insertBefore(img, el.firstChild);
     }
   });
@@ -3603,6 +3617,8 @@ let _artPickerPosArt   = null;  // current art URL for reposition preview
 let _artPickerPosX     = 50;
 let _artPickerPosY     = 0;
 let _artPickerPosScale = 1;
+let _artPickerPosSnap  = false;
+let _artPickerReturnIdx = null; // deck idx to return to its slot-chooser on X, or null
 // Actual display dimensions (px) for the frame overlay
 const ART_FRAME_W = 150; // deck-mgr-art width
 const ART_FRAME_H = 110; // approx full row height (art fills stretch)
@@ -3664,16 +3680,55 @@ function artPickerInitPos() {
   // Direct mapping: slider value IS the translate offset (no inversion)
   if (slX) slX.value = _artPickerPosX;
   if (slY) slY.value = _artPickerPosY;
+  const snapEl = document.getElementById('ap-snap');
+  if (snapEl) snapEl.checked = !!_artPickerPosSnap;
   const slS = document.getElementById('ap-s');
   if (slS) slS.value = Math.round((_artPickerPosScale || 1) * 100);
   artPickerUpdatePos();
 }
 
 function artPickerUpdatePos() {
-  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
-  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  let x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
+  let y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
   const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  const snap = !!document.getElementById('ap-snap')?.checked;
   const img = document.getElementById('ap-pos-img');
+  const bg  = document.getElementById('ap-pos-bg');
+
+  if (snap && img && bg && img.complete && img.naturalWidth) {
+    // Compute the translate % at which each image edge goes flush with the frame.
+    // Preview uses object-fit:contain, so before scale the image is FITTED inside
+    // the frame (touches the constraining axis, gaps on the other). After scale,
+    // the rendered size is fitted*sc. The flush offset on an axis is the distance
+    // its edge can travel to meet the frame edge = |rendered - frame| / 2.
+    const fw = bg.clientWidth, fh = bg.clientHeight;       // frame size
+    const iw = img.clientWidth, ih = img.clientHeight;     // img layout box (== frame)
+    const nAR = img.naturalWidth / img.naturalHeight;      // image aspect
+    const fAR = fw / fh;                                    // frame aspect
+    // Contain (fitted) size before scale
+    let fitW, fitH;
+    if (nAR > fAR) { fitW = fw; fitH = fw / nAR; }          // wide: fits width
+    else           { fitH = fh; fitW = fh * nAR; }          // tall: fits height
+    fitW *= sc; fitH *= sc;
+    // Distance each edge can travel to go flush (px), half to each side.
+    // Math.abs handles both underflow (image smaller) and overflow (image larger).
+    const flushPxX = Math.abs(fitW - fw) / 2;
+    const flushPxY = Math.abs(fitH - fh) / 2;
+    // translate % is relative to the image layout box (iw/ih)
+    const flushX = iw ? (flushPxX / iw) * 100 : 0;
+    const flushY = ih ? (flushPxY / ih) * 100 : 0;
+    const TH = 6; // snap threshold in % units
+    for (const t of [-flushX, 0, flushX]) {
+      if (Math.abs(x - t) <= TH) { x = Math.round(t); break; }
+    }
+    for (const t of [-flushY, 0, flushY]) {
+      if (Math.abs(y - t) <= TH) { y = Math.round(t); break; }
+    }
+    // Reflect the snapped value back into the sliders
+    const slX = document.getElementById('ap-x'); if (slX) slX.value = x;
+    const slY = document.getElementById('ap-y'); if (slY) slY.value = y;
+  }
+
   if (img && _artPickerPosArt) {
     img.src = _artPickerPosArt;
     img.style.display = 'block';
@@ -3688,21 +3743,37 @@ function artPickerUpdatePos() {
   if (yv) yv.textContent = `${Math.round(y)}%`;
   if (sv) sv.textContent = `${sc.toFixed(1)}×`;
 }
+function artPickerResetPos() {
+  const slX = document.getElementById('ap-x'); if (slX) slX.value = 0;
+  const slY = document.getElementById('ap-y'); if (slY) slY.value = 0;
+  const slS = document.getElementById('ap-s'); if (slS) slS.value = 100;
+  const snapEl = document.getElementById('ap-snap'); if (snapEl) snapEl.checked = false;
+  artPickerUpdatePos();
+}
+
 function artPickerSavePos() {
   const x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
   const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
   const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  const snap = !!document.getElementById('ap-snap')?.checked;
   // Callback stores marked translate offsets (see slot opener save handler)
-  if (_artPickerPosCallback) _artPickerPosCallback(x, y, sc);
-  closeArtPicker();
+  if (_artPickerPosCallback) _artPickerPosCallback(x, y, sc, snap);
+  closeArtPicker(true);
 }
 
-function closeArtPicker() {
+function closeArtPicker(skipReturn) {
   const overlay = document.getElementById('art-picker-overlay');
   if (overlay) overlay.style.display = 'none';
   document.body.style.overflow = '';
   _artPickerCallback    = null;
   _artPickerPosCallback = null;
+  const returnIdx = _artPickerReturnIdx;
+  _artPickerReturnIdx = null;
+  // If opened from the "Which art to change?" chooser, X returns there
+  if (!skipReturn && returnIdx != null) {
+    const deck = data.colorDecks[returnIdx];
+    if (deck && deck.partner) setTimeout(() => openArtSlotChooser(returnIdx), 50);
+  }
 }
 
 async function artPickerSearch(name) {
@@ -3769,7 +3840,7 @@ function artPickerSelect(url, cardName, el) {
   // Don't auto-close — let user optionally go to Reposition tab
   setTimeout(() => {
     // Auto-close after brief flash if no pos callback
-    if (!_artPickerPosCallback) setTimeout(closeArtPicker, 300);
+    if (!_artPickerPosCallback) setTimeout(() => closeArtPicker(true), 300);
   }, 0);
 }
 
@@ -3807,24 +3878,27 @@ function openArtOverride(idx, isPartner) {
     openArtPickerSlot(idx, false);
     return;
   }
+  openArtSlotChooser(idx);
+}
 
-  // Partner deck: show which slot to edit
-  showModal(
-    'Which art to change?',
-    '',
-    null
-  );
+// Reusable "Which art to change?" chooser for partnered decks.
+// Picks here open the picker with cameFromModal=true so the picker's X
+// returns to this chooser instead of closing outright.
+function openArtSlotChooser(idx) {
+  const deck = data.colorDecks[idx];
+  if (!deck) return;
+  showModal('Which art to change?', '', null);
   setTimeout(() => {
     const body = document.getElementById('modal-body');
     if (!body) return;
     body.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false),50)"
+        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${(deck.name||'').replace(/</g,'&lt;')}</div>
           <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+(deck.artOverrideName||'').replace(/</g,'&lt;'):' · default'}</div>
         </button>
-        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true),50)"
+        <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${deck.partner}</div>
           <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
@@ -3846,9 +3920,10 @@ function openArtOverride(idx, isPartner) {
   }, 20);
 }
 
-function openArtPickerSlot(idx, isPartner) {
+function openArtPickerSlot(idx, isPartner, cameFromModal) {
   const deck = data.colorDecks[idx];
   if (!deck) return;
+  _artPickerReturnIdx = cameFromModal ? idx : null;
   const fieldKey  = isPartner ? 'partnerArtOverride'     : 'artOverride';
   const nameKey   = isPartner ? 'partnerArtOverrideName'  : 'artOverrideName';
   const posKey    = isPartner ? 'partnerArtPosition'      : 'artPosition';
@@ -3857,13 +3932,15 @@ function openArtPickerSlot(idx, isPartner) {
   const [px, py]  = posToTranslate(posStr);
   const posArt    = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
   const scaleKey  = isPartner ? 'partnerArtScale' : 'artScale';
+  const snapKey   = isPartner ? 'partnerArtSnap' : 'artSnap';
   _artPickerPosScale = deck[scaleKey] || 1;
+  _artPickerPosSnap  = !!deck[snapKey];
   openArtPicker(
     `${cmdName} — ${isPartner?'partner':'commander'} art`,
     deck[nameKey] || cmdName,
     (url, cardName) => applyArtSlot(idx, fieldKey, nameKey, url, cardName),
     posArt, px, py,
-    (x, y, sc) => { data.colorDecks[idx][posKey] = `~${x}% ${y}%`; data.colorDecks[idx][isPartner?'partnerArtScale':'artScale'] = sc||1; renderDeckMgr(); scheduleSync(); }
+    (x, y, sc, snap) => { data.colorDecks[idx][posKey] = `~${x}% ${y}%`; data.colorDecks[idx][isPartner?'partnerArtScale':'artScale'] = sc||1; data.colorDecks[idx][snapKey] = !!snap; renderDeckMgr(); scheduleSync(); }
   );
 }
 
@@ -5704,11 +5781,13 @@ function openRivalDeckArtPicker(rivalId, deckId) {
       return (r?.decks||[]).find(d=>d.id===deckId);
     };
     const d0 = freshDeck();
+    _artPickerReturnIdx = null;
     const cmdName  = isPartner ? (d0?.partner||'') : (d0?.name||'');
     const posStr   = d0?.[posKey] || '50% 0%';
     const [px, py] = posToTranslate(posStr);
     const posArt   = d0?.[fieldKey] || artCache[scryfallKey(cmdName)] || null;
     _artPickerPosScale = d0?.[scaleKey] || 1;
+    _artPickerPosSnap  = !!d0?.[isPartner ? 'partnerArtSnap' : 'artSnap'];
     openArtPicker(
       `${cmdName} — ${isPartner?'partner':'commander'} art`,
       d0?.[nameKey] || cmdName,
@@ -5719,7 +5798,7 @@ function openRivalDeckArtPicker(rivalId, deckId) {
         scheduleSync(); renderRivals();
       },
       posArt, px, py,
-      (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+      (x, y, sc, snap) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; dk[isPartner?'partnerArtSnap':'artSnap']=!!snap; scheduleSync(); renderRivals(); }
     );
   };
 
@@ -5769,6 +5848,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   };
   const deck = freshDeck();
   if (!deck) return;
+  _artPickerReturnIdx = null;
   const fieldKey = isPartner ? 'partnerArtOverride'    : 'artOverride';
   const nameKey  = isPartner ? 'partnerArtOverrideName': 'artOverrideName';
   const posKey   = isPartner ? 'partnerArtPosition'    : 'artPosition';
@@ -5778,6 +5858,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   const [px, py] = posToTranslate(posStr);
   const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
   _artPickerPosScale = deck[scaleKey] || 1;
+  _artPickerPosSnap  = !!deck[isPartner ? 'partnerArtSnap' : 'artSnap'];
   openArtPicker(
     `${cmdName} — ${isPartner?'partner':'commander'} art`,
     deck[nameKey] || cmdName,
@@ -5788,7 +5869,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
-    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+    (x, y, sc, snap) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; dk[isPartner?'partnerArtSnap':'artSnap']=!!snap; scheduleSync(); renderRivals(); }
   );
 }
 
