@@ -6225,7 +6225,7 @@ function renderRivalHistory(rivalId, rivalDeckId) {
         ${games.length} game${games.length!==1?'s':''} · you won ${wins} · lost ${losses}
         <span style="color:var(--text3)">(result shown from your perspective)</span>
       </div>
-      <div style="max-height:50vh;overflow-y:auto">${rows}</div>`;
+      <div style="max-height:50vh;overflow-y:auto;padding-right:10px">${rows}</div>`;
   }
   showModal(title, body, null);
   const okBtn = document.getElementById('modal-ok');
