@@ -806,11 +806,11 @@ input.setting-input[type="number"]{width:90px}
         </div>
         <img id="ap-pos-img" src="" alt="" draggable="false" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center;user-select:none;pointer-events:none">
         <!-- Crop-frame overlays (positioned by JS) -->
-        <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;pointer-events:none;box-sizing:border-box">
-          <span style="position:absolute;top:-9px;left:4px;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">Score</span>
+        <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;pointer-events:none;box-sizing:border-box;z-index:2">
+          <span style="position:absolute;top:-9px;right:4px;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">Score</span>
         </div>
-        <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box">
-          <span style="position:absolute;bottom:-9px;right:4px;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">History / Wants</span>
+        <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box;z-index:2">
+          <span style="position:absolute;bottom:-9px;right:4px;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">History / Wants / Rivals</span>
         </div>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
@@ -1027,6 +1027,7 @@ function extractShareDeck(d) {
   if (d.partnerArtScale && d.partnerArtScale !== DEFAULT_ART_SCALE) o.s2 = d.partnerArtScale;
   if (d.artSnap)        o.sn1 = 1;
   if (d.partnerArtSnap) o.sn2 = 1;
+  if (d.artFlipped)     o.fl = 1;
   return o;
 }
 
@@ -1039,6 +1040,7 @@ function applyShareFields(target, src) {
   if (src.s2)  target.partnerArtScale = src.s2;
   target.artSnap = !!src.sn1;
   target.partnerArtSnap = !!src.sn2;
+  target.artFlipped = !!src.fl;
   // Resolve exact art from print IDs (if any); fall back to name resolution otherwise.
   if (src.i1) resolveArtById(src.i1).then(url => {
     if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } renderRivals(); }
