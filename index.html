@@ -937,7 +937,8 @@ const FETCH_COOLDOWN = 60000; // only re-fetch from Drive if 60s have passed
 // loadFromDrive only overwrites if Drive version >= local version.
 let localVersion = 0;
 let artCache = {};
-const DEFAULT_ART_SCALE = 1.3; // default zoom for decks with no explicit scale (suits contain framing)
+let partnerCache = {}; // commander name (scryfallKey) -> partner name | '' (no partner), cached
+const DEFAULT_ART_SCALE = 1.0; // cover already fills the cell; no extra zoom needed by default
 let priceCache = {}; // card name -> {eur, usd, updated}
 let wantsTab = 'buy';
 // per-deck open/close state for wants by-deck
@@ -1032,6 +1033,7 @@ function loadLocal() {
   try { driveWantsId  = localStorage.getItem('mtg_wants_id')||null; } catch(e) {}
   try { driveListsId  = localStorage.getItem('mtg_lists_id')||null; } catch(e) {}
   try { artCache = JSON.parse(localStorage.getItem('mtg_art')||'{}'); } catch(e) { artCache={}; }
+  try { partnerCache = JSON.parse(localStorage.getItem('mtg_partners')||'{}'); } catch(e) { partnerCache={}; }
   try { priceCache = JSON.parse(localStorage.getItem('mtg_prices')||'{}'); } catch(e) { priceCache={}; }
 
   if (!accessToken) {
@@ -1062,6 +1064,30 @@ function loadLocal() {
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
 }
 function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artCache));}catch(e){} }
+function savePartnerCache() { try{localStorage.setItem('mtg_partners',JSON.stringify(partnerCache));}catch(e){} }
+
+// Resolve a commander's partner (the "Partner with" pairing), cached and retried.
+// Returns the partner card name, or '' if the card has no fixed partner.
+// Cached so it's instant after the first success and survives flaky network.
+async function lookupPartner(name) {
+  if (!name) return '';
+  const key = scryfallKey(name);
+  if (partnerCache[key] !== undefined) return partnerCache[key];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`,
+        {headers:{Accept:'application/json'}});
+      if (!res.ok) { if (res.status===404) { partnerCache[key]=''; savePartnerCache(); return ''; } continue; }
+      const card = await res.json();
+      // "Partner with X" gives a fixed pairing via all_parts combo_piece
+      const partnerWith = card.all_parts?.find(p=>p.component==='combo_piece' && p.name!==card.name);
+      const partner = partnerWith ? partnerWith.name : '';
+      partnerCache[key] = partner; savePartnerCache();
+      return partner;
+    } catch(e) { /* retry once */ await sleep(150); }
+  }
+  return ''; // network failed both tries; don't cache a failure so we retry next time
+}
 
 // Render split art HTML for a container that already has position:relative;overflow:hidden
 // art1 = primary commander, art2 = partner (optional)
@@ -5824,20 +5850,15 @@ function openAddRivalDeckModal(rivalId) {
     acCommanderMode.add('rdm-name'); acCommanderMode.add('rdm-partner');
     initAC('rdm-name', null); initAC('rdm-partner', null);
     acCallbacks['rdm-name'] = async (name) => {
-      // Try to fetch partner keyword from Scryfall and autofill partner field
-      try {
-        const res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
-        if (!res.ok) return;
-        const card = await res.json();
-        const partnerText = (card.keywords||[]).find(k=>k==='Partner' || k==='Partner with');
-        const partnerWith = card.all_parts?.find(p=>p.component==='combo_piece' && p.name!==name);
-        const partnerEl = document.getElementById('rdm-partner');
-        if (!partnerEl || partnerEl.value) return; // don't overwrite if already filled
-        if (partnerWith) {
-          partnerEl.value = partnerWith.name;
-          partnerEl.classList.add('ac-valid');
-        }
-      } catch(e) {}
+      // Autofill partner from the commander's "Partner with" pairing (cached + retried)
+      const partnerEl = document.getElementById('rdm-partner');
+      if (!partnerEl || partnerEl.value) return; // don't overwrite if already filled
+      const partner = await lookupPartner(name);
+      // Re-check the field is still empty (user may have typed during the await)
+      if (partner && partnerEl && !partnerEl.value) {
+        partnerEl.value = partner;
+        partnerEl.classList.add('ac-valid');
+      }
     };
     acCallbacks['rdm-partner'] = () => {};
     document.getElementById('rdm-name')?.focus();
