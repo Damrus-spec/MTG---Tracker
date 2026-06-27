@@ -6167,8 +6167,7 @@ function showRivalHistory(rivalId, rivalDeckId) {
     const rows = games.map(g => {
       // Other opponents in this game (exclude the rival deck we're viewing)
       const others = (g.opponents||[])
-        .filter(o => !(o.playerId===rivalId && (!rivalDeckId || o.deckId===rivalDeckId)))
-        .map(resolveOppName);
+        .filter(o => !(o.playerId===rivalId && (!rivalDeckId || o.deckId===rivalDeckId)));
       const youWon = g.last === 'Win';
       const resultColor = youWon ? 'var(--green)' : 'var(--red)';
       const resultText  = youWon ? 'You won' : 'You lost';
@@ -6181,7 +6180,7 @@ function showRivalHistory(rivalId, rivalDeckId) {
           </div>
           ${others.length?`<div style="font-size:10px;color:var(--text3);padding-left:70px;margin-top:2px">
             <div style="margin-bottom:1px">Other rivals:</div>
-            ${others.map(o=>`<div style="padding-left:8px">${o}</div>`).join('')}
+            ${others.map(o=>`<div style="padding-left:8px"><button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:10px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline">${resolveOppName(o)}</button></div>`).join('')}
           </div>`:''}
         </div>`;
     }).join('');
