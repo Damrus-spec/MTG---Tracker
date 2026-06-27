@@ -6307,7 +6307,8 @@ function renderRivals() {
            <button onclick="event.stopPropagation();openImportDecks('${r.id}')" class="rival-act" title="Import decks into this rival"><i class="ti ti-download"></i></button>
            <button onclick="event.stopPropagation();retireRival('${r.id}')" class="rival-act" title="Retire rival"><i class="ti ti-archive"></i></button>
            <button onclick="event.stopPropagation();openAddRivalDeckModal('${r.id}')" class="rival-act-deck">+ deck</button>`
-        : `<button onclick="event.stopPropagation();unretireRival('${r.id}')" style="padding:7px 12px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;min-height:34px">Restore</button>`
+        : `<button onclick="event.stopPropagation();unretireRival('${r.id}')" style="padding:7px 12px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;min-height:34px">Restore</button>
+           <button onclick="event.stopPropagation();confirmDeleteRival('${r.id}')" class="rival-act" title="Delete rival permanently"><i class="ti ti-trash"></i></button>`
       }
     </div>`;
 
@@ -6638,6 +6639,19 @@ function unretireRival(rivalId) {
   if (!data.opponents) data.opponents=[];
   data.opponents.push(rival);
   scheduleSync(); renderRivals();
+}
+
+function confirmDeleteRival(rivalId) {
+  const rival = (data.retiredOpponents||[]).find(r=>r.id===rivalId);
+  if (!rival) return;
+  const deckCount = (rival.decks||[]).length;
+  showModal('Delete rival permanently?',
+    `Permanently delete ${rival.name}${deckCount?` and their ${deckCount} deck${deckCount!==1?'s':''}`:''}? This can't be undone. Past game history entries are kept, but this rival will no longer be listed.`,
+    ()=>{
+      data.retiredOpponents = (data.retiredOpponents||[]).filter(r=>r.id!==rivalId);
+      scheduleSync(); renderRivals();
+      showToast('Rival deleted');
+    });
 }
 
 function promptRenameRival(rivalId) {
