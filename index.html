@@ -774,7 +774,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
            Container is portrait (matches deck art column width:height ratio ~110:100).
            The white frame shows the exact crop that will appear in the deck list. -->
       <div style="position:relative;width:100%;padding-bottom:83%;overflow:hidden;border-radius:6px;background:var(--bg)" id="ap-pos-bg">
-        <img id="ap-pos-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0%;transform-origin:center">
+        <img id="ap-pos-img" src="" alt="" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;transform-origin:center">
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
@@ -783,13 +783,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="-200" max="300" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-100" max="100" value="0" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
         </div>
-        <input id="ap-y" type="range" min="-100" max="200" value="0" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-y" type="range" min="-100" max="100" value="0" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -1072,6 +1072,26 @@ function deckArtHtml(deckUuidOrName) {
   return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2);
 }
 
+// Position is stored as "tx% ty%" translate offsets, 0 0 = centered/neutral.
+// Backward-compat: legacy decks stored object-position values where the default
+// was "50% 0%" (centered horizontally, top-aligned). We detect legacy-format
+// strings (those tagged with a trailing 'op' marker are new; untagged are
+// legacy) — but to keep storage a plain "x% y%" string, we use a simple rule:
+// the legacy default "50% 0%" maps to neutral (0,0); other legacy horizontal
+// values are normalized around 50. New saves write already-normalized offsets
+// plus a marker space so they're not re-normalized.
+function posToTranslate(pos) {
+  if (!pos) return [0, 0];
+  // New format carries a leading '~' marker meaning "already translate offsets"
+  if (pos[0] === '~') {
+    const [tx, ty] = pos.slice(1).split(' ').map(v => parseFloat(v) || 0);
+    return [tx, ty];
+  }
+  // Legacy object-position format: normalize horizontal around 50, vertical was 0
+  const [rawX, rawY] = pos.split(' ').map(v => parseFloat(v) || 0);
+  return [rawX - 50, rawY];
+}
+
 function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   if (!art1 && !art2) return '';
   const a = (flipped && art2) ? art2 : art1;
@@ -1080,7 +1100,13 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   const pb = (flipped && art2) ? pos1 : pos2;
   const sa = sc1 || 1;
   const sb = sc2 || 1;
-  const imgStyle = (pos, sc) => `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${pos||'50% 0%'};transform:scale(${sc});transform-origin:center`;
+  // Position string is "tx% ty%" = translate offsets (free pan, both axes).
+  // Default "50% 0%" from legacy data is treated as neutral: tx is normalized
+  // so legacy 50 -> 0 offset (see posToTranslate), ty already defaults to 0.
+  const imgStyle = (pos, sc) => {
+    const [tx, ty] = posToTranslate(pos);
+    return `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;transform:translate(${tx}%,${ty}%) scale(${sc});transform-origin:center`;
+  };
   if (a && b) {
     return `
       <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
@@ -3635,12 +3661,8 @@ function artPickerInitPos() {
     img.style.display = 'none';
     if (noArt) noArt.style.display = 'flex';
   }
-  // Invert horizontal back to slider space
-  if (slX) {
-    const xMin2 = parseFloat(slX.min ?? 0);
-    const xMax2 = parseFloat(slX.max ?? 100);
-    slX.value = xMax2 + xMin2 - (_artPickerPosX ?? 50);
-  }
+  // Direct mapping: slider value IS the translate offset (no inversion)
+  if (slX) slX.value = _artPickerPosX;
   if (slY) slY.value = _artPickerPosY;
   const slS = document.getElementById('ap-s');
   if (slS) slS.value = Math.round((_artPickerPosScale || 1) * 100);
@@ -3648,22 +3670,16 @@ function artPickerInitPos() {
 }
 
 function artPickerUpdatePos() {
-  const slX = parseFloat(document.getElementById('ap-x')?.value ?? 50);
-  const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
-  const sc  = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
-  // Invert horizontal: sliding right moves image right (lower object-position x)
-  const sl = document.getElementById('ap-x');
-  const xMin = parseFloat(sl?.min ?? 0);
-  const xMax = parseFloat(sl?.max ?? 100);
-  const x = xMax + xMin - slX; // invert within range
+  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
+  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
   const img = document.getElementById('ap-pos-img');
   if (img && _artPickerPosArt) {
     img.src = _artPickerPosArt;
     img.style.display = 'block';
-    const posStr = `${x}% ${y}%`;
-    img.style.objectPosition  = posStr;
+    img.style.objectPosition  = 'center';
     img.style.transformOrigin = 'center';
-    img.style.transform       = `scale(${sc})`;
+    img.style.transform       = `translate(${x}%,${y}%) scale(${sc})`;
   }
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
@@ -3673,13 +3689,10 @@ function artPickerUpdatePos() {
   if (sv) sv.textContent = `${sc.toFixed(1)}×`;
 }
 function artPickerSavePos() {
-  const slX = parseFloat(document.getElementById('ap-x')?.value ?? 50);
-  const y   = parseFloat(document.getElementById('ap-y')?.value ?? 0);
-  const sc  = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
-  const sl  = document.getElementById('ap-x');
-  const xMin = parseFloat(sl?.min ?? 0);
-  const xMax = parseFloat(sl?.max ?? 100);
-  const x = xMax + xMin - slX; // invert to match display
+  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
+  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
+  // Callback stores marked translate offsets (see slot opener save handler)
   if (_artPickerPosCallback) _artPickerPosCallback(x, y, sc);
   closeArtPicker();
 }
@@ -3841,7 +3854,7 @@ function openArtPickerSlot(idx, isPartner) {
   const posKey    = isPartner ? 'partnerArtPosition'      : 'artPosition';
   const cmdName   = isPartner ? (deck.partner||'')         : deck.name;
   const posStr    = deck[posKey] || '50% 0%';
-  const [px, py]  = posStr.split(' ').map(v => parseFloat(v)||0);
+  const [px, py]  = posToTranslate(posStr);
   const posArt    = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
   const scaleKey  = isPartner ? 'partnerArtScale' : 'artScale';
   _artPickerPosScale = deck[scaleKey] || 1;
@@ -3850,7 +3863,7 @@ function openArtPickerSlot(idx, isPartner) {
     deck[nameKey] || cmdName,
     (url, cardName) => applyArtSlot(idx, fieldKey, nameKey, url, cardName),
     posArt, px, py,
-    (x, y, sc) => { data.colorDecks[idx][posKey] = `${x}% ${y}%`; data.colorDecks[idx][isPartner?'partnerArtScale':'artScale'] = sc||1; renderDeckMgr(); scheduleSync(); }
+    (x, y, sc) => { data.colorDecks[idx][posKey] = `~${x}% ${y}%`; data.colorDecks[idx][isPartner?'partnerArtScale':'artScale'] = sc||1; renderDeckMgr(); scheduleSync(); }
   );
 }
 
@@ -5693,7 +5706,7 @@ function openRivalDeckArtPicker(rivalId, deckId) {
     const d0 = freshDeck();
     const cmdName  = isPartner ? (d0?.partner||'') : (d0?.name||'');
     const posStr   = d0?.[posKey] || '50% 0%';
-    const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
+    const [px, py] = posToTranslate(posStr);
     const posArt   = d0?.[fieldKey] || artCache[scryfallKey(cmdName)] || null;
     _artPickerPosScale = d0?.[scaleKey] || 1;
     openArtPicker(
@@ -5706,7 +5719,7 @@ function openRivalDeckArtPicker(rivalId, deckId) {
         scheduleSync(); renderRivals();
       },
       posArt, px, py,
-      (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+      (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
     );
   };
 
@@ -5762,7 +5775,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   const scaleKey = isPartner ? 'partnerArtScale'       : 'artScale';
   const cmdName  = isPartner ? (deck.partner||'')       : deck.name;
   const posStr   = deck[posKey] || '50% 0%';
-  const [px, py] = posStr.split(' ').map(v=>parseFloat(v)||0);
+  const [px, py] = posToTranslate(posStr);
   const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
   _artPickerPosScale = deck[scaleKey] || 1;
   openArtPicker(
@@ -5775,7 +5788,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
       scheduleSync(); renderRivals();
     },
     posArt, px, py,
-    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
+    (x, y, sc) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`~${x}% ${y}%`; dk[scaleKey]=sc||1; scheduleSync(); renderRivals(); }
   );
 }
 
