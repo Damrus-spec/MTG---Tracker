@@ -175,6 +175,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .w-card-name{flex:1;font-size:13px;align-self:center;padding:0 0 0 10px}
 .want-card-row.want-dragging{opacity:.4}
 .want-card-row.want-drop-target{border-top:2px solid var(--blue)}
+.want-card-row.want-drop-below{border-bottom:2px solid var(--blue)}
 .w-card-out{font-size:11px;color:var(--red);max-width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-no-out{font-size:10px;color:var(--text3);font-style:italic}
 .w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px}
@@ -581,6 +582,7 @@ input.setting-input[type="number"]{width:90px}
     <label class="field-label">Player name</label>
     <input type="text" id="new-rival-name" placeholder="e.g. Tobias, Sarah…">
     <button class="submit-btn" style="margin-top:2px" onclick="addRival()">Add rival</button>
+    <button class="submit-btn" style="margin-top:8px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="openImportDecks('')" title="Paste a deck export string from the Decks tab or a rival">Import decks…</button>
   </div>
   <p style="font-size:12px;color:var(--text2);margin-bottom:4px" id="rivals-summary"></p>
   <p style="font-size:11px;color:var(--text3);margin-bottom:8px">Win rates shown are yours against each rival.</p>
@@ -701,6 +703,11 @@ input.setting-input[type="number"]{width:90px}
           <div class="setting-name">Recover deleted decks</div>
           <div class="setting-desc">Finds decks in your history that no longer exist in your deck list and lets you restore them as Retired.</div>
           <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" title="Scan history for decks removed from the deck list and restore them" onclick="recoverDeletedDecks()">Find & restore</button>
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Export owned decks</div>
+          <div class="setting-desc">Create a shareable code of your owned decks with their art and positioning, so friends can import the same setup.</div>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="exportOwnedDecks()">Export decks</button>
         </div>
       </div>
       <div class="card">
@@ -984,6 +991,203 @@ function deckDisplayName(d) {
   if (d.label) return d.label;          // custom display name takes priority
   if (d.partner) return d.name + ' // ' + d.partner;
   return d.name || '';
+}
+
+// ============================================================
+// DECK EXPORT / IMPORT  (share decks + art setup between users)
+// ============================================================
+const DECK_SHARE_VERSION = 1;
+
+// Pull the shareable fields from a deck (owned-deck or rival-deck shape).
+function extractShareDeck(d) {
+  const o = { name: d.name || '' };
+  if (d.partner) o.partner = d.partner;
+  // Art overrides: fall back to cached resolved art so the recipient sees the same image
+  const a1 = d.artOverride || artCache[scryfallKey(d.name||'')] || '';
+  const a2 = d.partner ? (d.partnerArtOverride || artCache[scryfallKey(d.partner||'')] || '') : '';
+  if (a1) o.a1 = a1;
+  if (a2) o.a2 = a2;
+  if (d.artOverrideName)        o.an1 = d.artOverrideName;
+  if (d.partnerArtOverrideName) o.an2 = d.partnerArtOverrideName;
+  if (d.artPosition)        o.p1 = d.artPosition;
+  if (d.partnerArtPosition) o.p2 = d.partnerArtPosition;
+  if (d.artScale)        o.s1 = d.artScale;
+  if (d.partnerArtScale) o.s2 = d.partnerArtScale;
+  if (d.artSnap)        o.sn1 = 1;
+  if (d.partnerArtSnap) o.sn2 = 1;
+  return o;
+}
+
+// Apply shared art fields onto a deck object (mutates), overwriting.
+function applyShareArt(target, src) {
+  if (src.a1)  target.artOverride = src.a1;         else delete target.artOverride;
+  if (src.a2)  target.partnerArtOverride = src.a2;  else delete target.partnerArtOverride;
+  if (src.an1) target.artOverrideName = src.an1;
+  if (src.an2) target.partnerArtOverrideName = src.an2;
+  if (src.p1)  target.artPosition = src.p1;
+  if (src.p2)  target.partnerArtPosition = src.p2;
+  if (src.s1)  target.artScale = src.s1;
+  if (src.s2)  target.partnerArtScale = src.s2;
+  target.artSnap = !!src.sn1;
+  target.partnerArtSnap = !!src.sn2;
+  // Cache the shared art so it shows immediately
+  if (src.a1 && src.name) { artCache[scryfallKey(src.name)] = src.a1; }
+  if (src.a2 && src.partner) { artCache[scryfallKey(src.partner)] = src.a2; }
+  saveArtCache();
+}
+
+// Encode a payload {rival?, decks:[...]} to a compact base64 string.
+function encodeDeckShare(payload) {
+  const obj = { v: DECK_SHARE_VERSION, ...payload };
+  const json = JSON.stringify(obj);
+  // UTF-8 safe base64
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return 'MTGD1:' + b64;
+}
+function decodeDeckShare(str) {
+  const s = (str||'').trim();
+  const body = s.startsWith('MTGD1:') ? s.slice(6) : s;
+  try {
+    const json = decodeURIComponent(escape(atob(body)));
+    const obj = JSON.parse(json);
+    if (!obj || !Array.isArray(obj.decks)) return null;
+    return obj;
+  } catch(e) { return null; }
+}
+
+// ── Decks-tab export: owned decks + art setup ──
+function exportOwnedDecks() {
+  const decks = ownedDecks().map(extractShareDeck);
+  if (!decks.length) { showToast('No owned decks to export'); return; }
+  const code = encodeDeckShare({ decks });
+  showShareCodeModal('Export owned decks', `${decks.length} deck${decks.length>1?'s':''} encoded. Share this string:`, code);
+}
+
+// ── Rival export: that rival's decks + art ──
+function exportRivalDecks(rivalId) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  if (!rival) return;
+  const decks = (rival.decks||[]).filter(d=>!d.retired).map(extractShareDeck);
+  if (!decks.length) { showToast('No decks to export for this rival'); return; }
+  const code = encodeDeckShare({ rival: rival.name, decks });
+  showShareCodeModal(`Export ${rival.name}`, `${decks.length} deck${decks.length>1?'s':''} encoded. Share this string:`, code);
+}
+
+// Modal showing a copyable code string.
+function showShareCodeModal(title, desc, code) {
+  const html = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${desc}</div>
+    <textarea readonly id="share-code-ta" style="width:100%;min-height:90px;font-size:11px;font-family:monospace;padding:8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical;box-sizing:border-box">${code}</textarea>
+    <button onclick="(()=>{const t=document.getElementById('share-code-ta');t.select();navigator.clipboard.writeText(t.value).then(()=>showToast('Copied!')).catch(()=>{document.execCommand('copy');showToast('Copied!');});})()" class="submit-btn" style="width:100%;margin-top:8px;padding:10px">Copy to clipboard</button>`;
+  showModal(title, html, null);
+  const okBtn = document.getElementById('modal-ok');
+  if (okBtn) okBtn.style.display = 'none';
+}
+
+// ── Import: paste a code, resolve target rival, merge-check, apply ──
+function openImportDecks(targetRivalId) {
+  const html = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Paste a deck export string (from the Decks tab or a rival export):</div>
+    <textarea id="import-code-ta" placeholder="MTGD1:..." style="width:100%;min-height:80px;font-size:11px;font-family:monospace;padding:8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical;box-sizing:border-box"></textarea>
+    <button onclick="processImportDecks('${targetRivalId||''}')" class="submit-btn" style="width:100%;margin-top:8px;padding:10px">Import</button>`;
+  showModal('Import decks', html, null);
+  const okBtn = document.getElementById('modal-ok');
+  if (okBtn) okBtn.style.display = 'none';
+}
+
+function processImportDecks(targetRivalId) {
+  const ta = document.getElementById('import-code-ta');
+  const payload = decodeDeckShare(ta ? ta.value : '');
+  if (!payload) { showToast('Invalid or unreadable import string'); return; }
+  closeModal();
+  // Resolve target rival: explicit target > named rival in string (existing or new) > ask
+  if (targetRivalId) { importDecksIntoRival(targetRivalId, payload.decks); return; }
+  if (payload.rival) {
+    const existing = (data.opponents||[]).find(r=>r.name.toLowerCase()===payload.rival.toLowerCase());
+    if (existing) { importDecksIntoRival(existing.id, payload.decks); return; }
+    // Create the named rival
+    const nr = { id: genUUID(), name: payload.rival, decks: [] };
+    if (!data.opponents) data.opponents = [];
+    data.opponents.push(nr);
+    importDecksIntoRival(nr.id, payload.decks);
+    return;
+  }
+  // No name — ask which rival (or new)
+  askImportTargetRival(payload.decks);
+}
+
+function askImportTargetRival(decks) {
+  const rivals = data.opponents||[];
+  window._pendingImportDecks = decks;
+  const html = `
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+      ${rivals.map(r=>`<button onclick="importDecksIntoRival('${r.id}',window._pendingImportDecks);closeModal()" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${r.name}</button>`).join('')}
+      <button onclick="(()=>{const n=prompt('New rival name:');if(n&&n.trim()){const nr={id:genUUID(),name:n.trim(),decks:[]};if(!data.opponents)data.opponents=[];data.opponents.push(nr);importDecksIntoRival(nr.id,window._pendingImportDecks);closeModal();}})()" style="padding:10px 14px;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:13px;text-align:left">+ New rival…</button>
+    </div>`;
+  showModal('Import into which rival?', html, null);
+  const okBtn = document.getElementById('modal-ok');
+  if (okBtn) okBtn.style.display = 'none';
+}
+
+// Import decks into a rival, handling per-deck merge conflicts.
+function importDecksIntoRival(rivalId, decks) {
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  if (!rival) { showToast('Rival not found'); return; }
+  if (!rival.decks) rival.decks = [];
+  // Find conflicts: same commander name (+ partner) already exists for this rival
+  const conflicts = [];
+  const fresh = [];
+  for (const sd of decks) {
+    const match = rival.decks.find(d =>
+      (d.name||'').toLowerCase() === (sd.name||'').toLowerCase() &&
+      (d.partner||'').toLowerCase() === (sd.partner||'').toLowerCase());
+    if (match) conflicts.push({ sd, match }); else fresh.push(sd);
+  }
+  // Add all non-conflicting decks immediately
+  for (const sd of fresh) {
+    const nd = { id: genUUID(), name: sd.name, partner: sd.partner||undefined };
+    applyShareArt(nd, sd);
+    rival.decks.push(nd);
+  }
+  // Resolve conflicts one at a time via modal
+  resolveImportConflicts(rivalId, conflicts, fresh.length);
+}
+
+function resolveImportConflicts(rivalId, conflicts, addedCount) {
+  if (!conflicts.length) {
+    scheduleSync(); renderRivals();
+    showToast(`Imported ${addedCount} deck${addedCount!==1?'s':''}`);
+    return;
+  }
+  const { sd, match } = conflicts[0];
+  const rest = conflicts.slice(1);
+  window.__importState = { rivalId, sd, match, rest, addedCount };
+  const html = `
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px">
+      This rival already has <b>${match.name}${match.partner?' // '+match.partner:''}</b>. Merge the imported art &amp; setup into it (keeping existing history), or add it as a separate deck?
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button onclick="__importMerge('${rivalId}',true)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">Merge — keep history, take imported art/setup</button>
+      <button onclick="__importMerge('${rivalId}',false)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px;text-align:left">Keep both — add as separate deck</button>
+    </div>`;
+  showModal(`Merge "${sd.name}${sd.partner?' // '+sd.partner:''}"?`, html, null);
+  const okBtn = document.getElementById('modal-ok');
+  if (okBtn) okBtn.style.display = 'none';
+}
+
+function __importMerge(rivalId, doMerge) {
+  const st = window.__importState; if (!st) return;
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId);
+  if (doMerge) {
+    applyShareArt(st.match, st.sd); // overwrite art on the existing deck, history untouched
+    st.addedCount += 0;
+  } else {
+    const nd = { id: genUUID(), name: st.sd.name, partner: st.sd.partner||undefined };
+    applyShareArt(nd, st.sd);
+    rival.decks.push(nd);
+  }
+  closeModal();
+  resolveImportConflicts(rivalId, st.rest, st.addedCount + (doMerge?0:1));
 }
 // HTML version — renders partner on a second line
 function deckDisplayNameHtml(d) {
@@ -2216,17 +2420,36 @@ function renderScore() {
               ? `<div style="padding:10px 12px;font-size:12px;color:var(--text2);background:var(--surface);border:.5px dashed var(--border-md);border-radius:var(--radius-sm);line-height:1.4">
                    No rivals set yet. Add players and their decks in the <button onclick="gotoPage('rivals')" style="background:none;border:none;color:var(--blue);cursor:pointer;padding:0;font:inherit;text-decoration:underline">Rivals</button> tab to track who you play against.
                  </div>`
-              : [0,1,2].map(i=>`
+              : (()=>{ 
+                const openByDefault = (cfg().rivalsOpenByDefault===true||cfg().rivalsOpenByDefault==='true');
+                const pref = openByDefault ? getPreferredRivals() : [];
+                const pend = pendingOpponents[sn] || [];
+                return [0,1,2].map(i=>{
+                  // Prefer an explicit pending selection; else the preferred-rival default
+                  const sel = (pend[i] && pend[i].playerId) ? pend[i] : (pref[i] || null);
+                  const selPlayer = sel?.playerId || '';
+                  const selDeck   = sel?.deckId || '';
+                  const rival = selPlayer ? (data.opponents||[]).find(r=>r.id===selPlayer) : null;
+                  const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
+                  // Seed pendingOpponents so submit captures the default selection
+                  if (sel && selPlayer) {
+                    if (!pendingOpponents[sn]) pendingOpponents[sn] = [{},{},{}];
+                    pendingOpponents[sn][i] = { playerId: selPlayer, deckId: selDeck };
+                  }
+                  return `
             <div class="opp-slot" id="os-${eid}-${i}">
               <select id="opp-player-${eid}-${i}" onchange="onOppPlayerChange('${eid}','${sn}',${i})" style="flex:1">
                 <option value="">— Player —</option>
-                ${(data.opponents||[]).map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
+                ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${r.name}</option>`).join('')}
               </select>
-              <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:none">
+              <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
                 <option value="">— Deck —</option>
+                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${d.name}</option>`).join('')}
               </select>
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
-            </div>`).join('')}
+            </div>`;
+                }).join('');
+              })()}
           </div>
         </div>
       </div>
@@ -2271,16 +2494,6 @@ function renderScore() {
   } else { legacySec.style.display='none'; }
 
   fetchMissingArt(artNames);
-  // If rivals grids render already-open (setting on), the open-click that normally
-  // triggers preferred-rival autofill never fires — so run it here for open grids.
-  if (cfg().rivalsOpenByDefault===true || cfg().rivalsOpenByDefault==='true') {
-    setTimeout(() => {
-      document.querySelectorAll('.opp-grid.open').forEach(grid => {
-        const eid = grid.id.replace(/^og-/, '');
-        autofillPreferredRivals(eid);
-      });
-    }, 0);
-  }
   // Draw graph after score list renders — canvas must be in DOM and visible
   if (graphOpen) setTimeout(renderGraph, 50);
 }
@@ -3181,8 +3394,11 @@ function wantDragOver(e) {
   if (!row || row.dataset.wdeck !== _wantDrag.uuid) return; // only reorder within same deck
   e.preventDefault();
   try { e.dataTransfer.dropEffect = 'move'; } catch(_){}
-  document.querySelectorAll('.want-drop-target').forEach(el=>el.classList.remove('want-drop-target'));
-  row.classList.add('want-drop-target');
+  document.querySelectorAll('.want-drop-target,.want-drop-below').forEach(el=>el.classList.remove('want-drop-target','want-drop-below'));
+  // Top half → insert before this row; bottom half → insert after
+  const rect = row.getBoundingClientRect();
+  const after = (e.clientY - rect.top) > rect.height / 2;
+  row.classList.add(after ? 'want-drop-below' : 'want-drop-target');
 }
 function wantDrop(e) {
   if (!_wantDrag) return;
@@ -3190,10 +3406,17 @@ function wantDrop(e) {
   if (!row || row.dataset.wdeck !== _wantDrag.uuid) return;
   e.preventDefault();
   const fromIdx = _wantDrag.idx;
-  const toIdx   = parseInt(row.dataset.widx);
+  let toIdx = parseInt(row.dataset.widx);
+  const rect = row.getBoundingClientRect();
+  const after = (e.clientY - rect.top) > rect.height / 2;
+  if (after) toIdx += 1;
   const arr = data.deckWants[_wantDrag.uuid];
-  if (arr && fromIdx !== toIdx && arr[fromIdx] !== undefined) {
+  if (arr && arr[fromIdx] !== undefined) {
     const [moved] = arr.splice(fromIdx, 1);
+    // Adjust target index if we removed an earlier item
+    if (fromIdx < toIdx) toIdx -= 1;
+    if (toIdx < 0) toIdx = 0;
+    if (toIdx > arr.length) toIdx = arr.length;
     arr.splice(toIdx, 0, moved);
     scheduleSync();
     renderDeckWants();
@@ -3202,7 +3425,7 @@ function wantDrop(e) {
 }
 function wantDragEnd(e) {
   _wantDrag = null;
-  document.querySelectorAll('.want-drop-target').forEach(el=>el.classList.remove('want-drop-target'));
+  document.querySelectorAll('.want-drop-target,.want-drop-below').forEach(el=>el.classList.remove('want-drop-target','want-drop-below'));
   document.querySelectorAll('.want-dragging').forEach(el=>el.classList.remove('want-dragging'));
   setTimeout(()=>{ window._wantJustDragged = false; }, 50);
 }
@@ -5911,6 +6134,8 @@ function renderRivals() {
       <span style="font-weight:400;color:var(--text3);font-size:10px;text-transform:none;letter-spacing:0">${st.total} game${st.total!==1?'s':''}</span>
       ${!isRetiredRival
         ? `<button onclick="event.stopPropagation();promptRenameRival('${r.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:10px;padding:0 2px" title="Rename rival"><i class="ti ti-pencil" style="font-size:11px"></i></button>
+           <button onclick="event.stopPropagation();exportRivalDecks('${r.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:10px;padding:0 2px" title="Export this rival's decks"><i class="ti ti-upload" style="font-size:11px"></i></button>
+           <button onclick="event.stopPropagation();openImportDecks('${r.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:10px;padding:0 2px" title="Import decks into this rival"><i class="ti ti-download" style="font-size:11px"></i></button>
            <button onclick="event.stopPropagation();retireRival('${r.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:10px;padding:0 2px" title="Retire rival"><i class="ti ti-archive" style="font-size:11px"></i></button>
            <button onclick="event.stopPropagation();openAddRivalDeckModal('${r.id}')" style="background:none;border:.5px solid var(--border-md);border-radius:4px;color:var(--text2);cursor:pointer;font-size:10px;padding:2px 7px">+ deck</button>`
         : `<button onclick="event.stopPropagation();unretireRival('${r.id}')" style="padding:2px 7px;background:var(--blue);border:none;border-radius:4px;color:#fff;font-size:10px;cursor:pointer">Restore</button>`
