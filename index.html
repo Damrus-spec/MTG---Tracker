@@ -3050,7 +3050,7 @@ function renderDeckWants() {
         }
         initAC(el.id, null);
         acCallbacks[el.id] = (name) => {
-          updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), name);
+          commitWantOut(el.dataset.deck, parseInt(el.dataset.idx), name);
         };
       }
     });
@@ -3107,6 +3107,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
               data-deck="${uuid}"
               data-idx="${idx}"
               oninput="debouncedWantOut(this)"
+              onblur="(e=>{const el=e;setTimeout(()=>{if(document.getElementById(el.id))commitWantOut(el.dataset.deck,parseInt(el.dataset.idx),el.value);},200);})(this)"
               style="font-size:11px;width:100px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))" style="width:52px;text-align:center;flex-shrink:0">${statusLabel}</button>
             <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))" style="flex-shrink:0"><i class="ti ti-x"></i></button>
@@ -3192,9 +3193,25 @@ function debouncedWantOut(el) {
   clearTimeout(_wantOutTimer);
   // Update colour immediately for feedback
   el.style.color = el.value.trim() ? 'var(--red)' : 'var(--text3)';
+  // Persist the value WITHOUT re-rendering (a re-render would destroy the
+  // autocomplete dropdown the user is trying to click). The section re-renders
+  // on blur/commit instead — see commitWantOut.
   _wantOutTimer = setTimeout(() => {
-    updateWantOut(el.dataset.deck, parseInt(el.dataset.idx), el.value);
+    const deck = el.dataset.deck, idx = parseInt(el.dataset.idx);
+    if (data.deckWants[deck] && data.deckWants[deck][idx] !== undefined) {
+      data.deckWants[deck][idx].out = el.value.trim() || null;
+      scheduleSync();
+    }
   }, 600);
+}
+
+// Commit a replacement value and re-render (called on blur or AC pick).
+function commitWantOut(deck, idx, value) {
+  clearTimeout(_wantOutTimer);
+  if (!data.deckWants[deck]||data.deckWants[deck][idx]===undefined) return;
+  data.deckWants[deck][idx].out = (value!=null?value:'').trim() || null;
+  scheduleSync();
+  renderDeckWants();
 }
 
 function updateWantOut(deck, idx, value) {
