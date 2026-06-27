@@ -574,6 +574,9 @@ input.setting-input[type="number"]{width:90px}
     <button class="submit-btn" style="margin-top:2px" onclick="addDeck()">Add deck</button>
   </div>
   <p style="font-size:12px;color:var(--text2);margin-bottom:8px" id="deck-mgr-summary"></p>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button class="submit-btn" style="flex:1;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="exportOwnedDecks()">Export owned decks</button>
+  </div>
   <div class="card no-pad"><div id="deck-mgr-list"></div></div>
 </div>
 
@@ -707,11 +710,6 @@ input.setting-input[type="number"]{width:90px}
           <div class="setting-name">Recover deleted decks</div>
           <div class="setting-desc">Finds decks in your history that no longer exist in your deck list and lets you restore them as Retired.</div>
           <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" title="Scan history for decks removed from the deck list and restore them" onclick="recoverDeletedDecks()">Find & restore</button>
-        </div>
-        <div class="setting-block">
-          <div class="setting-name">Export owned decks</div>
-          <div class="setting-desc">Create a shareable code of your owned decks with their art and positioning, so friends can import the same setup.</div>
-          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="exportOwnedDecks()">Export decks</button>
         </div>
       </div>
       <div class="card">
