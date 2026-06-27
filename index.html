@@ -980,6 +980,7 @@ let logSelections = {};
 let pending = {};
 let modalCallback = null;
 let lastExpandedDeck = null; // for graph filtering
+const openScoreDecks = new Set(); // eids of expanded score decks, to survive re-renders
 
 function cfg() { return data.settings || INITIAL_DATA.settings; }
 function genUUID() {
@@ -2382,7 +2383,7 @@ function renderScore() {
           <span class="idot"></span>Issues
         </button>
       </div>
-      <div class="deck-expand" id="${eid}">
+      <div class="deck-expand${openScoreDecks.has(eid)?' open':''}" id="${eid}">
         <div class="log-cols" id="logcols-${sn}">
           ${(() => {
             const p = pending[sn] || {wins:0, losses:0};
@@ -2546,6 +2547,7 @@ function toggleDeckExpand(eid) {
   const wasOpen = el.classList.contains('open');
   el.classList.toggle('open');
   if (!wasOpen) {
+    openScoreDecks.add(eid);
     // Extract deck name from eid = 'exp-' + scryfallKey
     // Find it from the deck list
     const key = eid.replace(/^exp-/,'');
@@ -2557,6 +2559,7 @@ function toggleDeckExpand(eid) {
       renderGraph();
     }
   } else {
+    openScoreDecks.delete(eid);
     // Collapsed — if it was the selected graph deck, reset to ALL
     const key = eid.replace(/^exp-/,'');
     const owned = ownedDecks();
