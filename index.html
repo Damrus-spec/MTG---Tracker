@@ -1117,6 +1117,7 @@ function savePriceCache() { try{localStorage.setItem('mtg_prices',JSON.stringify
 const CLIENT_ID = '759702102602-oqut2g10iijiilci142fqr5ll9i78rfh.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 const FOLDER_NAME = 'MTG Tracker Data';
+const FOLDER_MARKER_KEY = 'mtgTracker';   // appProperties marker for unambiguous folder ID
 const FILE_LEGACY = 'MTG_Tools_Data.json';
 const FILE_DECKS  = 'MTG_Tracker_Decks.json';
 const FILE_WANTS  = 'MTG_Tracker_Wants.json';
@@ -1307,11 +1308,13 @@ async function getDriveFolder(_retried) {
       throw new Error('offline');
     }
   }
-  // Search for existing folder the app owns
-  const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  // Search for the folder the app owns. Prefer the appProperties marker
+  // (unambiguous even if a same-named folder exists); fall back to name match.
+  const markerQ = encodeURIComponent(
+    `appProperties has { key='${FOLDER_MARKER_KEY}' and value='1' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   let r;
   try {
-    r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+    r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${markerQ}&fields=files(id)`,
       {headers:{Authorization:`Bearer ${accessToken}`}});
   } catch(e) { throw new Error('offline'); }
   if (r.status === 401) {
@@ -1320,19 +1323,39 @@ async function getDriveFolder(_retried) {
     return await getDriveFolder(true);
   }
   if (!r.ok) throw new Error('offline');
-  const j = await r.json();
+  let j = await r.json();
   if (j.files && j.files.length > 0) {
     driveFolderId = j.files[0].id;
     try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
     return driveFolderId;
   }
-  // Genuinely not found — create it
+
+  // No marked folder — look for a legacy name-matched folder and stamp it
+  const nameQ = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  try {
+    r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${nameQ}&fields=files(id)`,
+      {headers:{Authorization:`Bearer ${accessToken}`}});
+  } catch(e) { throw new Error('offline'); }
+  if (!r.ok) throw new Error('offline');
+  j = await r.json();
+  if (j.files && j.files.length > 0) {
+    driveFolderId = j.files[0].id;
+    // Stamp the marker so future lookups are unambiguous
+    try {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${driveFolderId}`,
+        {method:'PATCH', headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
+         body: JSON.stringify({appProperties:{[FOLDER_MARKER_KEY]:'1'}})});
+    } catch(e) {}
+    try{localStorage.setItem('mtg_folder_id', driveFolderId);}catch(e){}
+    return driveFolderId;
+  }
+  // Genuinely not found — create it, marked
   let res;
   try {
     res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
       method: 'POST',
       headers: {Authorization:`Bearer ${accessToken}`, 'Content-Type':'application/json'},
-      body: JSON.stringify({name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder'})
+      body: JSON.stringify({name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder', appProperties:{[FOLDER_MARKER_KEY]:'1'}})
     });
   } catch(e) { throw new Error('offline'); }
   if (res.status === 401) {
@@ -2218,6 +2241,36 @@ function renderHistory() {
     .filter(h=>h.last&&h.deck)
     .sort((a,b)=> (a.date||'').localeCompare(b.date||''));
   const historyCount = allWithResult.length;
+
+  // ── Running cumulative W/L tally per deck (derived, not stored) ──
+  // Walk chronologically; for each deck track a running record so every row
+  // shows a tally. Old imported entries carry a baked-in h.wins/h.losses
+  // snapshot — when we meet the first such entry for a deck we seed the
+  // running counters from it (minus its own result, since we add it back
+  // below) so the sequence continues from the spreadsheet numbers instead
+  // of resetting to zero. Result is stored on each entry as _cumW / _cumL.
+  {
+    const run = {}; // key -> {w, l, seeded}
+    const keyOf = h => h.deckUuid || uuidForName(h.deck) || h.deck;
+    for (const h of allWithResult) {
+      const k = keyOf(h);
+      if (!run[k]) run[k] = {w:0, l:0, seeded:false};
+      const r = run[k];
+      // Seed from the first old-style snapshot we encounter for this deck
+      if (!r.seeded && h.wins != null) {
+        r.w = (h.wins||0) - (h.last==='Win'  ? 1 : 0);
+        r.l = (h.losses||0) - (h.last==='Loss' ? 1 : 0);
+        if (r.w < 0) r.w = 0;
+        if (r.l < 0) r.l = 0;
+        r.seeded = true;
+      }
+      if (h.last === 'Win')  r.w++;
+      else if (h.last === 'Loss') r.l++;
+      h._cumW = r.w;
+      h._cumL = r.l;
+    }
+  }
+
   // Sum all deck totals from scores (already rebuilt from history at render time)
   const trueTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0), 0);
   const gameOffset = Math.max(0, trueTotal - historyCount);
@@ -2263,7 +2316,7 @@ function renderHistory() {
         ${issueHtml}
       </div>
       <span class="h-col-date">${fmtDate(h.date)}</span>
-      ${h.wins!=null?`<span class="h-col-w">${h.wins}</span><span class="h-col-l">${h.losses}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
+      ${h._cumW!=null?`<span class="h-col-w">${h._cumW}</span><span class="h-col-l">${h._cumL}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
       <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
       <button class="h-del-btn${isSel?' h-del-active':''}" onclick="toggleHistorySelect(${i},event)" title="Select to delete">
         <i class="ti ti-trash"></i>
