@@ -6144,7 +6144,24 @@ function resolveOppName(opp) {
 
 // Show a history overlay for a rival (all decks) or a specific rival deck.
 // rivalDeckId optional: when given, only games where that deck was tagged.
-function showRivalHistory(rivalId, rivalDeckId) {
+// Navigation stack so the back button can retrace steps through linked rivals.
+let _rivalHistStack = [];
+// External entry point (rival header / deck stats): start a fresh navigation.
+function openRivalHistory(rivalId, rivalDeckId) {
+  _rivalHistStack = [];
+  _rivalHistCurrent = null;
+  showRivalHistory(rivalId, rivalDeckId);
+}
+function showRivalHistory(rivalId, rivalDeckId, _isBack) {
+  // Pushing forward: remember the current view (if any) so Back can return to it.
+  if (!_isBack && _rivalHistCurrent) _rivalHistStack.push(_rivalHistCurrent);
+  if (_isBack) _rivalHistStack.pop();
+  _rivalHistCurrent = { rivalId, rivalDeckId };
+  renderRivalHistory(rivalId, rivalDeckId);
+}
+let _rivalHistCurrent = null;
+
+function renderRivalHistory(rivalId, rivalDeckId) {
   const rival = [...(data.opponents||[]), ...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
   if (!rival) return;
   const deck = rivalDeckId ? (rival.decks||[]).find(d=>d.id===rivalDeckId) : null;
@@ -6160,9 +6177,14 @@ function showRivalHistory(rivalId, rivalDeckId) {
   games.forEach(g => { if (g.last === 'Win') wins++; else if (g.last === 'Loss') losses++; });
 
   const title = deckLabel ? `${rival.name} — ${deckLabel}` : rival.name;
+  const canBack = _rivalHistStack.length > 0;
+  const backBtn = canBack
+    ? `<button onclick="showRivalHistory(_rivalHistStack[_rivalHistStack.length-1].rivalId,_rivalHistStack[_rivalHistStack.length-1].rivalDeckId,true)" style="background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer;font-size:12px;padding:5px 10px;display:inline-flex;align-items:center;gap:5px;margin-bottom:10px"><i class="ti ti-arrow-left" style="font-size:13px"></i>Back</button>`
+    : '';
+
   let body;
   if (!games.length) {
-    body = `<div style="font-size:13px;color:var(--text2);padding:8px 0">No tagged games yet${deckLabel?' for this deck':''}.</div>`;
+    body = backBtn + `<div style="font-size:13px;color:var(--text2);padding:8px 0">No tagged games yet${deckLabel?' for this deck':''}.</div>`;
   } else {
     const rows = games.map(g => {
       // Other opponents in this game (exclude the rival deck we're viewing)
@@ -6172,20 +6194,20 @@ function showRivalHistory(rivalId, rivalDeckId) {
       const resultColor = youWon ? 'var(--green)' : 'var(--red)';
       const resultText  = youWon ? 'You won' : 'You lost';
       return `
-        <div style="padding:9px 0;border-bottom:.5px solid var(--border);display:flex;flex-direction:column;gap:3px">
+        <div style="padding:11px 0;border-bottom:.5px solid var(--border);display:flex;flex-direction:column;gap:7px">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:11px;color:var(--text3);flex-shrink:0;min-width:62px">${fmtDate(g.date)}</span>
             <span style="font-size:13px;flex:1">${g.deck||'—'}</span>
             <span style="font-size:11px;font-weight:600;color:${resultColor};flex-shrink:0">${resultText}</span>
           </div>
-          ${others.length?`<div style="font-size:10px;color:var(--text3);padding-left:70px;margin-top:2px">
-            <div style="margin-bottom:1px">Other rivals:</div>
-            ${others.map(o=>`<div style="padding-left:8px"><button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:10px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline">${resolveOppName(o)}</button></div>`).join('')}
+          ${others.length?`<div style="padding-left:70px;display:flex;flex-direction:column;gap:5px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Other rivals</div>
+            ${others.map(o=>`<button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline">${resolveOppName(o)}</button>`).join('')}
           </div>`:''}
         </div>`;
     }).join('');
-    body = `
-      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">
+    body = backBtn + `
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
         ${games.length} game${games.length!==1?'s':''} · you won ${wins} · lost ${losses}
         <span style="color:var(--text3)">(result shown from your perspective)</span>
       </div>
@@ -6259,7 +6281,7 @@ function renderRivals() {
       <span style="font-weight:400;color:var(--text3);font-size:10px;text-transform:none;letter-spacing:0">${st.total} game${st.total!==1?'s':''}</span>
       ${!isRetiredRival
         ? `<button onclick="event.stopPropagation();promptRenameRival('${r.id}')" class="rival-act" title="Rename rival"><i class="ti ti-pencil"></i></button>
-           <button onclick="event.stopPropagation();showRivalHistory('${r.id}')" class="rival-act" title="Game history vs this rival"><i class="ti ti-history"></i></button>
+           <button onclick="event.stopPropagation();openRivalHistory('${r.id}')" class="rival-act" title="Game history vs this rival"><i class="ti ti-history"></i></button>
            <button onclick="event.stopPropagation();exportRivalDecks('${r.id}')" class="rival-act" title="Export this rival's decks"><i class="ti ti-upload"></i></button>
            <button onclick="event.stopPropagation();openImportDecks('${r.id}')" class="rival-act" title="Import decks into this rival"><i class="ti ti-download"></i></button>
            <button onclick="event.stopPropagation();retireRival('${r.id}')" class="rival-act" title="Retire rival"><i class="ti ti-archive"></i></button>
@@ -6311,7 +6333,7 @@ function renderRivals() {
           <div style="display:flex;align-items:center;gap:8px;padding:0 4px;flex-wrap:wrap">
             <span class="deck-wr ${dwrCls}" style="font-size:11px">${dwr!=null?dwr+'%':'—'}</span>
             ${ds.total>0
-              ? `<button onclick="showRivalHistory('${r.id}','${d.id}')" title="See which games this deck won or lost" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;display:inline-flex;align-items:center;gap:4px"><span>${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span><i class="ti ti-history" style="font-size:12px;color:var(--text3)"></i></button>`
+              ? `<button onclick="openRivalHistory('${r.id}','${d.id}')" title="See which games this deck won or lost" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;display:inline-flex;align-items:center;gap:4px"><span>${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span><i class="ti ti-history" style="font-size:12px;color:var(--text3)"></i></button>`
               : `<span style="font-size:11px;color:var(--text3)">${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span>`}
           </div>
         </div>
