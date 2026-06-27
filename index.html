@@ -1223,7 +1223,10 @@ function initGSI() {
       scope: SCOPES,
       callback: (resp) => {
         if (resp.error) {
-          // Silent sign-in failed — need user interaction
+          // Silent sign-in failed — need user interaction. Latch authFailed so
+          // background focus/visibility handlers stop retrying (which was causing
+          // a repeating Google login popup).
+          authFailed = true;
           if (resp.error === 'interaction_required' || resp.error === 'user_cancelled') {
             setSyncStatus('red', 'Session expired — tap to sign in again');
             accessToken = null;
@@ -1239,6 +1242,7 @@ function initGSI() {
           _refreshInFlight = false;
           return;
         }
+        authFailed = false; // recovered
         accessToken = resp.access_token;
         try { localStorage.setItem('mtg_token', accessToken); } catch(e) {}
         updateSignInBtn();
@@ -1264,6 +1268,9 @@ function initGSI() {
 }
 
 let pendingSilentSignIn = false;
+// Once a silent refresh fails, stop auto-retrying Drive on focus/visibility so we
+// don't surface a repeating Google login popup. Cleared on explicit sign-in.
+let authFailed = false;
 // Callers awaiting a fresh token after a 401. Resolved/rejected by the GSI callback.
 let _tokenWaiters = [];
 let _refreshInFlight = false;
@@ -1321,6 +1328,7 @@ function signIn() {
     setSyncStatus('red', 'Google not loaded — try again');
     return;
   }
+  authFailed = false; // user is explicitly signing in; allow auto-sync again
   try {
     gsiClient.requestAccessToken({ prompt: 'select_account' });
   } catch(e) {
@@ -1598,6 +1606,7 @@ function mergeFilesIntoData(decks, wants, lists) {
 
 async function syncDrive(silent) {
   if (syncing||!accessToken) return;
+  if (authFailed) { dirty = true; return; } // don't trigger refresh popups; flush after re-auth
   syncing=true; dirty=false;
   if (!silent) setSyncStatus('busy','Syncing...');
   try {
@@ -1763,7 +1772,7 @@ document.addEventListener('visibilitychange',()=>{
     // Flush immediately when leaving — no waiting
     clearTimeout(syncTimer);
     syncDrive(true);
-  } else if (document.visibilityState==='visible' && accessToken) {
+  } else if (document.visibilityState==='visible' && accessToken && !authFailed) {
     // Silent background check on return
     loadFromDrive();
   }
@@ -1772,8 +1781,8 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('blur',()=>{
   if (dirty && accessToken && hasFetchedFromDrive) { clearTimeout(syncTimer); syncDrive(true); }
 });
-// Silent background reload on refocus — never blocks navigation
-window.addEventListener('focus',()=>{ if(accessToken && !userIsEditing) loadFromDrive(); });
+// Silent background reload on refocus — never blocks navigation; skip if auth failed
+window.addEventListener('focus',()=>{ if(accessToken && !userIsEditing && !authFailed) loadFromDrive(); });
 window.addEventListener('pagehide',()=>{ if(dirty&&accessToken&&hasFetchedFromDrive) syncDrive(true); });
 
 // ============================================================
@@ -2262,6 +2271,16 @@ function renderScore() {
   } else { legacySec.style.display='none'; }
 
   fetchMissingArt(artNames);
+  // If rivals grids render already-open (setting on), the open-click that normally
+  // triggers preferred-rival autofill never fires — so run it here for open grids.
+  if (cfg().rivalsOpenByDefault===true || cfg().rivalsOpenByDefault==='true') {
+    setTimeout(() => {
+      document.querySelectorAll('.opp-grid.open').forEach(grid => {
+        const eid = grid.id.replace(/^og-/, '');
+        autofillPreferredRivals(eid);
+      });
+    }, 0);
+  }
   // Draw graph after score list renders — canvas must be in DOM and visible
   if (graphOpen) setTimeout(renderGraph, 50);
 }
