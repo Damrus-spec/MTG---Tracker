@@ -1746,24 +1746,145 @@ async function fetchArt(name) {
   } catch(e){ return null; }
 }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-async function fetchMissingArt(names) {
-  for (const name of names) {
+
+// Inject a resolved art URL into any rendered cells waiting on this key
+function injectArt(key, url, name) {
+  document.querySelectorAll(`[data-art="${key}"]`).forEach(el=>{
+    el.classList.remove('loading');
+    if (el.dataset.rerender==='deckmgr') { renderDeckMgr(); return; }
+    if (el.dataset.rerender==='rivals')  { renderRivals();  return; }
+    if (!el.querySelector('img')) {
+      const img=document.createElement('img'); img.src=url; img.alt=name||''; img.loading='lazy';
+      el.insertBefore(img, el.firstChild);
+    }
+  });
+}
+
+function artUrlFromCard(card) {
+  if (!card) return null;
+  return card.image_uris?.art_crop
+    || card.card_faces?.[0]?.image_uris?.art_crop
+    || null;
+}
+
+// Resolve many card names in one request via Scryfall's collection endpoint
+// (up to 75 identifiers per POST). Returns a map of scryfallKey -> url for
+// the DEFAULT printing. Names already in artCache are skipped by the caller.
+async function fetchArtBulk(names) {
+  const out = {};
+  // Dedupe by display name, cap at 75 per Scryfall's limit
+  const unique = [...new Set(names.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 75) {
+    const chunk = unique.slice(i, i + 75);
+    try {
+      const res = await fetch('https://api.scryfall.com/cards/collection', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', Accept:'application/json'},
+        body: JSON.stringify({ identifiers: chunk.map(n => ({ name: n })) })
+      });
+      if (!res.ok) continue;
+      const j = await res.json();
+      for (const card of (j.data || [])) {
+        // Match the returned card back to the requested name via its key
+        const url = artUrlFromCard(card);
+        if (!url) continue;
+        const k = scryfallKey(card.name || '');
+        out[k] = url;
+        // Also key by any face name so split/MDFC requests resolve
+        (card.card_faces || []).forEach(f => { if (f.name) out[scryfallKey(f.name)] = url; });
+      }
+    } catch(e) { /* network error — fall through, caller retries per-card */ }
+    if (i + 75 < unique.length) await sleep(80);
+  }
+  return out;
+}
+
+// Tracks in-flight high-priority (deck) art resolution so lower-priority
+// (trade-listed card) resolution can yield until decks are done.
+let _deckArtInFlight = Promise.resolve();
+
+async function fetchMissingArt(names, opts) {
+  opts = opts || {};
+  const lowPriority = opts.priority === 'low';
+  // Trade-card art yields: wait for any in-flight deck art to finish first,
+  // so decks always paint before trade-listed cards.
+  if (lowPriority) { try { await _deckArtInFlight; } catch(e){} }
+
+  // Only resolve names we don't already have cached
+  const missing = (names||[]).filter(n => n && !artCache[scryfallKey(n)]);
+  if (!missing.length) return;
+
+  // High-priority (deck) runs register themselves so low-priority waits behind them
+  let _resolveFlight;
+  if (!lowPriority) {
+    const p = new Promise(r => { _resolveFlight = r; });
+    _deckArtInFlight = _deckArtInFlight.then(() => p);
+  }
+
+  try {
+    await _doFetchMissingArt(missing);
+  } finally {
+    if (_resolveFlight) _resolveFlight();
+  }
+}
+
+async function _doFetchMissingArt(missing) {
+  const pref = cfg().artPref || 'oldest';
+
+  // Phase 1 — bulk-resolve default printings in one (or few) request(s).
+  // This is the fast path that makes cold first-loads near-instant.
+  const bulk = await fetchArtBulk(missing);
+  let cacheChanged = false;
+  const stillMissing = [];
+  for (const name of missing) {
+    const key = scryfallKey(name);
+    if (artCache[key]) continue;
+    if (bulk[key]) {
+      artCache[key] = bulk[key];
+      cacheChanged = true;
+      injectArt(key, bulk[key], name);
+    } else {
+      stillMissing.push(name); // bulk didn't return it — needs per-card fallback
+    }
+  }
+  if (cacheChanged) saveArtCache();
+
+  // Phase 2 — for names bulk couldn't resolve, fall back to the robust
+  // per-card path (handles fuzzy matches, odd names).
+  for (const name of stillMissing) {
     const key = scryfallKey(name);
     if (artCache[key]) continue;
     const url = await fetchArt(name);
-    if (url) {
-      // Inject into any rendered cells with this key
-      document.querySelectorAll(`[data-art="${key}"]`).forEach(el=>{
-        el.classList.remove('loading');
-        if (el.dataset.rerender==='deckmgr') { renderDeckMgr(); return; }
-        if (el.dataset.rerender==='rivals')  { renderRivals();  return; }
-        if (!el.querySelector('img')) {
-          const img=document.createElement('img'); img.src=url; img.alt=name; img.loading='lazy';
-          el.insertBefore(img, el.firstChild);
-        }
-      });
-    }
+    if (url) injectArt(key, url, name);
     await sleep(80);
+  }
+
+  // Phase 3 — if the user wants oldest/newest art (not default), lazily
+  // refine the bulk-resolved entries to the correct printing. Default art
+  // is already showing, so this just swaps to the preferred print when ready.
+  if (pref === 'oldest' || pref === 'newest') {
+    const dir = pref === 'oldest' ? 'asc' : 'desc';
+    for (const name of missing) {
+      const key = scryfallKey(name);
+      // Only refine ones bulk handled; per-card fallback already used the pref
+      if (!bulk[key]) continue;
+      try {
+        const printRes = await fetch(
+          `https://api.scryfall.com/cards/search?q=${encodeURIComponent('!"'+name+'"')}&order=released&dir=${dir}&unique=prints`,
+          {headers:{Accept:'application/json'}}
+        );
+        if (printRes.ok) {
+          const prints = await printRes.json();
+          const url = artUrlFromCard(prints.data?.[0]);
+          if (url && url !== artCache[key]) {
+            artCache[key] = url; saveArtCache();
+            // Replace any already-injected default img with the preferred print
+            document.querySelectorAll(`[data-art="${key}"] img`).forEach(img=>{ img.src = url; });
+          }
+        }
+      } catch(e) { /* leave default art in place */ }
+      await sleep(80);
+    }
   }
 }
 
@@ -2834,7 +2955,7 @@ function renderDeckWants() {
   for (const entries of Object.values(data.deckWants||{})) {
     for (const e of entries) { if (e.in) wantCardNames.push(e.in); }
   }
-  if (wantCardNames.length) fetchMissingArt(wantCardNames);
+  if (wantCardNames.length) fetchMissingArt(wantCardNames, {priority:'low'});
   setTimeout(() => {
     // AC on add-card inputs
     document.querySelectorAll('[id^="ain-"],[id^="aout-"]').forEach(el => {
