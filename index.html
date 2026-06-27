@@ -793,7 +793,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
-          <span>Zoom</span><span id="ap-s-val" style="color:var(--text)">1.0×</span>
+          <span>Zoom</span><span id="ap-s-val" style="color:var(--text)">1.30×</span>
         </div>
         <input id="ap-s" type="range" min="100" max="250" value="100" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
@@ -926,6 +926,7 @@ const FETCH_COOLDOWN = 60000; // only re-fetch from Drive if 60s have passed
 // loadFromDrive only overwrites if Drive version >= local version.
 let localVersion = 0;
 let artCache = {};
+const DEFAULT_ART_SCALE = 1.3; // default zoom for decks with no explicit scale (suits contain framing)
 let priceCache = {}; // card name -> {eur, usd, updated}
 let wantsTab = 'buy';
 // per-deck open/close state for wants by-deck
@@ -1074,8 +1075,8 @@ function deckArtHtml(deckUuidOrName) {
   const art2 = flipped && art2raw ? art1raw : art2raw;
   const pos1 = flipped && art2raw ? (d.partnerArtPosition||'50% 0%') : (d.artPosition||'50% 0%');
   const pos2 = flipped && art2raw ? (d.artPosition||'50% 0%') : (d.partnerArtPosition||'50% 0%');
-  const sc1  = flipped && art2raw ? (d.partnerArtScale||1) : (d.artScale||1);
-  const sc2  = flipped && art2raw ? (d.artScale||1) : (d.partnerArtScale||1);
+  const sc1  = flipped && art2raw ? (d.partnerArtScale||DEFAULT_ART_SCALE) : (d.artScale||DEFAULT_ART_SCALE);
+  const sc2  = flipped && art2raw ? (d.artScale||DEFAULT_ART_SCALE) : (d.partnerArtScale||DEFAULT_ART_SCALE);
   return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2);
 }
 
@@ -3741,12 +3742,12 @@ function artPickerUpdatePos() {
   const sv = document.getElementById('ap-s-val');
   if (xv) xv.textContent = `${Math.round(x)}%`;
   if (yv) yv.textContent = `${Math.round(y)}%`;
-  if (sv) sv.textContent = `${sc.toFixed(1)}×`;
+  if (sv) sv.textContent = `${sc.toFixed(2)}×`;
 }
 function artPickerResetPos() {
   const slX = document.getElementById('ap-x'); if (slX) slX.value = 0;
   const slY = document.getElementById('ap-y'); if (slY) slY.value = 0;
-  const slS = document.getElementById('ap-s'); if (slS) slS.value = 100;
+  const slS = document.getElementById('ap-s'); if (slS) slS.value = Math.round(DEFAULT_ART_SCALE * 100);
   const snapEl = document.getElementById('ap-snap'); if (snapEl) snapEl.checked = false;
   artPickerUpdatePos();
 }
@@ -3933,7 +3934,7 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
   const posArt    = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
   const scaleKey  = isPartner ? 'partnerArtScale' : 'artScale';
   const snapKey   = isPartner ? 'partnerArtSnap' : 'artSnap';
-  _artPickerPosScale = deck[scaleKey] || 1;
+  _artPickerPosScale = deck[scaleKey] || DEFAULT_ART_SCALE;
   _artPickerPosSnap  = !!deck[snapKey];
   openArtPicker(
     `${cmdName} — ${isPartner?'partner':'commander'} art`,
@@ -5508,8 +5509,8 @@ function rivalDeckArtHtml(deck) {
   const art2 = flipped && art2raw ? art1raw : art2raw;
   const pos1 = flipped && art2raw ? (deck.partnerArtPosition||'50% 0%') : (deck.artPosition||'50% 0%');
   const pos2 = flipped && art2raw ? (deck.artPosition||'50% 0%') : (deck.partnerArtPosition||'50% 0%');
-  const sc1  = flipped && art2raw ? (deck.partnerArtScale||1) : (deck.artScale||1);
-  const sc2  = flipped && art2raw ? (deck.artScale||1) : (deck.partnerArtScale||1);
+  const sc1  = flipped && art2raw ? (deck.partnerArtScale||DEFAULT_ART_SCALE) : (deck.artScale||DEFAULT_ART_SCALE);
+  const sc2  = flipped && art2raw ? (deck.artScale||DEFAULT_ART_SCALE) : (deck.partnerArtScale||DEFAULT_ART_SCALE);
   return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2);
 }
 
@@ -5786,7 +5787,7 @@ function openRivalDeckArtPicker(rivalId, deckId) {
     const posStr   = d0?.[posKey] || '50% 0%';
     const [px, py] = posToTranslate(posStr);
     const posArt   = d0?.[fieldKey] || artCache[scryfallKey(cmdName)] || null;
-    _artPickerPosScale = d0?.[scaleKey] || 1;
+    _artPickerPosScale = d0?.[scaleKey] || DEFAULT_ART_SCALE;
     _artPickerPosSnap  = !!d0?.[isPartner ? 'partnerArtSnap' : 'artSnap'];
     openArtPicker(
       `${cmdName} — ${isPartner?'partner':'commander'} art`,
@@ -5857,7 +5858,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   const posStr   = deck[posKey] || '50% 0%';
   const [px, py] = posToTranslate(posStr);
   const posArt   = deck[fieldKey] || artCache[scryfallKey(cmdName)] || null;
-  _artPickerPosScale = deck[scaleKey] || 1;
+  _artPickerPosScale = deck[scaleKey] || DEFAULT_ART_SCALE;
   _artPickerPosSnap  = !!deck[isPartner ? 'partnerArtSnap' : 'artSnap'];
   openArtPicker(
     `${cmdName} — ${isPartner?'partner':'commander'} art`,
