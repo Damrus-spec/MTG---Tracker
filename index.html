@@ -801,17 +801,15 @@ input.setting-input[type="number"]{width:90px}
     <div id="ap-panel-position" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:14px 16px;gap:14px">
       <div style="position:relative;width:100%;padding-bottom:70%;overflow:hidden;border-radius:6px;background:var(--bg);touch-action:none;cursor:grab" id="ap-pos-bg">
         <span style="position:absolute;top:3px;right:5px;z-index:3;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:600;padding:0 5px;border-radius:3px;line-height:15px;pointer-events:none">Full art</span>
-        <div id="ap-frame-deck" style="display:none;position:absolute;border:2px solid #5bd16a;pointer-events:none;box-sizing:border-box;z-index:2">
-          <span style="position:absolute;top:-9px;left:4px;background:#5bd16a;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">Decks</span>
-        </div>
+        <div id="ap-frame-deck" style="display:none;position:absolute;border:2px solid #5bd16a;pointer-events:none;box-sizing:border-box;z-index:2"></div>
         <img id="ap-pos-img" src="" alt="" draggable="false" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center;user-select:none;pointer-events:none">
         <!-- Crop-frame overlays (positioned by JS) -->
-        <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;pointer-events:none;box-sizing:border-box;z-index:2">
-          <span style="position:absolute;top:-9px;right:4px;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">Score</span>
-        </div>
-        <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box;z-index:2">
-          <span style="position:absolute;bottom:-9px;right:4px;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px">History / Wants / Rivals</span>
-        </div>
+        <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;pointer-events:none;box-sizing:border-box;z-index:2"></div>
+        <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box;z-index:2"></div>
+        <!-- Frame labels live at container level so they always sit above every frame line -->
+        <span id="ap-lbl-deck"  style="display:none;position:absolute;z-index:20;background:#5bd16a;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Decks</span>
+        <span id="ap-lbl-score" style="display:none;position:absolute;z-index:20;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Score</span>
+        <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Wants / Rivals</span>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
@@ -4231,7 +4229,7 @@ function artPickerUpdatePos() {
     // For a cell of aspect cellAR, cover shows a window of the art. Window size as
     // fraction of the displayed art, then shrunk by zoom (sc). Position within the
     // art from object-position (x,y in 0..100).
-    const placeCropFrame = (el, cellAR) => {
+    const placeCropFrame = (el, cellAR, lblEl, corner) => {
       if (!el) return;
       let winWFrac, winHFrac;
       if (cellAR > artAR) { winWFrac = 1; winHFrac = artAR / cellAR; } // cell wider: full width, crop height
@@ -4245,10 +4243,17 @@ function artPickerUpdatePos() {
       el.style.display = 'block';
       el.style.left = left + 'px'; el.style.top = top + 'px';
       el.style.width = w + 'px';   el.style.height = h + 'px';
+      // Position the label (container-level, top layer) at a chosen corner
+      if (lblEl) {
+        lblEl.style.display = 'block';
+        if (corner === 'tl') { lblEl.style.left = (left+2)+'px'; lblEl.style.top = (top-8)+'px'; lblEl.style.right=''; lblEl.style.bottom=''; }
+        else if (corner === 'tr') { lblEl.style.left = ''; lblEl.style.right = (fw-(left+w)+2)+'px'; lblEl.style.top = (top-8)+'px'; lblEl.style.bottom=''; }
+        else { lblEl.style.left = ''; lblEl.style.right = (fw-(left+w)+2)+'px'; lblEl.style.top = (top+h-7)+'px'; lblEl.style.bottom=''; }
+      }
     };
-    placeCropFrame(document.getElementById('ap-frame-deck'),  _apDeckMgrAR);
-    placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR);
-    placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR);
+    placeCropFrame(document.getElementById('ap-frame-deck'),  _apDeckMgrAR, document.getElementById('ap-lbl-deck'),  'tl');
+    placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR, document.getElementById('ap-lbl-score'), 'tr');
+    placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR, document.getElementById('ap-lbl-sq'), 'br');
   }
 
   const xv = document.getElementById('ap-x-val');
