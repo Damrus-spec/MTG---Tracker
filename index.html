@@ -4582,11 +4582,10 @@ function renderEditor() {
   if (!tbody) return;
 
   const history = (data.history||[]);
-  // Sort chronologically for display, preserve original index for edits
-  const indexed = history
+  // Filter to valid + searched entries first (keep original index for edits)
+  const filtered = history
     .map((h,i)=>({h,i}))
     .filter(({h})=> h.last && h.deck)
-    .sort((a,b)=>editorSortDir*(a.h.date||'').localeCompare(b.h.date||''))
     .filter(({h})=>{
       if (!q) return true;
       const displayN = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || '';
@@ -4595,9 +4594,24 @@ function renderEditor() {
     })
     .filter(({h})=>!resF || h.last===resF);
 
-  tbody.innerHTML = indexed.map(({h,i}, rowNum)=>`
+  // Assign a FIXED chronological rank to each entry (oldest = #1), independent of
+  // the current sort direction. Ties on date break by original index for stability.
+  const chrono = filtered.slice().sort((a,b)=>{
+    const c = (a.h.date||'').localeCompare(b.h.date||'');
+    return c !== 0 ? c : (a.i - b.i);
+  });
+  const rankByIdx = {};
+  chrono.forEach(({i}, n) => { rankByIdx[i] = n + 1; });
+
+  // Now order for display per the chosen sort direction
+  const indexed = filtered.slice().sort((a,b)=>{
+    const c = editorSortDir*(a.h.date||'').localeCompare(b.h.date||'');
+    return c !== 0 ? c : editorSortDir*(a.i - b.i);
+  });
+
+  tbody.innerHTML = indexed.map(({h,i})=>`
     <tr class="editor-row" data-idx="${i}">
-      <td style="color:var(--text3);padding-left:12px;white-space:nowrap">#${rowNum+1}</td>
+      <td style="color:var(--text3);padding-left:12px;white-space:nowrap">#${rankByIdx[i]}</td>
       <td style="padding:0">${(()=>{
         const cmdName=(h.deck||'').split(' // ')[0].trim();
         const k=scryfallKey(cmdName);
