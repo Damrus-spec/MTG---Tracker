@@ -826,13 +826,13 @@ input.setting-input[type="number"]{width:90px}
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="-50" max="150" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-100" max="200" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
         </div>
-        <input id="ap-y" type="range" min="-50" max="150" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-y" type="range" min="-100" max="200" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -1008,7 +1008,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.10';
+const APP_VERSION = '2026.06.27.11';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4417,10 +4417,10 @@ function artPickerBindDrag() {
     const dyPct = (dyPx / rect.height) * 100;
     const slX = document.getElementById('ap-x');
     const slY = document.getElementById('ap-y');
-    // Dragging right moves the crop window right over the art. Allow 50% past each
-    // edge (−50..150) so art can be pushed partly off-frame (clipping).
-    if (slX) slX.value = Math.max(-50, Math.min(150, parseFloat(slX.value||50) + dxPct));
-    if (slY) slY.value = Math.max(-50, Math.min(150, parseFloat(slY.value||50) + dyPct));
+    // Dragging right moves the crop window right over the art. Allow well past each
+    // edge (−100..200) so art can be panned far via object-position extrapolation.
+    if (slX) slX.value = Math.max(-100, Math.min(200, parseFloat(slX.value||50) + dxPct));
+    if (slY) slY.value = Math.max(-100, Math.min(200, parseFloat(slY.value||50) + dyPct));
     artPickerUpdatePos();
     e.preventDefault();
   };
