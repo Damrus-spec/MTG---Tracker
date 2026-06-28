@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.24';
+const APP_VERSION = '2026.06.27.25';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2867,7 +2867,7 @@ function commitPending() {
 
     const oppArr = (pendingOpponents[name] || []).filter(o=>o.playerId&&o.deckId);
     for (let i=0; i<p.wins; i++) {
-      const entry = {date:today, deck:deckName, last:'Win'};
+      const entry = {id:genUUID(), date:today, deck:deckName, last:'Win'};
       if (deckUuid) entry.deckUuid = deckUuid;
       if (issArr.length && i===p.wins-1 && p.losses===0) entry.issues = issArr;
       if (oppArr.length) entry.opponents = oppArr;
@@ -2875,7 +2875,7 @@ function commitPending() {
       totalLogged++;
     }
     for (let i=0; i<p.losses; i++) {
-      const entry = {date:today, deck:deckName, last:'Loss'};
+      const entry = {id:genUUID(), date:today, deck:deckName, last:'Loss'};
       if (deckUuid) entry.deckUuid = deckUuid;
       if (issArr.length && i===p.losses-1) entry.issues = issArr;
       if (oppArr.length) entry.opponents = oppArr;
@@ -5653,14 +5653,24 @@ function deduplicateHistory() {
     const h = data.history[i];
     if (!h.last || !h.deck) continue;
     const deckKey = h.deckUuid || h.deck;
-    const sig = `${deckKey}|${h.date}|${h.last}|${h.wins??''}|${h.losses??''}`;
 
-    // Remove exact duplicates
-    if (seen.has(sig)) { toRemove.add(i); continue; }
-    seen.add(sig);
+    // Entries with a unique id are only "duplicates" of another entry with the
+    // SAME id (a true re-save). Distinct games logged the same day/deck/result get
+    // distinct ids and must NOT be removed.
+    if (h.id) {
+      if (seen.has('id:'+h.id)) { toRemove.add(i); continue; }
+      seen.add('id:'+h.id);
+    } else {
+      // Legacy entries without an id: fall back to field signature dedup.
+      const sig = `${deckKey}|${h.date}|${h.last}|${h.wins??''}|${h.losses??''}`;
+      if (seen.has(sig)) { toRemove.add(i); continue; }
+      seen.add(sig);
+    }
 
-    // Remove no-snapshot entries when a snapshot exists for same deck+date
-    if (h.wins == null && hasSnapshot.has(`${deckKey}|${h.date}`)) {
+    // Remove no-snapshot LEGACY entries (no id) when a snapshot exists for same
+    // deck+date. Never applies to id'd per-game entries (which legitimately have
+    // no wins/losses snapshot of their own).
+    if (!h.id && h.wins == null && hasSnapshot.has(`${deckKey}|${h.date}`)) {
       toRemove.add(i);
     }
   }
