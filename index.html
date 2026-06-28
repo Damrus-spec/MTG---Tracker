@@ -815,7 +815,7 @@ input.setting-input[type="number"]{width:90px}
         <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Wants / Rivals</span>
         <!-- Partner diagonal cut indicator (shown only for partnered, non-single decks) -->
         <svg id="ap-split" style="display:none;position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none">
-          <polygon id="ap-split-dim" points="" fill="rgba(0,0,0,0.6)"/>
+          <polygon id="ap-split-dim" points="" fill="rgba(0,0,0,0.65)"/>
           <line id="ap-split-line" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="2" stroke-dasharray="5 4" opacity="0.95"/>
         </svg>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
@@ -1008,7 +1008,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.17';
+const APP_VERSION = '2026.06.27.18';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4424,22 +4424,20 @@ function artPickerUpdatePos() {
       const ft = parseFloat(deckFrame.style.top)||0;
       const fwf = parseFloat(deckFrame.style.width)||0;
       const fhf = parseFloat(deckFrame.style.height)||0;
-      // splitArtHtml diagonal goes 55% (top) -> 40% (bottom) of the cell width
       const xTop = fl + 0.55*fwf, xBot = fl + 0.40*fwf;
       splitLine.setAttribute('x1', xTop);
       splitLine.setAttribute('y1', ft);
       splitLine.setAttribute('x2', xBot);
       splitLine.setAttribute('y2', ft + fhf);
-      // Dim the wedge NOT being edited, so you frame within the visible slice
-      // (this is what actually renders for the slot). Editing partner = right
-      // wedge visible → dim the left; editing commander = left visible → dim right.
+      // Darken the wedge this art does NOT render into, so the bright area is
+      // exactly the slice that will show. This art is on _artPickerSplitSide.
       if (splitDim) {
         const top = ft, bot = ft + fhf, right = fl + fwf;
         if (_artPickerSplitSide === 'right') {
-          // dim LEFT wedge
+          // this art = right wedge → dim the LEFT wedge
           splitDim.setAttribute('points', `${fl},${top} ${xTop},${top} ${xBot},${bot} ${fl},${bot}`);
         } else {
-          // dim RIGHT wedge
+          // this art = left wedge → dim the RIGHT wedge
           splitDim.setAttribute('points', `${xTop},${top} ${right},${top} ${right},${bot} ${xBot},${bot}`);
         }
       }
@@ -4697,7 +4695,7 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
     (x, y, sc, snap) => { data.colorDecks[idx][posKey] = `@${x} ${y}`; data.colorDecks[idx][isPartner?'partnerArtScale':'artScale'] = sc||1; data.colorDecks[idx][snapKey] = !!snap; renderDeckMgr(); scheduleSync(); }
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
-  _artPickerSplitSide = isPartner ? 'right' : 'left';
+  _artPickerSplitSide = ((!!isPartner) !== (!!deck.artFlipped)) ? 'right' : 'left';
 }
 
 function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
@@ -6819,7 +6817,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
     (x, y, sc, snap) => { const dk = freshDeck(); if (!dk) return; dk[posKey]=`@${x} ${y}`; dk[scaleKey]=sc||1; dk[isPartner?'partnerArtSnap':'artSnap']=!!snap; scheduleSync(); renderRivals(); }
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
-  _artPickerSplitSide = isPartner ? 'right' : 'left';
+  _artPickerSplitSide = ((!!isPartner) !== (!!deck.artFlipped)) ? 'right' : 'left';
 }
 
 function rivalDeckResetArt(rivalId, deckId, isPartner) {
