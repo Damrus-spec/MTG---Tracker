@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.6';
+const APP_VERSION = '2026.06.27.7';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1324,7 +1324,7 @@ function loadLocal() {
   try { driveWantsId  = localStorage.getItem('mtg_wants_id')||null; } catch(e) {}
   try { driveListsId  = localStorage.getItem('mtg_lists_id')||null; } catch(e) {}
   try { artCache = JSON.parse(localStorage.getItem('mtg_art')||'{}'); } catch(e) { artCache={}; }
-  try { partnerCache = JSON.parse(localStorage.getItem('mtg_partners')||'{}'); } catch(e) { partnerCache={}; }
+  try { partnerCache = JSON.parse(localStorage.getItem('mtg_partners_v2')||'{}'); } catch(e) { partnerCache={}; }
   try { priceCache = JSON.parse(localStorage.getItem('mtg_prices')||'{}'); } catch(e) { priceCache={}; }
 
   if (!accessToken) {
@@ -1355,7 +1355,7 @@ function loadLocal() {
   } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
 }
 function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artCache));}catch(e){} }
-function savePartnerCache() { try{localStorage.setItem('mtg_partners',JSON.stringify(partnerCache));}catch(e){} }
+function savePartnerCache() { try{localStorage.setItem('mtg_partners_v2',JSON.stringify(partnerCache));}catch(e){} }
 
 // Resolve a commander's partner (the "Partner with" pairing), cached and retried.
 // Returns the partner card name, or '' if the card has no fixed partner.
@@ -1370,9 +1370,16 @@ async function lookupPartner(name) {
         {headers:{Accept:'application/json'}});
       if (!res.ok) { if (res.status===404) { partnerCache[key]=''; savePartnerCache(); return ''; } continue; }
       const card = await res.json();
-      // "Partner with X" gives a fixed pairing via all_parts combo_piece
-      const partnerWith = card.all_parts?.find(p=>p.component==='combo_piece' && p.name!==card.name);
-      const partner = partnerWith ? partnerWith.name : '';
+      let partner = '';
+      // Only a genuine "Partner with X" pairing should autofill — never a token,
+      // meld piece, or other related card. Require the keyword AND parse the named
+      // partner from the oracle text ("Partner with <Name> (...)").
+      const kws = (card.keywords||[]).map(k=>k.toLowerCase());
+      const oracle = card.oracle_text || card.card_faces?.[0]?.oracle_text || '';
+      if (kws.includes('partner with')) {
+        const m = oracle.match(/Partner with ([^\(\n]+?)(?:\s*\(|$|\n)/i);
+        if (m) partner = m[1].trim();
+      }
       partnerCache[key] = partner; savePartnerCache();
       return partner;
     } catch(e) { /* retry once */ await sleep(150); }
