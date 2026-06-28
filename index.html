@@ -815,6 +815,7 @@ input.setting-input[type="number"]{width:90px}
         <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Wants / Rivals</span>
         <!-- Partner diagonal cut indicator (shown only for partnered, non-single decks) -->
         <svg id="ap-split" style="display:none;position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none">
+          <polygon id="ap-split-dim" points="" fill="rgba(0,0,0,0.6)"/>
           <line id="ap-split-line" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="2" stroke-dasharray="5 4" opacity="0.95"/>
         </svg>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
@@ -1007,7 +1008,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.16';
+const APP_VERSION = '2026.06.27.17';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4416,6 +4417,7 @@ function artPickerUpdatePos() {
     // split lives), so it moves and scales with the frame as you reposition.
     const splitEl = document.getElementById('ap-split');
     const splitLine = document.getElementById('ap-split-line');
+    const splitDim = document.getElementById('ap-split-dim');
     const deckFrame = document.getElementById('ap-frame-deck');
     if (splitEl && splitLine && _artPickerShowSplit && deckFrame && deckFrame.style.display !== 'none') {
       const fl = parseFloat(deckFrame.style.left)||0;
@@ -4423,10 +4425,24 @@ function artPickerUpdatePos() {
       const fwf = parseFloat(deckFrame.style.width)||0;
       const fhf = parseFloat(deckFrame.style.height)||0;
       // splitArtHtml diagonal goes 55% (top) -> 40% (bottom) of the cell width
-      splitLine.setAttribute('x1', fl + 0.55*fwf);
+      const xTop = fl + 0.55*fwf, xBot = fl + 0.40*fwf;
+      splitLine.setAttribute('x1', xTop);
       splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', fl + 0.40*fwf);
+      splitLine.setAttribute('x2', xBot);
       splitLine.setAttribute('y2', ft + fhf);
+      // Dim the wedge NOT being edited, so you frame within the visible slice
+      // (this is what actually renders for the slot). Editing partner = right
+      // wedge visible → dim the left; editing commander = left visible → dim right.
+      if (splitDim) {
+        const top = ft, bot = ft + fhf, right = fl + fwf;
+        if (_artPickerSplitSide === 'right') {
+          // dim LEFT wedge
+          splitDim.setAttribute('points', `${fl},${top} ${xTop},${top} ${xBot},${bot} ${fl},${bot}`);
+        } else {
+          // dim RIGHT wedge
+          splitDim.setAttribute('points', `${xTop},${top} ${right},${top} ${right},${bot} ${xBot},${bot}`);
+        }
+      }
       splitEl.style.display = 'block';
     } else if (splitEl) {
       splitEl.style.display = 'none';
