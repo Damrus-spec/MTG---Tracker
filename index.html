@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.19';
+const APP_VERSION = '2026.06.27.20';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4385,18 +4385,20 @@ function artPickerUpdatePos() {
       winWFrac = Math.min(1, winWFrac / sc);
       winHFrac = Math.min(1, winHFrac / sc);
       const w = dispW * winWFrac, h = dispH * winHFrac;
-      // Keep ALL frames centered on the SAME art point, but clamp within the art
-      // bounds (matching the render's clamp) so the frame never slides off the art
-      // and implies background that the real cover-render won't show.
-      const cx = dispL + (x/100) * dispW;
-      const cy = dispT + (y/100) * dispH;
-      let left = cx - w/2;
-      let top  = cy - h/2;
-      // For partner (split) art the wedge only shows a slice, so allow the frame to
-      // extend further off the art (matches the render's extra clamp room).
-      const exPx = _artPickerShowSplit ? 0.6 : 0;
-      left = Math.max(dispL - exPx*w, Math.min(dispL + dispW - w + exPx*w, left));
-      top  = Math.max(dispT - exPx*h, Math.min(dispT + dispH - h + exPx*h, top));
+      // Clamp the object-position FRACTION the same way the render does
+      // (centerToObjectPos clamps op to [-extra, 1+extra]); then derive the frame
+      // rect from that, so the editor preview matches the render exactly.
+      const extra = _artPickerShowSplit ? 0.6 : 0;
+      const opFrac = (P, win) => {
+        if (win >= 1) return 0.5;
+        const op = (P/100 - win/2) / (1 - win);
+        return Math.max(-extra, Math.min(1 + extra, op));
+      };
+      const opx = opFrac(x, winWFrac);
+      const opy = opFrac(y, winHFrac);
+      // object-position fraction -> frame left/top: left = dispL + op*(dispW - w)
+      const left = dispL + opx * (dispW - w);
+      const top  = dispT + opy * (dispH - h);
       el.style.display = 'block';
       el.style.left = left + 'px'; el.style.top = top + 'px';
       el.style.width = w + 'px';   el.style.height = h + 'px';
