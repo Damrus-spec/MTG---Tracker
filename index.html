@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -998,6 +1001,24 @@ function deckDisplayName(d) {
 // DECK EXPORT / IMPORT  (share decks + art setup between users)
 // ============================================================
 const DECK_SHARE_VERSION = 1;
+// Bump APP_VERSION on each deploy; the self-update check below force-reloads
+// clients still running an older cached copy so fixes always reach everyone.
+const APP_VERSION = '2026.06.27.1';
+async function checkForUpdate() {
+  try {
+    // Only attempt once per session to avoid reload loops
+    if (sessionStorage.getItem('mtg_update_checked')) return;
+    sessionStorage.setItem('mtg_update_checked', '1');
+    const res = await fetch('index.html?cb=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] && m[1] !== APP_VERSION) {
+      // A newer version is live but we're running a cached older one — reload fresh.
+      location.reload();
+    }
+  } catch(e) { /* offline or fetch blocked — ignore */ }
+}
 
 // Extract the Scryfall card/print ID (UUID) from a stored art_crop override URL.
 function scryfallIdFromArt(url) {
@@ -4408,6 +4429,7 @@ function artPickerSelect(url, cardName, el) {
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('art-picker-search');
   if (el) initAC('art-picker-search', null);
+  checkForUpdate();
 });
 
 
