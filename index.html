@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.14';
+const APP_VERSION = '2026.06.27.15';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1457,7 +1457,13 @@ function centerToObjectPos(px, py, cellAR, artAR, sc) {
   winH = Math.min(1, winH / sc);
   // Center P (0..1) relates to object-position op (0..1) by:
   //   centerFrac = op*(1-win) + win/2  =>  op = (P - win/2)/(1-win)
-  const conv = (P, win) => win >= 1 ? 0.5 : (P - win/2) / (1 - win);
+  // Clamp op to [0,1]: beyond that the art edge enters the cell and exposes the
+  // background. Clamping keeps the cell fully covered (matches the real render).
+  const conv = (P, win) => {
+    if (win >= 1) return 0.5;
+    const op = (P - win/2) / (1 - win);
+    return Math.max(0, Math.min(1, op));
+  };
   return [conv(px/100, winW) * 100, conv(py/100, winH) * 100];
 }
 function applyCenterCrop(img) {
@@ -4376,13 +4382,15 @@ function artPickerUpdatePos() {
       winWFrac = Math.min(1, winWFrac / sc);
       winHFrac = Math.min(1, winHFrac / sc);
       const w = dispW * winWFrac, h = dispH * winHFrac;
-      // Keep ALL frames centered on the SAME point of the art, so they stay
-      // concentric (share a center line) instead of drifting at different speeds.
-      // The shared center is the art point selected by object-position (x,y).
+      // Keep ALL frames centered on the SAME art point, but clamp within the art
+      // bounds (matching the render's clamp) so the frame never slides off the art
+      // and implies background that the real cover-render won't show.
       const cx = dispL + (x/100) * dispW;
       const cy = dispT + (y/100) * dispH;
       let left = cx - w/2;
       let top  = cy - h/2;
+      left = Math.max(dispL, Math.min(dispL + dispW - w, left));
+      top  = Math.max(dispT, Math.min(dispT + dispH - h, top));
       el.style.display = 'block';
       el.style.left = left + 'px'; el.style.top = top + 'px';
       el.style.width = w + 'px';   el.style.height = h + 'px';
