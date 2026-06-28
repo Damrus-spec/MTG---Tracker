@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.7';
+const APP_VERSION = '2026.06.27.8';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3984,18 +3984,20 @@ function renderDeckMgr() {
           ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
 
         </div>
-        ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Swap which partner art shows in front">
-          <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-          flip
-        </label>
-        <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Use one image across the whole card instead of the split (flip chooses which commander)">
-          <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateDeckField(${i},'partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-          single
-        </label>
-        <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Mirror the diagonal split direction (put a wedge on the other side)">
-          <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateDeckField(${i},'artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-          cut ⤢
-        </label>`:''}
+        ${d.partner?`<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;width:150px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Swap which partner art shows in front">
+            <input type="checkbox" ${flipped?'checked':''} onchange="updateDeckField(${i},'artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+            flip
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Use one image across the whole card instead of the split (flip chooses which commander)">
+            <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateDeckField(${i},'partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+            single
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Mirror the diagonal split direction (put a wedge on the other side)">
+            <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateDeckField(${i},'artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+            cut ⤢
+          </label>
+        </div>`:''}
       </div>
       <div class="deck-mgr-fields">
         <input type="text" value="${(d.label||'').replace(/"/g,'&quot;')}" placeholder="Display name (optional)"
@@ -6480,18 +6482,20 @@ function renderRivals() {
             ${artHtml}
             ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="rivals"></span>`:''}
           </div>
-          ${d.partner?`<label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Swap which partner art shows in front">
-            <input type="checkbox" ${flipped?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-            flip
-          </label>
-          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Use one image across the whole card instead of the split (flip chooses which commander)">
-            <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-            single
-          </label>
-          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0;background:var(--bg)" title="Mirror the diagonal split direction">
-            <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-            cut ⤢
-          </label>`:''}
+          ${d.partner?`<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px">
+            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Swap which partner art shows in front">
+              <input type="checkbox" ${flipped?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','artFlipped',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+              flip
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Use one image across the whole card instead of the split (flip chooses which commander)">
+              <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+              single
+            </label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Mirror the diagonal split direction">
+              <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
+              cut ⤢
+            </label>
+          </div>`:''}
         </div>
         <div class="deck-mgr-fields">
           <input type="text" value="${(d.name||'').replace(/"/g,'&quot;')}" placeholder="Commander name"
