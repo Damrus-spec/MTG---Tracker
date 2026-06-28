@@ -2554,7 +2554,7 @@ function renderScore() {
               </select>
               <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
                 <option value="">— Deck —</option>
-                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${d.name}</option>`).join('')}
+                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('')}
               </select>
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
@@ -6115,7 +6115,7 @@ function autofillPreferredRivals(eid) {
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     if (ds) {
       ds.innerHTML = '<option value="">— Deck —</option>' +
-        activeDecks.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+        activeDecks.map(d=>`<option value="${d.id}">${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('');
       ds.value = deckId;
       ds.style.display = '';
     }
@@ -6145,7 +6145,7 @@ function onOppPlayerChange(eid, deckKey, slot) {
     const rival = (data.opponents||[]).find(r=>r.id===playerId);
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     deckSel.innerHTML = '<option value="">— Deck —</option>' +
-      activeDecks.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+      activeDecks.map(d=>`<option value="${d.id}">${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('');
     deckSel.style.display = '';
     // Auto-select: preferred (starred) deck first, then only-deck fallback
     const preferred = activeDecks.find(d=>d.preferred);
