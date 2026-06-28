@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.20';
+const APP_VERSION = '2026.06.27.21';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3066,7 +3066,8 @@ function openIssuePanelFull(deckName, uuid) {
         if (!ra.decks[o.deckId]) {
           const riv = allRivalsKnown.find(r=>r.id===o.playerId);
           const dk = riv?.decks?.find(d=>d.id===o.deckId);
-          ra.decks[o.deckId] = { name: dk?.name||'Unknown deck', wins:0, losses:0 };
+          const dkName = dk ? (dk.partner ? `${dk.name} // ${dk.partner}` : dk.name) : 'Unknown deck';
+          ra.decks[o.deckId] = { name: dkName, wins:0, losses:0 };
         }
         if (h.last==='Win') ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
       }
