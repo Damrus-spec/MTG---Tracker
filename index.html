@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.25';
+const APP_VERSION = '2026.06.27.26';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4430,25 +4430,20 @@ function artPickerUpdatePos() {
     placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR, document.getElementById('ap-lbl-score'), 'tr');
     placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR, document.getElementById('ap-lbl-sq'), 'br');
 
-    // Partner diagonal cut: draw it ACROSS the Decks crop frame (the cell where the
-    // split lives), so it moves and scales with the frame as you reposition.
+    // Partner diagonal cut: the cut is FIXED on the cell (always 55%/40% of the
+    // cell width). Anchor it to the deck frame's actual position so it sits where
+    // the render's cut is, regardless of how the art pans behind it.
     const splitEl = document.getElementById('ap-split');
     const splitLine = document.getElementById('ap-split-line');
     const deckFrame = document.getElementById('ap-frame-deck');
     if (splitEl && splitLine && _artPickerShowSplit && deckFrame && deckFrame.style.display !== 'none') {
-      // The cut line marks the diagonal on the rendered cell. Track it to the art's
-      // raw horizontal position (the slider) so it slides the full range with the
-      // art, instead of freezing when a particular frame's clamp engages.
+      const fl = parseFloat(deckFrame.style.left)||0;
       const ft = parseFloat(deckFrame.style.top)||0;
       const fwf = parseFloat(deckFrame.style.width)||0;
       const fhf = parseFloat(deckFrame.style.height)||0;
-      // Map slider x (−200..300) to a horizontal offset across the displayed art.
-      // Center (x=50) keeps the line centered on the deck frame; beyond that it
-      // tracks the art edge motion 1:1 with how the art slides.
-      const artLeft = dispL + (x/100) * dispW - fwf/2; // frame-left following raw x
-      splitLine.setAttribute('x1', artLeft + 0.55*fwf);
+      splitLine.setAttribute('x1', fl + 0.55*fwf);
       splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', artLeft + 0.40*fwf);
+      splitLine.setAttribute('x2', fl + 0.40*fwf);
       splitLine.setAttribute('y2', ft + fhf);
       splitEl.style.display = 'block';
     } else if (splitEl) {
