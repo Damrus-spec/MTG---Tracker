@@ -814,8 +814,8 @@ input.setting-input[type="number"]{width:90px}
         <span id="ap-lbl-score" style="display:none;position:absolute;z-index:20;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Score</span>
         <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Wants / Rivals</span>
         <!-- Partner diagonal cut indicator (shown only for partnered, non-single decks) -->
-        <svg id="ap-split" viewBox="0 0 100 100" style="display:none;position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none" preserveAspectRatio="none">
-          <line id="ap-split-line" x1="55" y1="0" x2="40" y2="100" stroke="#fff" stroke-width="0.6" stroke-dasharray="2 1.5" opacity="0.9"/>
+        <svg id="ap-split" style="display:none;position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none">
+          <line id="ap-split-line" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="2" stroke-dasharray="5 4" opacity="0.95"/>
         </svg>
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center" id="ap-pos-noart">
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.4';
+const APP_VERSION = '2026.06.27.5';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4341,11 +4341,27 @@ function artPickerUpdatePos() {
     placeCropFrame(document.getElementById('ap-frame-deck'),  _apDeckMgrAR, document.getElementById('ap-lbl-deck'),  'tl');
     placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR, document.getElementById('ap-lbl-score'), 'tr');
     placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR, document.getElementById('ap-lbl-sq'), 'br');
-  }
 
-  // Partner diagonal cut indicator
-  const splitEl = document.getElementById('ap-split');
-  if (splitEl) splitEl.style.display = _artPickerShowSplit ? 'block' : 'none';
+    // Partner diagonal cut: draw it ACROSS the Decks crop frame (the cell where the
+    // split lives), so it moves and scales with the frame as you reposition.
+    const splitEl = document.getElementById('ap-split');
+    const splitLine = document.getElementById('ap-split-line');
+    const deckFrame = document.getElementById('ap-frame-deck');
+    if (splitEl && splitLine && _artPickerShowSplit && deckFrame && deckFrame.style.display !== 'none') {
+      const fl = parseFloat(deckFrame.style.left)||0;
+      const ft = parseFloat(deckFrame.style.top)||0;
+      const fwf = parseFloat(deckFrame.style.width)||0;
+      const fhf = parseFloat(deckFrame.style.height)||0;
+      // splitArtHtml diagonal goes 55% (top) -> 40% (bottom) of the cell width
+      splitLine.setAttribute('x1', fl + 0.55*fwf);
+      splitLine.setAttribute('y1', ft);
+      splitLine.setAttribute('x2', fl + 0.40*fwf);
+      splitLine.setAttribute('y2', ft + fhf);
+      splitEl.style.display = 'block';
+    } else if (splitEl) {
+      splitEl.style.display = 'none';
+    }
+  }
 
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
