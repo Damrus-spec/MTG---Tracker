@@ -844,6 +844,7 @@ input.setting-input[type="number"]{width:90px}
         <input id="ap-snap" type="checkbox" onchange="artPickerUpdatePos()" style="accent-color:var(--blue);width:13px;height:13px;margin:0;cursor:pointer">
         Snap to edges
       </label>
+      <button id="ap-swap-side" title="Swap this art to the other side of the diagonal cut" onclick="artPickerSwapSide()" style="display:none;width:100%;margin-top:6px;padding:9px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text2);cursor:pointer;font-size:13px"><i class="ti ti-switch-horizontal" style="font-size:14px;vertical-align:-2px"></i> Swap to other side of cut</button>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button title="Reset position, zoom and snap to default" onclick="artPickerResetPos()" style="flex:0 0 auto;padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text2);cursor:pointer;font-size:13px">Reset position</button>
         <button title="Apply crop position and zoom to this deck" onclick="artPickerSavePos()" class="submit-btn" style="flex:1;padding:10px">Save position</button>
@@ -1007,7 +1008,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.8';
+const APP_VERSION = '2026.06.27.9';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1052,7 +1053,6 @@ function extractShareDeck(d) {
   if (d.partnerArtSnap) o.sn2 = 1;
   if (d.artFlipped)     o.fl = 1;
   if (d.partnerSingleArt) o.si = 1;
-  if (d.artSplitFlip)   o.sf = 1;
   return o;
 }
 
@@ -1067,7 +1067,6 @@ function applyShareFields(target, src) {
   target.partnerArtSnap = !!src.sn2;
   target.artFlipped = !!src.fl;
   target.partnerSingleArt = !!src.si;
-  target.artSplitFlip = !!src.sf;
   // Resolve exact art from print IDs (if any); fall back to name resolution otherwise.
   if (src.i1) resolveArtById(src.i1).then(url => {
     if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } renderRivals(); }
@@ -1416,7 +1415,7 @@ function deckArtHtml(deckUuidOrName) {
   if (d.partner && d.partnerSingleArt) {
     return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1);
   }
-  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2, d.artSplitFlip);
+  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2);
 }
 
 // Crop position stored as object-position percentages "X% Y%" (0..100, 50/50=center)
@@ -1439,7 +1438,7 @@ function posToObjectPos(pos) {
   return [isNaN(ox)?50:ox, isNaN(oy)?0:oy];
 }
 
-function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, splitFlip) {
+function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   if (!art1 && !art2) return '';
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
@@ -1454,20 +1453,15 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, splitF
     return `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${ox}% ${oy}%;transform:scale(${sc});transform-origin:${ox}% ${oy}%`;
   };
   if (a && b) {
-    // Diagonal wedges, cover crop. splitFlip mirrors the cut direction so the
-    // partner wedge can sit on the side where its subject is.
-    // Default cut: top 55% -> bottom 40% ("\" lean). Flipped: top 45% -> 60% ("/").
-    const lA = splitFlip ? '45%' : '55%', lB = splitFlip ? '60%' : '40%';
-    const sLo = splitFlip ? '44%' : '54%', sHi = splitFlip ? '46%' : '56%';
-    const sLoB = splitFlip ? '59%' : '41%', sHiB = splitFlip ? '61%' : '39%';
+    // Split/partner art: diagonal wedges, cover crop.
     return `
-      <div style="position:absolute;inset:0;clip-path:polygon(0 0,${lA} 0,${lB} 100%,0 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
         <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
       </div>
-      <div style="position:absolute;inset:0;clip-path:polygon(${lA} 0,100% 0,100% 100%,${lB} 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
         <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)}">
       </div>
-      <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(${sLo} 0,${sHi} 0,${sLoB} 100%,${sHiB} 100%);background:rgba(0,0,0,.85)"></div>`;
+      <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
   return `<img src="${a||b}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">`;
 }
@@ -3993,10 +3987,6 @@ function renderDeckMgr() {
             <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateDeckField(${i},'partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
             single
           </label>
-          <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Mirror the diagonal split direction (put a wedge on the other side)">
-            <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateDeckField(${i},'artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-            cut ⤢
-          </label>
         </div>`:''}
       </div>
       <div class="deck-mgr-fields">
@@ -4203,7 +4193,7 @@ let _artPickerPosCallback = null; // fn(x, y) — called when position saved
 let _artPickerPosArt   = null;  // current art URL for reposition preview
 let _artPickerShowSplit = false; // show partner diagonal cut on canvas
 let _artPickerSplitSide = 'left';
-let _artPickerSplitFlip = false;
+let _artPickerSwapSideCb = null; // toggles artFlipped for the deck being repositioned
 let _artPickerPosX     = 50;
 let _artPickerPosY     = 50;
 let _artPickerPosScale = 1;
@@ -4215,7 +4205,7 @@ const ART_FRAME_H = 110; // approx full row height (art fills stretch)
 
 function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
   _artPickerShowSplit   = false; // default; slot openers set true after this call
-  _artPickerSplitFlip   = false;
+  _artPickerSwapSideCb  = null;
   _artPickerCallback    = onSelect;
   _artPickerPosCallback = onSavePos || null;
   _artPickerPosArt      = posArt || null;
@@ -4374,18 +4364,20 @@ function artPickerUpdatePos() {
       const ft = parseFloat(deckFrame.style.top)||0;
       const fwf = parseFloat(deckFrame.style.width)||0;
       const fhf = parseFloat(deckFrame.style.height)||0;
-      // splitArtHtml diagonal: default 55%(top)->40%(bottom); flipped 45%->60%
-      const topF = _artPickerSplitFlip ? 0.45 : 0.55;
-      const botF = _artPickerSplitFlip ? 0.60 : 0.40;
-      splitLine.setAttribute('x1', fl + topF*fwf);
+      // splitArtHtml diagonal goes 55% (top) -> 40% (bottom) of the cell width
+      splitLine.setAttribute('x1', fl + 0.55*fwf);
       splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', fl + botF*fwf);
+      splitLine.setAttribute('x2', fl + 0.40*fwf);
       splitLine.setAttribute('y2', ft + fhf);
       splitEl.style.display = 'block';
     } else if (splitEl) {
       splitEl.style.display = 'none';
     }
   }
+
+  // Partner: show "swap side of cut" button when editing a split (partnered) deck
+  const swapBtn = document.getElementById('ap-swap-side');
+  if (swapBtn) swapBtn.style.display = _artPickerShowSplit ? 'block' : 'none';
 
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
@@ -4432,6 +4424,15 @@ function artPickerBindDrag() {
   bg.addEventListener('touchstart', onDown, {passive:false});
   window.addEventListener('touchmove', onMove, {passive:false});
   window.addEventListener('touchend', onUp);
+}
+
+function artPickerSwapSide() {
+  // Toggle which side of the diagonal cut this art occupies (flips artFlipped on
+  // the deck). The callback persists it and re-renders the deck; we update the
+  // local split-side indicator and preview.
+  if (typeof _artPickerSwapSideCb === 'function') _artPickerSwapSideCb();
+  _artPickerSplitSide = _artPickerSplitSide === 'left' ? 'right' : 'left';
+  artPickerUpdatePos();
 }
 
 function artPickerResetPos() {
@@ -4636,7 +4637,10 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = isPartner ? 'right' : 'left';
-  _artPickerSplitFlip = !!deck.artSplitFlip;
+  _artPickerSwapSideCb = () => {
+    data.colorDecks[idx].artFlipped = !data.colorDecks[idx].artFlipped;
+    renderDeckMgr(); scheduleSync();
+  };
 }
 
 function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
@@ -6287,7 +6291,7 @@ function rivalDeckArtHtml(deck) {
   if (deck.partner && deck.partnerSingleArt) {
     return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1);
   }
-  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2, deck.artSplitFlip);
+  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2);
 }
 
 // Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
@@ -6490,10 +6494,6 @@ function renderRivals() {
             <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Use one image across the whole card instead of the split (flip chooses which commander)">
               <input type="checkbox" ${d.partnerSingleArt?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','partnerSingleArt',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
               single
-            </label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:9px;color:var(--text3);cursor:pointer;white-space:nowrap;padding:3px 0" title="Mirror the diagonal split direction">
-              <input type="checkbox" ${d.artSplitFlip?'checked':''} onchange="updateRivalDeckField('${r.id}','${d.id}','artSplitFlip',this.checked)" style="accent-color:var(--blue);width:10px;height:10px;margin:0;cursor:pointer">
-              cut ⤢
             </label>
           </div>`:''}
         </div>
@@ -6746,7 +6746,11 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = isPartner ? 'right' : 'left';
-  _artPickerSplitFlip = !!deck.artSplitFlip;
+  _artPickerSwapSideCb = () => {
+    const dk = freshDeck(); if (!dk) return;
+    dk.artFlipped = !dk.artFlipped;
+    scheduleSync(); renderRivals();
+  };
 }
 
 function rivalDeckResetArt(rivalId, deckId, isPartner) {
