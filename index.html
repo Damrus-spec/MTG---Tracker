@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.23';
+const APP_VERSION = '2026.06.27.24';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1483,6 +1483,18 @@ function applyCenterCrop(img) {
 // Apply to any not-yet-processed centered-crop imgs (called after renders + on load)
 function applyCenterCropAll() {
   document.querySelectorAll('img[data-cellar]').forEach(applyCenterCrop);
+}
+// Schedule a crop application after the DOM updates from the current render paint.
+// Renders that rebuild art (renderRivals, renderDeckMgr, etc.) call this so cached
+// images — whose onload won't fire — still get their saved crop position applied.
+let _cropApplyScheduled = false;
+function scheduleCropApply() {
+  if (_cropApplyScheduled) return;
+  _cropApplyScheduled = true;
+  requestAnimationFrame(() => {
+    _cropApplyScheduled = false;
+    applyCenterCropAll();
+  });
 }
 
 function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR) {
@@ -2431,7 +2443,7 @@ function sortDecks(key, btn) {
   btn.dataset.dir = sortDir === -1 ? '↓' : '↑';
   renderScore();
 }
-function renderScore() {
+function renderScore() { scheduleCropApply();
   // History is the source of truth — always recompute before rendering
   rebuildAllScoresFromHistory();
   cleanStaleScores();
@@ -2928,7 +2940,7 @@ function populateHistoryFilters() {
   if (curM) mSel.value=curM;
 }
 
-function renderHistory() {
+function renderHistory() { scheduleCropApply();
   const q = (document.getElementById('hist-search')?.value||'').toLowerCase();
   const filterYear  = document.getElementById('hist-year')?.value||'';
   const filterMonth = document.getElementById('hist-month')?.value||'';
@@ -3327,7 +3339,7 @@ function switchWantsTab(tab, btn) {
   document.getElementById('wants-deck').style.display = tab==='deck'?'':'none';
 }
 
-function renderWants() { renderBuyList(); renderDeckWants(); }
+function renderWants() { scheduleCropApply(); renderBuyList(); renderDeckWants(); }
 
 function buildBuyList() {
   // Rules:
@@ -3975,7 +3987,7 @@ function populateColorDropdown(selectId, selectedValue) {
     COLOR_OPTIONS.map(c=>`<option value="${c}"${c===selectedValue?' selected':''}>${c}</option>`).join('');
 }
 
-function renderDeckMgr() {
+function renderDeckMgr() { scheduleCropApply();
   populateColorDropdown('new-deck-color','');
   const decks=data.colorDecks||[];
   const owned=decks.filter(d=>d.status==='Owned').length;
@@ -6462,7 +6474,7 @@ function rivalStats() {
   return stats;
 }
 
-function renderRivals() {
+function renderRivals() { scheduleCropApply();
   const allRivals   = [...(data.opponents||[]), ...(data.retiredOpponents||[])];
   const stats = rivalStats();
 
