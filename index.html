@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.22';
+const APP_VERSION = '2026.06.27.23';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1507,10 +1507,10 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR
     // can be panned further off the cell edge (extra clamp room) than a full cell.
     return `
       <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
-        ${imgTag(a, pa, sa, 2.0)}
+        ${imgTag(a, pa, sa, 10)}
       </div>
       <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
-        ${imgTag(b, pb, sb, 2.0)}
+        ${imgTag(b, pb, sb, 10)}
       </div>
       <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
@@ -4389,10 +4389,10 @@ function artPickerUpdatePos() {
       // Clamp the object-position FRACTION the same way the render does
       // (centerToObjectPos clamps op to [-extra, 1+extra]); then derive the frame
       // rect from that, so the editor preview matches the render exactly.
-      // For partner (split) art the wedge tolerates much more off-cell sliding, so
-      // allow the frame (and the cut line tracking it) to follow the full slider
-      // range instead of clamping at the cell border.
-      const extra = _artPickerShowSplit ? 2.0 : 0;
+      // For partner (split) art, use a clamp wide enough that NO frame freezes
+      // within the slider's range — so green/blue/yellow and the cut line all slide
+      // together across the full range.
+      const extra = _artPickerShowSplit ? 10 : 0;
       const opFrac = (P, win) => {
         if (win >= 1) return 0.5;
         const op = (P/100 - win/2) / (1 - win);
@@ -4424,13 +4424,19 @@ function artPickerUpdatePos() {
     const splitLine = document.getElementById('ap-split-line');
     const deckFrame = document.getElementById('ap-frame-deck');
     if (splitEl && splitLine && _artPickerShowSplit && deckFrame && deckFrame.style.display !== 'none') {
-      const fl = parseFloat(deckFrame.style.left)||0;
+      // The cut line marks the diagonal on the rendered cell. Track it to the art's
+      // raw horizontal position (the slider) so it slides the full range with the
+      // art, instead of freezing when a particular frame's clamp engages.
       const ft = parseFloat(deckFrame.style.top)||0;
       const fwf = parseFloat(deckFrame.style.width)||0;
       const fhf = parseFloat(deckFrame.style.height)||0;
-      splitLine.setAttribute('x1', fl + 0.55*fwf);
+      // Map slider x (−200..300) to a horizontal offset across the displayed art.
+      // Center (x=50) keeps the line centered on the deck frame; beyond that it
+      // tracks the art edge motion 1:1 with how the art slides.
+      const artLeft = dispL + (x/100) * dispW - fwf/2; // frame-left following raw x
+      splitLine.setAttribute('x1', artLeft + 0.55*fwf);
       splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', fl + 0.40*fwf);
+      splitLine.setAttribute('x2', artLeft + 0.40*fwf);
       splitLine.setAttribute('y2', ft + fhf);
       splitEl.style.display = 'block';
     } else if (splitEl) {
