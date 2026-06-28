@@ -1008,7 +1008,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.9';
+const APP_VERSION = '2026.06.27.10';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1053,6 +1053,7 @@ function extractShareDeck(d) {
   if (d.partnerArtSnap) o.sn2 = 1;
   if (d.artFlipped)     o.fl = 1;
   if (d.partnerSingleArt) o.si = 1;
+  if (d.partnerSwapSides) o.sw = 1;
   return o;
 }
 
@@ -1067,6 +1068,7 @@ function applyShareFields(target, src) {
   target.partnerArtSnap = !!src.sn2;
   target.artFlipped = !!src.fl;
   target.partnerSingleArt = !!src.si;
+  target.partnerSwapSides = !!src.sw;
   // Resolve exact art from print IDs (if any); fall back to name resolution otherwise.
   if (src.i1) resolveArtById(src.i1).then(url => {
     if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } renderRivals(); }
@@ -1415,7 +1417,7 @@ function deckArtHtml(deckUuidOrName) {
   if (d.partner && d.partnerSingleArt) {
     return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1);
   }
-  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2);
+  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2, d.partnerSwapSides);
 }
 
 // Crop position stored as object-position percentages "X% Y%" (0..100, 50/50=center)
@@ -1438,7 +1440,7 @@ function posToObjectPos(pos) {
   return [isNaN(ox)?50:ox, isNaN(oy)?0:oy];
 }
 
-function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
+function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, swapSides) {
   if (!art1 && !art2) return '';
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
@@ -1453,12 +1455,17 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
     return `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${ox}% ${oy}%;transform:scale(${sc});transform-origin:${ox}% ${oy}%`;
   };
   if (a && b) {
-    // Split/partner art: diagonal wedges, cover crop.
+    // Diagonal wedges. swapSides swaps WHICH wedge each art occupies (art keeps
+    // its own framing); independent of `flipped` (which art shows in front).
+    const leftClip  = 'polygon(0 0,55% 0,40% 100%,0 100%)';
+    const rightClip = 'polygon(55% 0,100% 0,100% 100%,40% 100%)';
+    const clipA = swapSides ? rightClip : leftClip;
+    const clipB = swapSides ? leftClip  : rightClip;
     return `
-      <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:${clipA};overflow:hidden">
         <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
       </div>
-      <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:${clipB};overflow:hidden">
         <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)}">
       </div>
       <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
@@ -4638,7 +4645,7 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = isPartner ? 'right' : 'left';
   _artPickerSwapSideCb = () => {
-    data.colorDecks[idx].artFlipped = !data.colorDecks[idx].artFlipped;
+    data.colorDecks[idx].partnerSwapSides = !data.colorDecks[idx].partnerSwapSides;
     renderDeckMgr(); scheduleSync();
   };
 }
@@ -6291,7 +6298,7 @@ function rivalDeckArtHtml(deck) {
   if (deck.partner && deck.partnerSingleArt) {
     return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1);
   }
-  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2);
+  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2, deck.partnerSwapSides);
 }
 
 // Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
@@ -6748,7 +6755,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   _artPickerSplitSide = isPartner ? 'right' : 'left';
   _artPickerSwapSideCb = () => {
     const dk = freshDeck(); if (!dk) return;
-    dk.artFlipped = !dk.artFlipped;
+    dk.partnerSwapSides = !dk.partnerSwapSides;
     scheduleSync(); renderRivals();
   };
 }
