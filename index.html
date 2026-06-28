@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.26';
+const APP_VERSION = '2026.06.27.27';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4256,6 +4256,7 @@ let _artPickerTimer    = null;
 let _artPickerPosCallback = null; // fn(x, y) — called when position saved
 let _artPickerPosArt   = null;  // current art URL for reposition preview
 let _artPickerShowSplit = false; // show partner diagonal cut on canvas
+let _artPickerIsRival = false;   // rival decks render in the square cell
 let _artPickerSplitSide = 'left';
 let _artPickerPosX     = 50;
 let _artPickerPosY     = 50;
@@ -4430,17 +4431,17 @@ function artPickerUpdatePos() {
     placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR, document.getElementById('ap-lbl-score'), 'tr');
     placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR, document.getElementById('ap-lbl-sq'), 'br');
 
-    // Partner diagonal cut: the cut is FIXED on the cell (always 55%/40% of the
-    // cell width). Anchor it to the deck frame's actual position so it sits where
-    // the render's cut is, regardless of how the art pans behind it.
+    // Partner diagonal cut: anchor to the frame matching the cell this deck renders
+    // into — square (yellow) for rival decks, Decks (green) for owned decks — so the
+    // cut line matches where the render actually splits.
     const splitEl = document.getElementById('ap-split');
     const splitLine = document.getElementById('ap-split-line');
-    const deckFrame = document.getElementById('ap-frame-deck');
-    if (splitEl && splitLine && _artPickerShowSplit && deckFrame && deckFrame.style.display !== 'none') {
-      const fl = parseFloat(deckFrame.style.left)||0;
-      const ft = parseFloat(deckFrame.style.top)||0;
-      const fwf = parseFloat(deckFrame.style.width)||0;
-      const fhf = parseFloat(deckFrame.style.height)||0;
+    const cutFrame = document.getElementById(_artPickerIsRival ? 'ap-frame-sq' : 'ap-frame-deck');
+    if (splitEl && splitLine && _artPickerShowSplit && cutFrame && cutFrame.style.display !== 'none') {
+      const fl = parseFloat(cutFrame.style.left)||0;
+      const ft = parseFloat(cutFrame.style.top)||0;
+      const fwf = parseFloat(cutFrame.style.width)||0;
+      const fhf = parseFloat(cutFrame.style.height)||0;
       splitLine.setAttribute('x1', fl + 0.55*fwf);
       splitLine.setAttribute('y1', ft);
       splitLine.setAttribute('x2', fl + 0.40*fwf);
@@ -4700,6 +4701,7 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = ((!!isPartner) !== (!!deck.artFlipped)) ? 'right' : 'left';
+  _artPickerIsRival = false;
 }
 
 function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
@@ -6832,6 +6834,7 @@ function openRivalDeckArtPickerSlot(rivalId, deckId, isPartner) {
   );
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = ((!!isPartner) !== (!!deck.artFlipped)) ? 'right' : 'left';
+  _artPickerIsRival = true;
 }
 
 function rivalDeckResetArt(rivalId, deckId, isPartner) {
