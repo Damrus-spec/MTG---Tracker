@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.13';
+const APP_VERSION = '2026.06.27.14';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1389,7 +1389,7 @@ async function lookupPartner(name) {
 // art1 = primary commander, art2 = partner (optional)
 // Single source of truth: render art for a deck from the deck object.
 // Returns inner HTML for a position:relative;overflow:hidden container.
-function deckArtHtml(deckUuidOrName) {
+function deckArtHtml(deckUuidOrName, cellAR) {
   const d = (data.colorDecks||[]).find(d =>
     d.uuid === deckUuidOrName ||
     deckDisplayName(d) === deckUuidOrName ||
@@ -1412,9 +1412,9 @@ function deckArtHtml(deckUuidOrName) {
   const sc2  = flipped && art2raw ? (d.artScale||DEFAULT_ART_SCALE) : (d.partnerArtScale||DEFAULT_ART_SCALE);
   // Single-image option: use just art1 (which flip chooses) across the whole card.
   if (d.partner && d.partnerSingleArt) {
-    return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1);
+    return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1, cellAR);
   }
-  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2);
+  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2, cellAR);
 }
 
 // Crop position stored as object-position percentages "X% Y%" (0..100, 50/50=center)
@@ -1437,7 +1437,47 @@ function posToObjectPos(pos) {
   return [isNaN(ox)?50:ox, isNaN(oy)?0:oy];
 }
 
-function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
+// Centered-crop model: stored (px,py) = the art point to CENTER in the cell.
+// We convert that to the actual CSS object-position for this cell's aspect once
+// the image's natural size is known, so every cell (any aspect) stays centered on
+// the SAME art point — frames share a center instead of drifting at different
+// speeds. One central function so all render sites behave identically.
+// Cell aspect ratios per tab, used by the centered-crop model so every cell
+// crops centered on the same art point. Must match the editor's crop frames.
+const CELL_AR_DECK  = 150/120; // deck-manager art cell
+const CELL_AR_SCORE = 80/68;   // score tab deck-art
+const CELL_AR_SQ    = 1;       // history / wants / rivals (square)
+
+function centerToObjectPos(px, py, cellAR, artAR, sc) {
+  // Visible window as a fraction of the art (cover), shrunk by zoom.
+  let winW, winH;
+  if (cellAR > artAR) { winW = 1; winH = artAR / cellAR; }
+  else                { winH = 1; winW = cellAR / artAR; }
+  winW = Math.min(1, winW / sc);
+  winH = Math.min(1, winH / sc);
+  // Center P (0..1) relates to object-position op (0..1) by:
+  //   centerFrac = op*(1-win) + win/2  =>  op = (P - win/2)/(1-win)
+  const conv = (P, win) => win >= 1 ? 0.5 : (P - win/2) / (1 - win);
+  return [conv(px/100, winW) * 100, conv(py/100, winH) * 100];
+}
+function applyCenterCrop(img) {
+  if (!img || !img.naturalWidth || !img.naturalHeight) return;
+  const cellAR = parseFloat(img.getAttribute('data-cellar'));
+  if (!cellAR) return; // no cell aspect → leave default centering
+  const px = parseFloat(img.getAttribute('data-cx'));
+  const py = parseFloat(img.getAttribute('data-cy'));
+  const sc = parseFloat(img.getAttribute('data-sc')) || 1;
+  const artAR = img.naturalWidth / img.naturalHeight;
+  const [ox, oy] = centerToObjectPos(px, py, cellAR, artAR, sc);
+  img.style.objectPosition = `${ox}% ${oy}%`;
+  img.style.transformOrigin = `${ox}% ${oy}%`;
+}
+// Apply to any not-yet-processed centered-crop imgs (called after renders + on load)
+function applyCenterCropAll() {
+  document.querySelectorAll('img[data-cellar]').forEach(applyCenterCrop);
+}
+
+function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR) {
   if (!art1 && !art2) return '';
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
@@ -1445,24 +1485,27 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2) {
   const pb = (flipped && art2) ? pos1 : pos2;
   const sa = sc1 || 1;
   const sb = sc2 || 1;
-  // Cover + object-position is the native crop primitive: art fills the cell,
-  // object-position picks which part shows, scale zooms further in.
-  const imgStyle = (pos, sc) => {
-    const [ox, oy] = posToObjectPos(pos);
-    return `position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${ox}% ${oy}%;transform:scale(${sc});transform-origin:${ox}% ${oy}%`;
+  // If a cell aspect is supplied, use the centered-crop model (data attrs + applier
+  // set object-position on load). Otherwise fall back to direct object-position.
+  const imgTag = (src, pos, sc) => {
+    const [px, py] = posToObjectPos(pos);
+    if (cellAR) {
+      return `<img src="${src}" alt="${altText}" loading="lazy" onload="applyCenterCrop(this)" data-cellar="${cellAR}" data-cx="${px}" data-cy="${py}" data-sc="${sc}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;transform:scale(${sc});transform-origin:50% 50%">`;
+    }
+    return `<img src="${src}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${sc});transform-origin:${px}% ${py}%">`;
   };
   if (a && b) {
     // Split/partner art: diagonal wedges, cover crop.
     return `
       <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
-        <img src="${a}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">
+        ${imgTag(a, pa, sa)}
       </div>
       <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
-        <img src="${b}" alt="${altText}" loading="lazy" style="${imgStyle(pb,sb)}">
+        ${imgTag(b, pb, sb)}
       </div>
       <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
-  return `<img src="${a||b}" alt="${altText}" loading="lazy" style="${imgStyle(pa,sa)}">`;
+  return imgTag(a||b, pa, sa);
 }
 
 // Look up artFlipped for a deck by UUID or display name
@@ -2459,7 +2502,7 @@ function renderScore() {
     return `<div>
       <div class="deck-row" onclick="toggleDeckExpand('${eid}')" style="cursor:pointer">
         <div class="deck-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-          ${d._deck ? deckArtHtml(d._deck.uuid) : splitArtHtml(art, prtArt, cmdName)}
+          ${d._deck ? deckArtHtml(d._deck.uuid, CELL_AR_SCORE) : splitArtHtml(art, prtArt, cmdName, false, undefined, undefined, undefined, undefined, CELL_AR_SCORE)}
         </div>
         <div class="deck-left">
           <div class="deck-name">${d.name.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${d.name.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${d.name.split(' // ')[1]}</span></span>` : d.name}</div>
@@ -2605,7 +2648,7 @@ function renderScore() {
       const cleanN = displayNameForUuid(uuidOrName) || s._name || uuidOrName;
       const cls=wrClass(s.winRate,s.total);
       // Use deckArtHtml as single source of truth — same as deck tab
-      const artHtml = deckArtHtml(uuidOrName);
+      const artHtml = deckArtHtml(uuidOrName, CELL_AR_SCORE);
       const hasArt = !!artHtml;
       return `<div class="deck-row">
         <div class="deck-art${hasArt?'':' loading'}" style="position:relative;overflow:hidden">
@@ -2956,7 +2999,7 @@ function renderHistory() {
     return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
       <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${h.deckUuid ? deckArtHtml(h.deckUuid) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck)}
+        ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
       </div>
       <div class="h-main">
         <div class="h-deck">${(()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })()}</div>
@@ -3569,7 +3612,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   return `<div class="deck-section">
     <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${deckArtHtml(uuid)}
+        ${deckArtHtml(uuid, CELL_AR_SQ)}
       </div>
       <span class="deck-sec-name">${deck.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${deck.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${deck.split(' // ')[1]}</span></span>` : deck}</span>
       <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
@@ -3973,7 +4016,7 @@ function renderDeckMgr() {
       <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;align-self:stretch;position:relative">
         <div class="deck-mgr-art${hasArt?'':d.name?' loading':''}" data-art="${key}"
              onclick="openArtOverride(${i},false)" title="Click to change art" style="cursor:pointer;flex:1;width:150px">
-          ${deckArtHtml(d.uuid)}
+          ${deckArtHtml(d.uuid, CELL_AR_DECK)}
           ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="deckmgr"></span>`:''}
 
         </div>
@@ -4333,9 +4376,13 @@ function artPickerUpdatePos() {
       winWFrac = Math.min(1, winWFrac / sc);
       winHFrac = Math.min(1, winHFrac / sc);
       const w = dispW * winWFrac, h = dispH * winHFrac;
-      // object-position X% places window left at X% of the leftover art width
-      const left = dispL + (x/100) * (dispW - w);
-      const top  = dispT + (y/100) * (dispH - h);
+      // Keep ALL frames centered on the SAME point of the art, so they stay
+      // concentric (share a center line) instead of drifting at different speeds.
+      // The shared center is the art point selected by object-position (x,y).
+      const cx = dispL + (x/100) * dispW;
+      const cy = dispT + (y/100) * dispH;
+      let left = cx - w/2;
+      let top  = cy - h/2;
       el.style.display = 'block';
       el.style.left = left + 'px'; el.style.top = top + 'px';
       el.style.width = w + 'px';   el.style.height = h + 'px';
@@ -4741,11 +4788,11 @@ function renderEditor() {
       <td style="padding:0">${(()=>{
         const cmdName=(h.deck||'').split(' // ')[0].trim();
         const k=scryfallKey(cmdName);
-        const artHtml = h.deckUuid ? deckArtHtml(h.deckUuid) : (()=>{
+        const artHtml = h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : (()=>{
           const art=artCache[k];
           const prtName=(h.deck||'').includes(' // ')?(h.deck||'').split(' // ')[1].trim():null;
           const prtArt=prtName?artCache[scryfallKey(prtName)]:null;
-          return splitArtHtml(art,prtArt,cmdName);
+          return splitArtHtml(art,prtArt,cmdName, false, undefined, undefined, undefined, undefined, CELL_AR_SQ);
         })();
         const hasArt = h.deckUuid ? !!(deckArtHtml(h.deckUuid)) : !!artCache[k];
         return `<div class="editor-art${hasArt?'':' loading'}" data-art="${k}">${artHtml}</div>`;
@@ -5662,6 +5709,7 @@ function renderAll() {
     populateHistoryFilters();
     renderGraph();
     initStaticAC();
+    applyCenterCropAll();
   }, 0);
 }
 
@@ -6269,9 +6317,9 @@ function rivalDeckArtHtml(deck) {
   const sc1  = flipped && art2raw ? (deck.partnerArtScale||DEFAULT_ART_SCALE) : (deck.artScale||DEFAULT_ART_SCALE);
   const sc2  = flipped && art2raw ? (deck.artScale||DEFAULT_ART_SCALE) : (deck.partnerArtScale||DEFAULT_ART_SCALE);
   if (deck.partner && deck.partnerSingleArt) {
-    return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1);
+    return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1, CELL_AR_SQ);
   }
-  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2);
+  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2, CELL_AR_SQ);
 }
 
 // Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
