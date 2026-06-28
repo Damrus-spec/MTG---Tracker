@@ -5845,13 +5845,19 @@ function acShowDropdown(inputId, names, onSelect) {
   if (!dd) return;
   acSelected[inputId] = -1;
   dd.innerHTML = names.slice(0,10).map((n,i) =>
-    `<div class="ac-item" data-idx="${i}" onmousedown="acPick('${inputId}','${n.replace(/'/g,"\'")}',event)">${n}</div>`
+    `<div class="ac-item" data-idx="${i}" data-name="${String(n).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}" onmousedown="acPickEl(this,'${inputId}',event)">${String(n).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
   ).join('');
   dd.classList.add('open');
 }
 
 // Callbacks fired when a name is picked from autocomplete
 const acCallbacks = {};
+
+function acPickEl(el, inputId, evt) {
+  // Read the name from the data attribute to avoid inline-string escaping issues
+  // (names with apostrophes/quotes used to break the inline handler).
+  acPick(inputId, el.getAttribute('data-name') || '', evt);
+}
 
 function acPick(inputId, name, evt) {
   if (evt) evt.preventDefault();
