@@ -1003,7 +1003,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.1';
+const APP_VERSION = '2026.06.27.2';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1493,11 +1493,15 @@ function initGSI() {
           // a repeating Google login popup).
           authFailed = true;
           if (resp.error === 'interaction_required' || resp.error === 'user_cancelled') {
-            setSyncStatus('red', 'Session expired — tap to sign in again');
+            setSyncStatus('red', 'Tap to sign in');
             accessToken = null;
             updateSignInBtn();
           } else {
-            setSyncStatus('red', 'Sign-in failed: ' + resp.error);
+            // Popup/token flow failed (often a browser blocking third-party cookies,
+            // e.g. Firefox tracking protection). Offer the redirect-based flow.
+            setSyncStatus('red', 'Sign-in blocked — tap to retry');
+            _preferRedirectSignIn = true;
+            updateSignInBtn();
           }
           // Reject any awaiting token-refresh callers
           if (_tokenWaiters.length) {
@@ -1588,7 +1592,11 @@ function silentSignIn() {
   }
 }
 
+let _preferRedirectSignIn = false;
 function signIn() {
+  // If the popup/token flow has previously failed in this browser, go straight
+  // to the redirect flow (works where third-party cookies are blocked).
+  if (_preferRedirectSignIn) { redirectSignIn(); return; }
   if (!initGSI()) {
     setSyncStatus('red', 'Google not loaded — try again');
     return;
@@ -1597,8 +1605,49 @@ function signIn() {
   try {
     gsiClient.requestAccessToken({ prompt: 'select_account' });
   } catch(e) {
-    setSyncStatus('red', 'Sign-in error: ' + e.message);
+    // Popup flow threw outright — fall back to redirect immediately
+    _preferRedirectSignIn = true;
+    redirectSignIn();
   }
+}
+
+// ── Redirect-based OAuth (implicit flow) ──
+// Fallback for browsers (e.g. Firefox with tracking protection) that block the
+// popup/iframe token flow. Navigates the whole page to Google, which redirects
+// back with an access token in the URL fragment. No silent refresh (token lasts
+// ~1h); user re-taps sign-in when it expires.
+function redirectSignIn() {
+  authFailed = false;
+  const redirectUri = location.origin + location.pathname;
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'token',
+    scope: SCOPES,
+    include_granted_scopes: 'true',
+    prompt: 'select_account',
+    state: 'mtg_' + Date.now()
+  });
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+}
+
+// On load, capture a token returned in the URL fragment after a redirect sign-in.
+function captureRedirectToken() {
+  if (!location.hash || location.hash.indexOf('access_token=') === -1) return false;
+  const h = new URLSearchParams(location.hash.slice(1));
+  const tok = h.get('access_token');
+  if (!tok) return false;
+  accessToken = tok;
+  authFailed = false;
+  try { localStorage.setItem('mtg_token', tok); } catch(e){}
+  // Note expiry so we can prompt before silent calls fail
+  const expiresIn = parseInt(h.get('expires_in') || '3600', 10);
+  try { localStorage.setItem('mtg_token_exp', String(Date.now() + expiresIn*1000)); } catch(e){}
+  // Clean the token out of the URL so it isn't left in history/address bar
+  history.replaceState(null, '', location.origin + location.pathname);
+  updateSignInBtn();
+  loadFromDrive(true);
+  return true;
 }
 function signOut() {
   if (accessToken) google.accounts.oauth2.revoke(accessToken, ()=>{});
@@ -6706,7 +6755,10 @@ window.onerror = function(msg, src, line) {
 loadLocal();
 renderAll();
 updateSignInBtn();
-if (accessToken) {
+// First, capture a token if we just came back from a redirect sign-in.
+if (captureRedirectToken()) {
+  // Token captured + loadFromDrive already kicked off inside captureRedirectToken
+} else if (accessToken) {
   loadFromDrive(true); // force fetch on boot
 } else {
   // Try silent re-auth — silentSignIn() is safe to call now; if GSI isn't ready yet
