@@ -1002,7 +1002,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.50';
+const APP_VERSION = '2026.06.30.1';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7604,7 +7604,7 @@ if (captureRedirectToken()) {
      plain website these files are absent; the script simply 404s and the app keeps
      using the normal browser Google sign-in. The Android OAuth client id is set by
      the build (scripts/sync-html.sh) when copying this file into the app. -->
-<script>window.__ANDROID_OAUTH_CLIENT_ID = window.__ANDROID_OAUTH_CLIENT_ID || '';</script>
+<script>window.__ANDROID_OAUTH_CLIENT_ID = window.__ANDROID_OAUTH_CLIENT_ID || '759702102602-j316h1cjupqt2fsogk4at5v9c5th4oma.apps.googleusercontent.com';</script>
 <script src="native-auth.js" onerror="/* web: no native bridge, ignore */"></script>
 </body>
 </html>
