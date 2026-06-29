@@ -542,9 +542,7 @@ input.setting-input[type="number"]{width:90px}
       <select id="hist-year" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
         <option value="">Year</option>
       </select>
-      <select id="hist-month" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
-        <option value="">Month</option>
-      </select>
+      <button id="hist-sort-btn" onclick="toggleHistSort()" title="Toggle sort order" style="margin:0;padding:6px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text2);font-size:12px;cursor:pointer;white-space:nowrap"><i class="ti ti-arrows-sort"></i> Newest</button>
     </div>
   </div>
   <!-- Edit-mode draft save bar -->
@@ -997,7 +995,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.42';
+const APP_VERSION = '2026.06.27.43';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2939,8 +2937,16 @@ function modalCancel() {
 let historySelected = new Set();
 let _histMode = 'delete'; // 'delete' | 'export' — which action the selection bar performs
 let _histEditMode = false;        // edit-history mode toggle
+let _histSortNewest = true;       // history sort: newest-first by default
 let _histEditDraft = {};          // idx -> { date, wins, losses, last, winnerId, issues, _deleted }
 let _histEditExpanded = null;     // idx of the entry whose inline editor is open
+
+function toggleHistSort() {
+  _histSortNewest = !_histSortNewest;
+  const btn = document.getElementById('hist-sort-btn');
+  if (btn) btn.innerHTML = `<i class="ti ti-arrows-sort"></i> ${_histSortNewest?'Newest':'Oldest'}`;
+  renderHistory();
+}
 
 function toggleHistEdit(on) {
   _histEditMode = !!on;
@@ -2954,24 +2960,17 @@ function toggleHistEdit(on) {
 function populateHistoryFilters() {
   const withResult = (data.history||[]).filter(h=>h.last&&h.deck);
   const years  = [...new Set(withResult.map(h=>h.date.slice(0,4)))].sort().reverse();
-  const months = [...new Set(withResult.map(h=>h.date.slice(5,7)))].sort();
-  const MNAMES = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const ySel = document.getElementById('hist-year');
-  const mSel = document.getElementById('hist-month');
-  if (!ySel||!mSel) return;
-  const curY=ySel.value, curM=mSel.value;
+  if (!ySel) return;
+  const curY=ySel.value;
   ySel.innerHTML = '<option value="">All years</option>' +
     years.map(y=>`<option value="${y}">${y}</option>`).join('');
-  mSel.innerHTML = '<option value="">All months</option>' +
-    months.map(m=>`<option value="${m}">${MNAMES[parseInt(m)]||m}</option>`).join('');
   if (curY) ySel.value=curY;
-  if (curM) mSel.value=curM;
 }
 
 function renderHistory() { scheduleCropApply();
   const q = (document.getElementById('hist-search')?.value||'').toLowerCase();
   const filterYear  = document.getElementById('hist-year')?.value||'';
-  const filterMonth = document.getElementById('hist-month')?.value||'';
   const limit = parseInt(cfg().historyLimit)||500;
 
   // Build absolute game numbers
@@ -3015,16 +3014,16 @@ function renderHistory() { scheduleCropApply();
   const gameOffset = Math.max(0, trueTotal - historyCount);
 
   const indexed = allWithResult
-    .map((h,i)=>({h,i,absNum:gameOffset+i+1})) // offset so newest = totalScoreGames
+    .map((h,i)=>({h, i: (data.history||[]).indexOf(h), absNum:gameOffset+i+1})) // i = real data.history index
     .filter(({h})=>{
       if (!q) return true;
       const displayN = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || '';
       const cmdN = h.deck || '';
       return displayN.toLowerCase().includes(q) || cmdN.toLowerCase().includes(q);
     })
-    .filter(({h})=>!filterYear ||h.date.startsWith(filterYear))
-    .filter(({h})=>!filterMonth||h.date.slice(5,7)===filterMonth)
-    .reverse(); // newest first
+    .filter(({h})=>!filterYear ||h.date.startsWith(filterYear));
+  // Sort order: newest-first by default, oldest-first when toggled.
+  if (_histSortNewest) indexed.reverse(); // allWithResult is chronological → reverse = newest first
 
   const shown = indexed.slice(0,limit);
   const total = indexed.length;
