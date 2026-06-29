@@ -1021,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.36';
+const APP_VERSION = '2026.06.27.37';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3279,8 +3279,7 @@ function buildExportPayload() {
       date: h.date,
       me: { player: me, name: mine.name, partner: mine.partner },
       opponents: opps,
-      winner,
-      issues: h.issues || []
+      winner
     };
   }).filter(Boolean);
   return { app:'MTG-Tracker', kind:'history-export', version:1, exported: new Date().toISOString(), entries };
@@ -3445,7 +3444,6 @@ function finalizeHistImport(meName) {
     if (myDeck?.uuid) entry.deckUuid = myDeck.uuid;
     if (oppRefs.length) entry.opponents = oppRefs;
     if (!winnerIsMe && winnerId) entry.winnerId = winnerId;
-    if (Array.isArray(e.issues) && e.issues.length) entry.issues = e.issues;
     data.history.push(entry);
     logged++;
   }
