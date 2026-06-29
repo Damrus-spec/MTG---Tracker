@@ -1001,7 +1001,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.48';
+const APP_VERSION = '2026.06.27.49';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1655,6 +1655,10 @@ function scheduleTokenRefresh(expiresInSec) {
 // Await a silent token refresh. Resolves with a new access token, or rejects if
 // the user needs to interactively sign in. Multiple concurrent callers share one refresh.
 function tokenRefresh() {
+  // Native app: silent refresh-token exchange, no popup.
+  if (window.__nativeIsAvailable) {
+    return nativeAuthGetToken();
+  }
   return new Promise((resolve, reject) => {
     _tokenWaiters.push({ resolve, reject });
     if (_refreshInFlight) return;
@@ -1701,7 +1705,27 @@ function silentSignIn() {
 }
 
 let _preferRedirectSignIn = false;
+// When running inside the native Android app, native-auth.js exposes a refresh-
+// token flow. Use it instead of the browser GIS popup so Drive renews silently.
+async function nativeAuthGetToken() {
+  const tok = await window.__nativeGetToken();
+  accessToken = tok;
+  authFailed = false;
+  try { localStorage.setItem('mtg_token', tok); } catch(e){}
+  _tokenIssuedAt = Date.now();
+  _tokenLifetimeMs = 3600000;
+  updateSignInBtn();
+  return tok;
+}
+
 function signIn() {
+  // Native app: use the AppAuth refresh-token flow (authorise once, silent after).
+  if (window.__nativeIsAvailable) {
+    nativeAuthGetToken().then(()=>loadFromDrive(true)).catch(e=>{
+      setSyncStatus('red', 'Sign-in failed — try again');
+    });
+    return;
+  }
   // If the popup/token flow has previously failed in this browser, go straight
   // to the redirect flow (works where third-party cookies are blocked).
   if (_preferRedirectSignIn) { redirectSignIn(); return; }
@@ -7574,6 +7598,13 @@ if (captureRedirectToken()) {
   silentSignIn();
 }
 </script>
+<!-- Native app only: Capacitor injects window.Capacitor, and the app bundle
+     includes native-auth.js (which sets up the Android refresh-token flow). On the
+     plain website these files are absent; the script simply 404s and the app keeps
+     using the normal browser Google sign-in. The Android OAuth client id is set by
+     the build (scripts/sync-html.sh) when copying this file into the app. -->
+<script>window.__ANDROID_OAUTH_CLIENT_ID = window.__ANDROID_OAUTH_CLIENT_ID || '';</script>
+<script src="native-auth.js" onerror="/* web: no native bridge, ignore */"></script>
 </body>
 </html>
 
