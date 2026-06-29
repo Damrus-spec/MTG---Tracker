@@ -924,7 +924,7 @@ function colorManaHtml(colorLabel) {
 const INITIAL_DATA = {
   settings: {
     maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:500, pubStompWin:60,
-    cardSeller:'cardmarket', artPref:'oldest', showEditor:false, issueLimit:10, rivalsOpenByDefault:false
+    cardSeller:'cardmarket', artPref:'oldest', issueLimit:10, rivalsOpenByDefault:true
   },
   colorDecks: [],
   scores: {},
@@ -998,7 +998,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.46';
+const APP_VERSION = '2026.06.27.47';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3179,10 +3179,11 @@ function openIssuePanelFull(deckName, uuid) {
         rivalAgg[o.playerId] = { name: riv?.name||'Unknown', wins:0, losses:0, decks:{} };
       }
       const ra = rivalAgg[o.playerId];
-      // Rival's result from their perspective: they won iff they're the recorded
-      // winner; legacy entries (no winnerId) fall back to mirroring your loss.
-      const rivalWon = (h.winnerId !== undefined) ? (h.winnerId === o.playerId) : (h.last === 'Loss');
-      if (rivalWon) ra.wins++; else ra.losses++;
+      // YOUR head-to-head result vs this rival: you won the game iff your deck's
+      // result was a Win (winnerId null / your win). This is what the rivals view
+      // should reflect — your performance against them — not their pod record.
+      const youWon = (h.winnerId !== undefined) ? !h.winnerId : (h.last === 'Win');
+      if (youWon) ra.wins++; else ra.losses++;
       if (o.deckId) {
         if (!ra.decks[o.deckId]) {
           const riv = allRivalsKnown.find(r=>r.id===o.playerId);
@@ -3190,7 +3191,7 @@ function openIssuePanelFull(deckName, uuid) {
           const dkName = dk ? (dk.partner ? `${dk.name} // ${dk.partner}` : dk.name) : 'Unknown deck';
           ra.decks[o.deckId] = { name: dkName, wins:0, losses:0 };
         }
-        if (rivalWon) ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
+        if (youWon) ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
       }
     }
   }
@@ -7085,17 +7086,14 @@ function rivalStats() {
   (data.history||[]).filter(h=>h.opponents&&h.last).forEach(h=>{
     h.opponents.forEach(o=>{
       if (!o.playerId || !stats[o.playerId]) return;
-      // From the rival's perspective: the recorded winnerId won; everyone else
-      // (including you) lost. If no winnerId, you won → all rivals lost.
-      // Legacy entries without winnerId fall back to mirroring your result.
-      let rivalWon;
-      if (h.winnerId !== undefined) rivalWon = (h.winnerId === o.playerId);
-      else rivalWon = (h.last === 'Loss'); // legacy: you lost → rival(s) won
+      // YOUR head-to-head result vs this rival: you won iff your deck won the game
+      // (no winnerId / your Win). The Rivals view reflects YOUR record against them.
+      const youWon = (h.winnerId !== undefined) ? !h.winnerId : (h.last === 'Win');
       stats[o.playerId].total++;
-      if (rivalWon) stats[o.playerId].wins++; else stats[o.playerId].losses++;
+      if (youWon) stats[o.playerId].wins++; else stats[o.playerId].losses++;
       if (o.deckId && stats[o.playerId].decks[o.deckId]) {
         stats[o.playerId].decks[o.deckId].total++;
-        if (rivalWon) stats[o.playerId].decks[o.deckId].wins++;
+        if (youWon) stats[o.playerId].decks[o.deckId].wins++;
         else stats[o.playerId].decks[o.deckId].losses++;
       }
     });
