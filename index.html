@@ -1021,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.39';
+const APP_VERSION = '2026.06.27.40';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2936,9 +2936,9 @@ function showModal(title, body, onConfirm) {
   document.getElementById('modal-title').textContent = title;
   const mb = document.getElementById('modal-body');
   if (body && body.trim().startsWith('<')) { mb.innerHTML = body; } else { mb.innerText = body || ''; }
-  // Always restore confirm button (art picker hides it)
+  // Always restore confirm button (art picker hides it; some flows relabel it)
   const okBtn = document.getElementById('modal-ok');
-  if (okBtn) okBtn.style.display = '';
+  if (okBtn) { okBtn.style.display = ''; okBtn.textContent = 'Confirm'; }
   ov.style.display='flex';
   modalCallback = onConfirm;
 }
