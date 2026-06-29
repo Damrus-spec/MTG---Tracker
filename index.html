@@ -237,7 +237,7 @@ input.setting-input[type="number"]{width:90px}
 
 /* DECK EXPAND PANEL */
 .deck-expand{display:none;background:var(--bg);border-bottom:.5px solid var(--border);padding:10px 12px}
-.issues-row{margin-top:2px;border-top:.5px solid var(--border);padding-top:8px}
+.issues-row{margin-top:0;border-top:.5px solid var(--border);padding-top:6px}
 .issues-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
 .issues-toggle:hover{color:var(--text2)}
 .issues-grid{display:none;margin-top:8px}
@@ -528,11 +528,14 @@ input.setting-input[type="number"]{width:90px}
     </div>
   </div>
   <div id="hist-delete-bar" style="display:none;margin-bottom:8px">
-    <div style="background:var(--red-bg);border:.5px solid var(--red);border-radius:var(--radius-sm);padding:8px 12px;display:flex;align-items:center;gap:10px">
-      <span style="flex:1;font-size:13px;color:var(--red)" id="hist-delete-count">0 selected</span>
-      <button onclick="confirmDeleteSelected()" style="padding:5px 12px;background:var(--red);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Delete selected</button>
+    <div id="hist-sel-box" style="border-radius:var(--radius-sm);padding:8px 12px;display:flex;align-items:center;gap:10px">
+      <span style="flex:1;font-size:13px" id="hist-delete-count">0 selected</span>
+      <button id="hist-sel-action" onclick="confirmHistAction()" style="padding:5px 12px;color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Action</button>
       <button onclick="clearHistorySelection()" style="padding:5px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2)">Cancel</button>
     </div>
+  </div>
+  <div id="hist-import-row" style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <button onclick="openHistImport()" style="padding:5px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2)" title="Import games shared by another player"><i class="ti ti-download" style="font-size:12px"></i> Import games</button>
   </div>
   <div class="card no-pad"><div id="history-list"></div></div>
 </div>
@@ -1018,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.34';
+const APP_VERSION = '2026.06.27.35';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2914,6 +2917,7 @@ function modalCancel() {
 // HISTORY
 // ============================================================
 let historySelected = new Set();
+let _histMode = 'delete'; // 'delete' | 'export' — which action the selection bar performs
 
 function populateHistoryFilters() {
   const withResult = (data.history||[]).filter(h=>h.last&&h.deck);
@@ -3021,7 +3025,10 @@ function renderHistory() { scheduleCropApply();
       <span class="h-col-date">${fmtDate(h.date)}</span>
       ${h._cumW!=null?`<span class="h-col-w">${h._cumW}</span><span class="h-col-l">${h._cumL}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
       <span class="h-badge ${h.last==='Win'?'h-win':'h-loss'}">${h.last}</span>
-      <button class="h-del-btn${isSel?' h-del-active':''}" onclick="toggleHistorySelect(${i},event)" title="Select to delete">
+      <button class="h-del-btn${isSel&&_histMode==='export'?' h-del-active':''}" onclick="toggleHistExport(${i},event)" title="Select to export" style="color:var(--green)">
+        <i class="ti ti-upload"></i>
+      </button>
+      <button class="h-del-btn${isSel&&_histMode==='delete'?' h-del-active':''}" onclick="toggleHistDelete(${i},event)" title="Select to delete">
         <i class="ti ti-trash"></i>
       </button>
     </div>`;
@@ -3065,7 +3072,10 @@ function openIssuePanelFull(deckName, uuid) {
         rivalAgg[o.playerId] = { name: riv?.name||'Unknown', wins:0, losses:0, decks:{} };
       }
       const ra = rivalAgg[o.playerId];
-      if (h.last==='Win') ra.wins++; else ra.losses++;
+      // Rival's result from their perspective: they won iff they're the recorded
+      // winner; legacy entries (no winnerId) fall back to mirroring your loss.
+      const rivalWon = (h.winnerId !== undefined) ? (h.winnerId === o.playerId) : (h.last === 'Loss');
+      if (rivalWon) ra.wins++; else ra.losses++;
       if (o.deckId) {
         if (!ra.decks[o.deckId]) {
           const riv = allRivalsKnown.find(r=>r.id===o.playerId);
@@ -3073,7 +3083,7 @@ function openIssuePanelFull(deckName, uuid) {
           const dkName = dk ? (dk.partner ? `${dk.name} // ${dk.partner}` : dk.name) : 'Unknown deck';
           ra.decks[o.deckId] = { name: dkName, wins:0, losses:0 };
         }
-        if (h.last==='Win') ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
+        if (rivalWon) ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
       }
     }
   }
@@ -3147,6 +3157,13 @@ function openIssuePanelFull(deckName, uuid) {
   document.getElementById('issue-hist-overlay').classList.add('open');
 }
 
+function toggleHistDelete(realIdx, evt) { setHistMode('delete'); toggleHistorySelect(realIdx, evt); }
+function toggleHistExport(realIdx, evt) { setHistMode('export'); toggleHistorySelect(realIdx, evt); }
+
+function setHistMode(mode) {
+  if (_histMode !== mode) { historySelected.clear(); _histMode = mode; }
+}
+
 function toggleHistorySelect(realIdx, evt) {
   if(evt) evt.stopPropagation();
   if(historySelected.has(realIdx)) historySelected.delete(realIdx);
@@ -3157,18 +3174,35 @@ function toggleHistorySelect(realIdx, evt) {
 
 function updateHistoryDeleteBar() {
   const bar     = document.getElementById('hist-delete-bar');
+  const box     = document.getElementById('hist-sel-box');
   const countEl = document.getElementById('hist-delete-count');
+  const actBtn  = document.getElementById('hist-sel-action');
   const page    = document.getElementById('page-history');
   const n = historySelected.size;
   if(bar)  bar.style.display = n>0 ? '' : 'none';
   if(page) page.classList.toggle('delete-mode', n>0);
   if(countEl) countEl.textContent = `${n} entr${n===1?'y':'ies'} selected`;
+  const isExport = _histMode==='export';
+  if(box){
+    box.style.background = isExport ? 'var(--green-bg, rgba(40,167,69,.12))' : 'var(--red-bg)';
+    box.style.border = `.5px solid ${isExport ? 'var(--green)' : 'var(--red)'}`;
+  }
+  if(countEl) countEl.style.color = isExport ? 'var(--green)' : 'var(--red)';
+  if(actBtn){
+    actBtn.textContent = isExport ? 'Export selected' : 'Delete selected';
+    actBtn.style.background = isExport ? 'var(--green)' : 'var(--red)';
+  }
 }
 
 function clearHistorySelection() {
   historySelected.clear();
   updateHistoryDeleteBar();
   renderHistory();
+}
+
+function confirmHistAction() {
+  if (_histMode === 'export') confirmExportSelected();
+  else confirmDeleteSelected();
 }
 
 function confirmDeleteSelected() {
@@ -3192,7 +3226,195 @@ Scores will be recalculated for affected decks.`,
 }
 
 function deleteHistoryEntry(idx) {
-  toggleHistorySelect(idx, null);
+  toggleHistDelete(idx, null);
+}
+
+// ── HISTORY EXPORT / IMPORT (share games between players) ──
+// Resolve an owned deck's commander/partner names from a history entry.
+function _ownedDeckNames(h) {
+  const deck = ownedDecks().find(d => d.uuid === h.deckUuid || deckDisplayName(d) === h.deck);
+  if (deck) return { name: deck.name, partner: deck.partner || null };
+  // Fall back to parsing the stored display name
+  const dn = h.deck || '';
+  if (dn.includes(' // ')) { const [a,b]=dn.split(' // '); return {name:a.trim(), partner:b.trim()}; }
+  return { name: dn, partner: null };
+}
+// Resolve a rival opponent ref to {player, name, partner}.
+function _rivalOppNames(o) {
+  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===o.playerId);
+  const deck  = rival?.decks?.find(d=>d.id===o.deckId);
+  return {
+    player: rival?.name || 'Unknown',
+    name:   deck?.name || null,
+    partner: deck?.partner || null
+  };
+}
+
+function confirmExportSelected() {
+  const n = historySelected.size;
+  if(!n) return;
+  showModal(
+    'Export entries',
+    `Export ${n} selected game${n===1?'':'s'}? You'll get a file to download and a copy option to share. Imported by another player, these populate their rivals and log the games.`,
+    ()=>doExportSelected()
+  );
+}
+
+function buildExportPayload() {
+  const me = (cfg().playerName || data.playerName || 'Me');
+  const entries = [...historySelected].sort((a,b)=>a-b).map(i=>{
+    const h = data.history[i];
+    if (!h) return null;
+    const mine = _ownedDeckNames(h);
+    const opps = (h.opponents||[]).map(_rivalOppNames);
+    // Determine winner name: winnerId → that rival's player name; else (you won) → me
+    let winner = me;
+    if (h.winnerId) {
+      const wr = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===h.winnerId);
+      winner = wr?.name || me;
+    } else if (h.last === 'Loss' && opps.length === 1) {
+      winner = opps[0].player; // legacy single-opp loss
+    }
+    return {
+      date: h.date,
+      me: { player: me, name: mine.name, partner: mine.partner },
+      opponents: opps,
+      winner,
+      issues: h.issues || []
+    };
+  }).filter(Boolean);
+  return { app:'MTG-Tracker', kind:'history-export', version:1, exported: new Date().toISOString(), entries };
+}
+
+function doExportSelected() {
+  const payload = buildExportPayload();
+  const json = JSON.stringify(payload, null, 2);
+  // Download
+  const blob = new Blob([json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mtg-games-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  // Copy option
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(json).then(
+      ()=>showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded + copied)`),
+      ()=>showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded)`)
+    );
+  } else {
+    showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded)`);
+  }
+  clearHistorySelection();
+}
+
+// ── IMPORT ──
+function openHistImport() {
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Import games shared by another player. Paste the exported text below, or choose a file. Your rivals will be populated with any new players/decks, and the games logged in your history.</div>
+      <textarea id="hist-import-text" placeholder="Paste exported JSON here…" style="width:100%;min-height:120px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-size:12px;font-family:monospace;resize:vertical"></textarea>
+      <label style="font-size:12px;color:var(--text2);cursor:pointer">
+        <input type="file" id="hist-import-file" accept="application/json,.json" onchange="histImportFileChosen(event)" style="font-size:12px">
+      </label>
+    </div>`;
+  showModal('Import games', body, ()=>runHistImport());
+  // Make the confirm button green-ish
+  const ok = document.getElementById('modal-ok');
+  if (ok) ok.textContent = 'Import';
+}
+
+function histImportFileChosen(evt) {
+  const file = evt.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { const ta=document.getElementById('hist-import-text'); if(ta) ta.value = reader.result; };
+  reader.readAsText(file);
+}
+
+function runHistImport() {
+  const ta = document.getElementById('hist-import-text');
+  const raw = ta?.value?.trim();
+  if (!raw) { showToast('Nothing to import'); return; }
+  let payload;
+  try { payload = JSON.parse(raw); }
+  catch { showToast('Could not read that — invalid format'); return; }
+  const entries = Array.isArray(payload) ? payload : payload.entries;
+  if (!Array.isArray(entries) || !entries.length) { showToast('No games found in import'); return; }
+
+  const me = (cfg().playerName || data.playerName || 'Me');
+  let logged = 0, newRivals = 0, newDecks = 0;
+  const today = new Date().toISOString().slice(0,10);
+
+  // Helper: find or create a rival by name; find or create a deck by commander(+partner)
+  const findOrCreateRival = (name) => {
+    if (!data.opponents) data.opponents = [];
+    let r = data.opponents.find(x => (x.name||'').toLowerCase() === (name||'').toLowerCase());
+    if (!r) { r = { id: genUUID(), name: name||'Unknown', decks: [] }; data.opponents.push(r); newRivals++; }
+    if (!r.decks) r.decks = [];
+    return r;
+  };
+  const findOrCreateDeck = (rival, dname, dpartner) => {
+    if (!dname) return null;
+    let d = rival.decks.find(x =>
+      (x.name||'').toLowerCase() === dname.toLowerCase() &&
+      ((x.partner||'')||'').toLowerCase() === ((dpartner||'')||'').toLowerCase());
+    if (!d) {
+      d = { id: genUUID(), name: dname };
+      if (dpartner) d.partner = dpartner;
+      rival.decks.push(d); newDecks++;
+      fetchMissingArt([dname]); if (dpartner) fetchMissingArt([dpartner]);
+    }
+    return d;
+  };
+
+  for (const e of entries) {
+    if (!e || !e.me) continue;
+    // Identify which participant is "me": match my owned decks against me + opponents.
+    // We assume the exporter listed themselves in `me`; from my perspective, find the
+    // participant whose deck I own — that's the deck I played. All others are rivals.
+    const participants = [{ player: e.me.player, name: e.me.name, partner: e.me.partner, isExporter:true },
+                          ...((e.opponents||[]).map(o=>({player:o.player, name:o.name, partner:o.partner})))];
+    const mineIdx = participants.findIndex(p => ownedDecks().some(d =>
+      (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
+      ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase()));
+
+    // The deck I played (matched owned deck), or fall back: treat exporter as a rival
+    const myPart = mineIdx >= 0 ? participants[mineIdx] : null;
+    const myDeck = myPart ? ownedDecks().find(d =>
+      (d.name||'').toLowerCase() === (myPart.name||'').toLowerCase() &&
+      ((d.partner||'')||'').toLowerCase() === ((myPart.partner||'')||'').toLowerCase()) : null;
+
+    // Everyone except me becomes a rival opponent on the entry
+    const oppParts = participants.filter((_,idx)=>idx!==mineIdx);
+    const oppRefs = [];
+    let winnerId = undefined;
+    for (const p of oppParts) {
+      const r = findOrCreateRival(p.player);
+      const d = findOrCreateDeck(r, p.name, p.partner);
+      if (d) oppRefs.push({ playerId: r.id, deckId: d.id });
+      if (e.winner && (p.player||'').toLowerCase() === e.winner.toLowerCase()) winnerId = r.id;
+    }
+
+    // Build my history entry (only if I played a recognised deck)
+    if (myDeck) {
+      // From my perspective: I won iff the recorded winner is my participant.
+      const winnerIsMe = e.winner && myPart && (e.winner.toLowerCase() === (myPart.player||'').toLowerCase());
+      const last = winnerIsMe ? 'Win' : (e.winner ? 'Loss' : 'Win');
+      const entry = { id: genUUID(), date: e.date || today, deck: deckDisplayName(myDeck), deckUuid: myDeck.uuid, last };
+      if (oppRefs.length) entry.opponents = oppRefs;
+      if (!winnerIsMe && winnerId) entry.winnerId = winnerId;
+      if (Array.isArray(e.issues) && e.issues.length) entry.issues = e.issues;
+      data.history.push(entry);
+      logged++;
+    }
+  }
+
+  // Rebuild scores + persist
+  rebuildAllScoresFromHistory();
+  renderHistory(); renderScore(); renderRivals(); scheduleSync();
+  showToast(`Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} deck${newDecks===1?'':'s'}`);
 }
 
 function rebuildAllScoresFromHistory() {
