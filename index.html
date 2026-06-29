@@ -293,7 +293,7 @@ input.setting-input[type="number"]{width:90px}
 .deck-issues-btn .idot{width:6px;height:6px;border-radius:50%;background:var(--amber);display:none;flex-shrink:0;margin-bottom:3px}
 .deck-issues-btn.has-issues .idot{display:block}
 .deck-expand.open{display:block}
-.log-cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.log-cols{display:block}
 .log-col-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:6px}
 .log-col-label.win-lbl{color:var(--green)}.log-col-label.loss-lbl{color:var(--red)}
 .setting-block.tint-purple{background:var(--purple-bg);border-left:3px solid var(--purple);padding-left:11px;border-radius:var(--radius-sm)}
@@ -308,6 +308,15 @@ input.setting-input[type="number"]{width:90px}
 .log-adj-btn.selected-dim{color:var(--text3);border-color:var(--border-md);background:var(--surface);cursor:default;opacity:.7}
 .log-btn-row{display:flex;gap:16px;justify-content:center}
 .log-adj-btn{width:72px;height:48px;border-radius:var(--radius-sm);border:.5px solid var(--border-md);background:var(--surface);cursor:pointer;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;color:var(--text);transition:background .1s}
+.log-game-btn{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 16px;border-radius:var(--radius-sm);border:.5px solid var(--blue);background:var(--surface);color:var(--blue);cursor:pointer;font-size:14px;font-weight:600;transition:background .1s}
+.log-game-btn:active{opacity:.7}
+.log-game-btn.logged{border-color:var(--green);color:#fff;background:var(--green)}
+.log-result-pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+.log-result-pill.win{color:var(--green);border:1px solid var(--green)}
+.log-result-pill.loss{color:var(--red);border:1px solid var(--red)}
+.opp-win-check{display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0 2px}
+.opp-win-check input{width:20px;height:20px;cursor:pointer;accent-color:var(--red)}
+.opp-win-check input:disabled{cursor:default;opacity:.35}
 .log-adj-btn:active{opacity:.7}
 .log-adj-btn.plus-win{color:var(--green);border-color:var(--green)}
 .log-adj-btn.minus-win{color:var(--text2)}
@@ -1007,7 +1016,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.31';
+const APP_VERSION = '2026.06.27.32';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2537,40 +2546,25 @@ function renderScore() { scheduleCropApply();
       <div class="deck-expand${openScoreDecks.has(eid)?' open':''}" id="${eid}">
         <div class="log-cols" id="logcols-${sn}">
           ${(() => {
-            const p = pending[sn] || {wins:0, losses:0};
-            const hasWin = p.wins > 0, hasLoss = p.losses > 0;
-            // One outcome per deck per submit.
-            if (hasWin) {
+            const p = pending[sn];
+            const isLogged = !!p && (p.wins>0 || p.losses>0);
+            const won = !p || p.wins>0; // default to win when none checked
+            if (isLogged) {
               return `
-                <div>
-                  <div class="log-col-label sel-win-lbl">Win</div>
-                  <div class="log-btn-row"><button class="log-adj-btn plus-win selected-dim" disabled>+1</button></div>
-                </div>
-                <div>
-                  <div class="log-col-label" style="color:var(--text2)">Remove</div>
-                  <div class="log-btn-row"><button class="log-adj-btn minus-win" title="Remove this win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button></div>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <button class="log-game-btn logged" onclick="toggleLogGame(event,'${sn}')" title="This game is logged — click to remove">
+                    <i class="ti ti-check" style="font-size:13px"></i> Logged
+                  </button>
+                  <span class="log-result-pill ${won?'win':'loss'}">${won?'You won':'You lost'}</span>
+                  <span style="font-size:10px;color:var(--text3)">${won?'(no rival checked)':'(a rival is marked as winner below)'}</span>
                 </div>`;
             }
-            if (hasLoss) {
-              return `
-                <div>
-                  <div class="log-col-label sel-loss-lbl">Loss</div>
-                  <div class="log-btn-row"><button class="log-adj-btn plus-loss selected-dim" disabled>+1</button></div>
-                </div>
-                <div>
-                  <div class="log-col-label" style="color:var(--text2)">Remove</div>
-                  <div class="log-btn-row"><button class="log-adj-btn minus-loss" title="Remove this loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button></div>
-                </div>`;
-            }
-            // Nothing selected: just the two +1 buttons.
             return `
-              <div>
-                <div class="log-col-label win-lbl">Win</div>
-                <div class="log-btn-row"><button class="log-adj-btn plus-win" title="Record a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button></div>
-              </div>
-              <div>
-                <div class="log-col-label loss-lbl">Loss</div>
-                <div class="log-btn-row"><button class="log-adj-btn plus-loss" title="Record a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button></div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <button class="log-game-btn" onclick="toggleLogGame(event,'${sn}')" title="Log a game for this deck">
+                  <i class="ti ti-plus" style="font-size:13px"></i> Log game
+                </button>
+                <span style="font-size:10px;color:var(--text3)">You won unless you check a rival below</span>
               </div>`;
           })()}
         </div>
@@ -2627,8 +2621,13 @@ function renderScore() { scheduleCropApply();
                     if (!pendingOpponents[sn]) pendingOpponents[sn] = [{},{},{}];
                     pendingOpponents[sn][i] = { playerId: selPlayer, deckId: selDeck };
                   }
+                  const isWinner = (pending[sn] && pending[sn].winnerSlot === i);
                   return `
             <div class="opp-slot" id="os-${eid}-${i}">
+              <label class="opp-win-check" title="Check if this rival won the game">
+                <input type="checkbox" ${isWinner?'checked':''} ${selPlayer?'':'disabled'}
+                  onchange="setGameWinner(event,'${sn}','${eid}',${i})">
+              </label>
               <select id="opp-player-${eid}-${i}" onchange="onOppPlayerChange('${eid}','${sn}',${i})" style="flex:1">
                 <option value="">— Player —</option>
                 ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${r.name}</option>`).join('')}
@@ -2723,78 +2722,72 @@ function toggleDeckExpand(eid) {
   }
 }
 
-function adjustPending(evt, name, type, delta) {
+// New model: a deck is "logged" as one game. Default result = Win. If a rival slot
+// is checked as the winner, the result becomes a Loss (and that rival's deck gets a
+// win in their stats at submit). pending[name] = {wins:0|1, losses:0|1, winnerSlot}.
+function toggleLogGame(evt, name) {
   evt.stopPropagation();
-  if (!pending[name]) pending[name] = {wins:0, losses:0};
-  const cur = pending[name];
-  // One outcome per deck per submit: adding is only allowed when nothing is set.
-  if (delta > 0) {
-    if (cur.wins > 0 || cur.losses > 0) {
-      showToast('One result per deck — remove the current one first');
-      return;
-    }
-    if (type === 'Win') cur.wins = 1; else cur.losses = 1;
+  if (pending[name] && (pending[name].wins>0 || pending[name].losses>0)) {
+    delete pending[name]; // un-log
   } else {
-    // Remove
-    if (type === 'Win') cur.wins = 0; else cur.losses = 0;
+    // Log it; result derives from whether a winner slot is set (none yet → win)
+    const winnerSlot = (pending[name] && pending[name].winnerSlot != null) ? pending[name].winnerSlot : null;
+    pending[name] = winnerSlot == null
+      ? {wins:1, losses:0, winnerSlot:null}
+      : {wins:0, losses:1, winnerSlot};
   }
-  if (cur.wins === 0 && cur.losses === 0) delete pending[name];
   renderPendingBar();
-  // Re-render this deck's log buttons (layout changes between states)
   renderScoreLogButtons(name);
-  // Update preview under this deck
-  const prev = document.getElementById('prev-'+name) || document.getElementById('prev-'+scryfallKey(name));
-  if (prev) {
-    const p = pending[name];
-    if (!p) { prev.textContent=''; }
-    else {
-      const parts=[];
-      if(p.wins>0)   parts.push('+1 Win');
-      if(p.losses>0) parts.push('+1 Loss');
-      prev.textContent = parts.join(' · ');
-    }
-  }
 }
 
-// Re-render just one deck's Win/Loss button column after a state change.
+// Check/uncheck a rival slot as the game winner (radio behaviour: one winner max).
+function setGameWinner(evt, name, eid, slot) {
+  evt.stopPropagation();
+  const checked = evt.target.checked;
+  if (!pending[name]) pending[name] = {wins:1, losses:0, winnerSlot:null};
+  const cur = pending[name];
+  if (checked) {
+    cur.winnerSlot = slot;
+    cur.wins = 0; cur.losses = 1; // a rival won → you lost
+  } else {
+    cur.winnerSlot = null;
+    cur.wins = 1; cur.losses = 0; // no winner → you won
+  }
+  // Uncheck the other slots' checkboxes in the DOM (radio behaviour)
+  [0,1,2].forEach(i => {
+    if (i === slot) return;
+    const cb = document.querySelector(`#os-${eid}-${i} input[type=checkbox]`);
+    if (cb) cb.checked = false;
+  });
+  renderPendingBar();
+  renderScoreLogButtons(name);
+}
+
+// Re-render just one deck's Log-game control after a state change.
 function renderScoreLogButtons(sn) {
   const cols = document.getElementById('logcols-'+sn);
   if (!cols) return;
-  const p = pending[sn] || {wins:0, losses:0};
-  const hasWin = p.wins > 0, hasLoss = p.losses > 0;
-  let html;
-  if (hasWin) {
-    html = `
-      <div>
-        <div class="log-col-label sel-win-lbl">Win</div>
-        <div class="log-btn-row"><button class="log-adj-btn plus-win selected-dim" disabled>+1</button></div>
-      </div>
-      <div>
-        <div class="log-col-label" style="color:var(--text2)">Remove</div>
-        <div class="log-btn-row"><button class="log-adj-btn minus-win" title="Remove this win" onclick="adjustPending(event,'${sn}','Win',-1)">−1</button></div>
-      </div>`;
-  } else if (hasLoss) {
-    html = `
-      <div>
-        <div class="log-col-label sel-loss-lbl">Loss</div>
-        <div class="log-btn-row"><button class="log-adj-btn plus-loss selected-dim" disabled>+1</button></div>
-      </div>
-      <div>
-        <div class="log-col-label" style="color:var(--text2)">Remove</div>
-        <div class="log-btn-row"><button class="log-adj-btn minus-loss" title="Remove this loss" onclick="adjustPending(event,'${sn}','Loss',-1)">−1</button></div>
+  const p = pending[sn];
+  const isLogged = !!p && (p.wins>0 || p.losses>0);
+  const won = !p || p.wins>0;
+  if (isLogged) {
+    cols.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="log-game-btn logged" onclick="toggleLogGame(event,'${sn}')" title="This game is logged — click to remove">
+          <i class="ti ti-check" style="font-size:13px"></i> Logged
+        </button>
+        <span class="log-result-pill ${won?'win':'loss'}">${won?'You won':'You lost'}</span>
+        <span style="font-size:10px;color:var(--text3)">${won?'(no rival checked)':'(a rival is marked as winner below)'}</span>
       </div>`;
   } else {
-    html = `
-      <div>
-        <div class="log-col-label win-lbl">Win</div>
-        <div class="log-btn-row"><button class="log-adj-btn plus-win" title="Record a win" onclick="adjustPending(event,'${sn}','Win',1)">+1</button></div>
-      </div>
-      <div>
-        <div class="log-col-label loss-lbl">Loss</div>
-        <div class="log-btn-row"><button class="log-adj-btn plus-loss" title="Record a loss" onclick="adjustPending(event,'${sn}','Loss',1)">+1</button></div>
+    cols.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="log-game-btn" onclick="toggleLogGame(event,'${sn}')" title="Log a game for this deck">
+          <i class="ti ti-plus" style="font-size:13px"></i> Log game
+        </button>
+        <span style="font-size:10px;color:var(--text3)">You won unless you check a rival below</span>
       </div>`;
   }
-  cols.innerHTML = html;
 }
 
 function renderPendingBar() {
@@ -2866,25 +2859,22 @@ function commitPending() {
     const issArr = Object.entries(ci).map(([issue,result])=>({issue,result}));
 
     const oppArr = (pendingOpponents[name] || []).filter(o=>o.playerId&&o.deckId);
-    for (let i=0; i<p.wins; i++) {
-      const entry = {id:genUUID(), date:today, deck:deckName, last:'Win'};
-      if (deckUuid) entry.deckUuid = deckUuid;
-      if (issArr.length && i===p.wins-1 && p.losses===0) entry.issues = issArr;
-      if (oppArr.length) entry.opponents = oppArr;
-      data.history.push(entry);
-      totalLogged++;
-    }
-    for (let i=0; i<p.losses; i++) {
-      const entry = {id:genUUID(), date:today, deck:deckName, last:'Loss'};
-      if (deckUuid) entry.deckUuid = deckUuid;
-      if (issArr.length && i===p.losses-1) entry.issues = issArr;
-      if (oppArr.length) entry.opponents = oppArr;
-      data.history.push(entry);
-      totalLogged++;
-    }
+    // New model: at most one game per submit. winnerSlot identifies the rival who
+    // won (=> you lost). If none, you won. Record winnerId so rival stats are exact.
+    const winnerSlot = (p.winnerSlot != null) ? p.winnerSlot : null;
+    const allOpp = pendingOpponents[name] || [];
+    const winnerOpp = (winnerSlot != null) ? allOpp[winnerSlot] : null;
+    const youWon = !(winnerOpp && winnerOpp.playerId);
+    const entry = {id:genUUID(), date:today, deck:deckName, last: youWon ? 'Win' : 'Loss'};
+    if (deckUuid) entry.deckUuid = deckUuid;
+    if (issArr.length) entry.issues = issArr;
+    if (oppArr.length) entry.opponents = oppArr;
+    if (winnerOpp && winnerOpp.playerId) entry.winnerId = winnerOpp.playerId;
+    data.history.push(entry);
+    totalLogged++;
     delete pendingIssues[name];
     delete pendingOpponents[name];
-    data.undoStack.unshift({date:today, deck:deckName, result:`${p.wins}W/${p.losses}L`});
+    data.undoStack.unshift({date:today, deck:deckName, result: youWon ? 'Win' : 'Loss'});
     if(data.undoStack.length>3) data.undoStack.pop();
   }
   pending = {};
@@ -6293,10 +6283,12 @@ function onOppPlayerChange(eid, deckKey, slot) {
     else if (activeDecks.length === 1) deckSel.value = activeDecks[0].id;
   }
   saveOppSlot(eid, deckKey, slot);
-}
-
-function onOppDeckChange(eid, deckKey, slot) {
-  saveOppSlot(eid, deckKey, slot);
+  // Enable the winner checkbox once a player is chosen (disable if cleared).
+  const cb = document.querySelector(`#os-${eid}-${slot} input[type=checkbox]`);
+  if (cb) {
+    cb.disabled = !playerId;
+    if (!playerId && cb.checked) { cb.checked = false; setGameWinner({stopPropagation(){},target:cb}, deckKey, eid, slot); }
+  }
 }
 
 function saveOppSlot(eid, deckKey, slot) {
@@ -6312,6 +6304,15 @@ function clearOppSlot(eid, deckKey, slot) {
   if (ps) ps.value = '';
   if (ds) { ds.innerHTML='<option value="">— Deck —</option>'; ds.style.display='none'; }
   if (pendingOpponents[deckKey]) pendingOpponents[deckKey][slot] = {};
+  // If this slot was marked as the winner, revert the result to a win.
+  if (pending[deckKey] && pending[deckKey].winnerSlot === slot) {
+    pending[deckKey].winnerSlot = null;
+    if (pending[deckKey].wins>0 || pending[deckKey].losses>0) { pending[deckKey].wins=1; pending[deckKey].losses=0; }
+    renderScoreLogButtons(deckKey);
+    renderPendingBar();
+  }
+  const cb = document.querySelector(`#os-${eid}-${slot} input[type=checkbox]`);
+  if (cb) { cb.checked = false; cb.disabled = true; }
 }
 
 function toggleRivalDeckPreferred(rivalId, deckId) {
@@ -6468,12 +6469,17 @@ function rivalStats() {
   (data.history||[]).filter(h=>h.opponents&&h.last).forEach(h=>{
     h.opponents.forEach(o=>{
       if (!o.playerId || !stats[o.playerId]) return;
+      // From the rival's perspective: the recorded winnerId won; everyone else
+      // (including you) lost. If no winnerId, you won → all rivals lost.
+      // Legacy entries without winnerId fall back to mirroring your result.
+      let rivalWon;
+      if (h.winnerId !== undefined) rivalWon = (h.winnerId === o.playerId);
+      else rivalWon = (h.last === 'Loss'); // legacy: you lost → rival(s) won
       stats[o.playerId].total++;
-      if (h.last==='Win') stats[o.playerId].wins++;
-      else stats[o.playerId].losses++;
+      if (rivalWon) stats[o.playerId].wins++; else stats[o.playerId].losses++;
       if (o.deckId && stats[o.playerId].decks[o.deckId]) {
         stats[o.playerId].decks[o.deckId].total++;
-        if (h.last==='Win') stats[o.playerId].decks[o.deckId].wins++;
+        if (rivalWon) stats[o.playerId].decks[o.deckId].wins++;
         else stats[o.playerId].decks[o.deckId].losses++;
       }
     });
