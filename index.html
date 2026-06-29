@@ -1021,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.35';
+const APP_VERSION = '2026.06.27.36';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3333,6 +3333,8 @@ function histImportFileChosen(evt) {
   reader.readAsText(file);
 }
 
+let _pendingImport = null; // { entries }
+
 function runHistImport() {
   const ta = document.getElementById('hist-import-text');
   const raw = ta?.value?.trim();
@@ -3342,12 +3344,55 @@ function runHistImport() {
   catch { showToast('Could not read that — invalid format'); return; }
   const entries = Array.isArray(payload) ? payload : payload.entries;
   if (!Array.isArray(entries) || !entries.length) { showToast('No games found in import'); return; }
+  _pendingImport = { entries };
+  // Collect distinct participant names across all games.
+  const names = [];
+  const seen = new Set();
+  for (const e of entries) {
+    const parts = [e.me, ...((e.opponents)||[])].filter(Boolean);
+    for (const p of parts) {
+      const nm = (p.player||'').trim();
+      if (nm && !seen.has(nm.toLowerCase())) { seen.add(nm.toLowerCase()); names.push(nm); }
+    }
+  }
+  if (names.length <= 1) { finalizeHistImport(names[0] || (cfg().playerName||'Me')); return; }
 
-  const me = (cfg().playerName || data.playerName || 'Me');
-  let logged = 0, newRivals = 0, newDecks = 0;
+  // Auto-guess "me": the participant whose deck I own; else the one who isn't a
+  // known rival of mine.
+  const ownsDeckFor = (nm) => entries.some(e => {
+    const parts = [e.me, ...((e.opponents)||[])].filter(Boolean);
+    return parts.some(p => (p.player||'').toLowerCase()===nm.toLowerCase() && ownedDecks().some(d =>
+      (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
+      ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase()));
+  });
+  const knownRival = (nm) => (data.opponents||[]).some(r => (r.name||'').toLowerCase()===nm.toLowerCase());
+  let guess = names.find(ownsDeckFor) || names.find(nm => !knownRival(nm)) || names[0];
+
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Which player are you? We'll log these games from your perspective; everyone else becomes a rival.</div>
+      ${names.map(nm=>`
+        <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:13px">
+          <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${nm===guess?'checked':''} style="accent-color:var(--blue)">
+          ${nm}${nm===guess?' <span style="color:var(--text3);font-size:11px">(best guess)</span>':''}
+        </label>`).join('')}
+    </div>`;
+  showModal('Who are you?', body, ()=>{
+    const sel = document.querySelector('input[name="import-me"]:checked');
+    finalizeHistImport(sel ? sel.value : guess);
+  });
+  const ok = document.getElementById('modal-ok');
+  if (ok) ok.textContent = 'Import';
+}
+
+function finalizeHistImport(meName) {
+  const entries = _pendingImport?.entries;
+  if (!entries) return;
+  _pendingImport = null;
+  const meLc = (meName||'').toLowerCase();
+  let logged = 0, newRivals = 0, newDecks = 0, skipped = 0;
   const today = new Date().toISOString().slice(0,10);
 
-  // Helper: find or create a rival by name; find or create a deck by commander(+partner)
   const findOrCreateRival = (name) => {
     if (!data.opponents) data.opponents = [];
     let r = data.opponents.find(x => (x.name||'').toLowerCase() === (name||'').toLowerCase());
@@ -3368,26 +3413,17 @@ function runHistImport() {
     }
     return d;
   };
+  const findMyDeck = (p) => ownedDecks().find(d =>
+    (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
+    ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase());
 
   for (const e of entries) {
     if (!e || !e.me) continue;
-    // Identify which participant is "me": match my owned decks against me + opponents.
-    // We assume the exporter listed themselves in `me`; from my perspective, find the
-    // participant whose deck I own — that's the deck I played. All others are rivals.
-    const participants = [{ player: e.me.player, name: e.me.name, partner: e.me.partner, isExporter:true },
+    const participants = [{ player:e.me.player, name:e.me.name, partner:e.me.partner },
                           ...((e.opponents||[]).map(o=>({player:o.player, name:o.name, partner:o.partner})))];
-    const mineIdx = participants.findIndex(p => ownedDecks().some(d =>
-      (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
-      ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase()));
+    const myPart = participants.find(p => (p.player||'').toLowerCase() === meLc);
+    const oppParts = participants.filter(p => p !== myPart);
 
-    // The deck I played (matched owned deck), or fall back: treat exporter as a rival
-    const myPart = mineIdx >= 0 ? participants[mineIdx] : null;
-    const myDeck = myPart ? ownedDecks().find(d =>
-      (d.name||'').toLowerCase() === (myPart.name||'').toLowerCase() &&
-      ((d.partner||'')||'').toLowerCase() === ((myPart.partner||'')||'').toLowerCase()) : null;
-
-    // Everyone except me becomes a rival opponent on the entry
-    const oppParts = participants.filter((_,idx)=>idx!==mineIdx);
     const oppRefs = [];
     let winnerId = undefined;
     for (const p of oppParts) {
@@ -3397,24 +3433,28 @@ function runHistImport() {
       if (e.winner && (p.player||'').toLowerCase() === e.winner.toLowerCase()) winnerId = r.id;
     }
 
-    // Build my history entry (only if I played a recognised deck)
-    if (myDeck) {
-      // From my perspective: I won iff the recorded winner is my participant.
-      const winnerIsMe = e.winner && myPart && (e.winner.toLowerCase() === (myPart.player||'').toLowerCase());
-      const last = winnerIsMe ? 'Win' : (e.winner ? 'Loss' : 'Win');
-      const entry = { id: genUUID(), date: e.date || today, deck: deckDisplayName(myDeck), deckUuid: myDeck.uuid, last };
-      if (oppRefs.length) entry.opponents = oppRefs;
-      if (!winnerIsMe && winnerId) entry.winnerId = winnerId;
-      if (Array.isArray(e.issues) && e.issues.length) entry.issues = e.issues;
-      data.history.push(entry);
-      logged++;
-    }
+    // My deck: prefer a matching owned deck; if I have none matching, still log using
+    // the display name from the import so the game isn't lost.
+    const myDeck = myPart ? findMyDeck(myPart) : null;
+    const myDeckName = myPart ? (myPart.partner ? `${myPart.name} // ${myPart.partner}` : myPart.name) : null;
+    if (!myPart || !myDeckName) { skipped++; continue; }
+
+    const winnerIsMe = e.winner && (e.winner.toLowerCase() === meLc);
+    const last = winnerIsMe ? 'Win' : (e.winner ? 'Loss' : 'Win');
+    const entry = { id: genUUID(), date: e.date || today, deck: myDeck ? deckDisplayName(myDeck) : myDeckName, last };
+    if (myDeck?.uuid) entry.deckUuid = myDeck.uuid;
+    if (oppRefs.length) entry.opponents = oppRefs;
+    if (!winnerIsMe && winnerId) entry.winnerId = winnerId;
+    if (Array.isArray(e.issues) && e.issues.length) entry.issues = e.issues;
+    data.history.push(entry);
+    logged++;
   }
 
-  // Rebuild scores + persist
   rebuildAllScoresFromHistory();
   renderHistory(); renderScore(); renderRivals(); scheduleSync();
-  showToast(`Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} deck${newDecks===1?'':'s'}`);
+  let msg = `Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} deck${newDecks===1?'':'s'}`;
+  if (skipped) msg += ` · ${skipped} skipped`;
+  showToast(msg);
 }
 
 function rebuildAllScoresFromHistory() {
