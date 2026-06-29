@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.27';
+const APP_VERSION = '2026.06.27.28';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1515,16 +1515,16 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR
     return `<img src="${src}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${sc});transform-origin:${px}% ${py}%">`;
   };
   if (a && b) {
-    // Split/partner art: diagonal wedges. Each art only fills a ~half slice, so it
-    // can be panned further off the cell edge (extra clamp room) than a full cell.
+    // Split/partner art: diagonal wedges, centered on 50% (57.5% top → 42.5%
+    // bottom) so the same cut line reads correctly across every cell shape.
     return `
-      <div style="position:absolute;inset:0;clip-path:polygon(0 0,55% 0,40% 100%,0 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:polygon(0 0,57.5% 0,42.5% 100%,0 100%);overflow:hidden">
         ${imgTag(a, pa, sa, 10)}
       </div>
-      <div style="position:absolute;inset:0;clip-path:polygon(55% 0,100% 0,100% 100%,40% 100%);overflow:hidden">
+      <div style="position:absolute;inset:0;clip-path:polygon(57.5% 0,100% 0,100% 100%,42.5% 100%);overflow:hidden">
         ${imgTag(b, pb, sb, 10)}
       </div>
-      <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(54% 0,56% 0,41% 100%,39% 100%);background:rgba(0,0,0,.85)"></div>`;
+      <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(56.5% 0,58.5% 0,43.5% 100%,41.5% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
   return imgTag(a||b, pa, sa, 0);
 }
@@ -4442,9 +4442,9 @@ function artPickerUpdatePos() {
       const ft = parseFloat(cutFrame.style.top)||0;
       const fwf = parseFloat(cutFrame.style.width)||0;
       const fhf = parseFloat(cutFrame.style.height)||0;
-      splitLine.setAttribute('x1', fl + 0.55*fwf);
+      splitLine.setAttribute('x1', fl + 0.575*fwf);
       splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', fl + 0.40*fwf);
+      splitLine.setAttribute('x2', fl + 0.425*fwf);
       splitLine.setAttribute('y2', ft + fhf);
       splitEl.style.display = 'block';
     } else if (splitEl) {
