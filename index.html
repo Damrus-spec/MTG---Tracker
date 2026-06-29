@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.30';
+const APP_VERSION = '2026.06.27.31';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1519,10 +1519,10 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR
     // bottom) so the same cut line reads correctly across every cell shape.
     return `
       <div style="position:absolute;inset:0;clip-path:polygon(0 0,57.5% 0,42.5% 100%,0 100%);overflow:hidden">
-        ${imgTag(a, pa, sa, 10)}
+        ${imgTag(a, pa, sa, 0.5)}
       </div>
       <div style="position:absolute;inset:0;clip-path:polygon(57.5% 0,100% 0,100% 100%,42.5% 100%);overflow:hidden">
-        ${imgTag(b, pb, sb, 10)}
+        ${imgTag(b, pb, sb, 0.5)}
       </div>
       <div style="position:absolute;inset:0;pointer-events:none;clip-path:polygon(56.5% 0,58.5% 0,43.5% 100%,41.5% 100%);background:rgba(0,0,0,.85)"></div>`;
   }
@@ -4399,13 +4399,10 @@ function artPickerUpdatePos() {
       winWFrac = Math.min(1, winWFrac / sc);
       winHFrac = Math.min(1, winHFrac / sc);
       const w = dispW * winWFrac, h = dispH * winHFrac;
-      // Clamp the object-position FRACTION the same way the render does
-      // (centerToObjectPos clamps op to [-extra, 1+extra]); then derive the frame
-      // rect from that, so the editor preview matches the render exactly.
-      // For partner (split) art, use a clamp wide enough that NO frame freezes
-      // within the slider's range — so green/blue/yellow and the cut line all slide
-      // together across the full range.
-      const extra = _artPickerShowSplit ? 10 : 0;
+      // Clamp object-position FRACTION to [-extra, 1+extra]. Full cells: extra 0
+      // (stay on art). Partner wedges: a moderate extra so the slice can pan past
+      // the cell edge a bit, without the frame running off-screen.
+      const extra = _artPickerShowSplit ? 0.5 : 0;
       const opFrac = (P, win) => {
         if (win >= 1) return 0.5;
         const op = (P/100 - win/2) / (1 - win);
