@@ -540,7 +540,10 @@ input.setting-input[type="number"]{width:90px}
     <button onclick="openHistImport()" style="padding:6px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2);flex-shrink:0" title="Import games shared by another player"><i class="ti ti-download" style="font-size:12px"></i> Import games</button>
   </div>
   <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
-    <input class="search-bar" type="text" id="hist-search" placeholder="Search deck..." oninput="renderHistory()" style="flex:1;margin:0">
+    <div style="position:relative;flex:1;display:flex">
+      <input class="search-bar" type="text" id="hist-search" placeholder="Search deck..." oninput="onHistSearchInput()" style="flex:1;margin:0;padding-right:30px">
+      <button id="hist-search-clear" onclick="clearHistSearch()" title="Clear search" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px"><i class="ti ti-x"></i></button>
+    </div>
     <div style="display:flex;gap:4px;flex-shrink:0;align-self:center;padding-right:4px">
       <select id="hist-year" onchange="renderHistory()" style="margin:0;padding:6px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px">
         <option value="">Year</option>
@@ -998,7 +1001,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.47';
+const APP_VERSION = '2026.06.27.48';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2975,6 +2978,20 @@ let _histSortNewest = true;       // history sort: newest-first by default
 let _histEditDraft = {};          // idx -> { date, wins, losses, last, winnerId, issues, _deleted }
 let _histEditExpanded = null;     // idx of the entry whose inline editor is open
 
+function onHistSearchInput() {
+  const inp = document.getElementById('hist-search');
+  const clr = document.getElementById('hist-search-clear');
+  if (clr) clr.style.display = (inp && inp.value) ? '' : 'none';
+  renderHistory();
+}
+function clearHistSearch() {
+  const inp = document.getElementById('hist-search');
+  if (inp) inp.value = '';
+  const clr = document.getElementById('hist-search-clear');
+  if (clr) clr.style.display = 'none';
+  renderHistory();
+}
+
 function toggleHistSort() {
   _histSortNewest = !_histSortNewest;
   const btn = document.getElementById('hist-sort-btn');
@@ -3017,6 +3034,7 @@ function populateHistoryFilters() {
 
 function renderHistory() { scheduleCropApply();
   const q = (document.getElementById('hist-search')?.value||'').toLowerCase();
+  { const clr=document.getElementById('hist-search-clear'); if(clr) clr.style.display = q ? '' : 'none'; }
   const filterYear  = document.getElementById('hist-year')?.value||'';
   const limit = parseInt(cfg().historyLimit)||500;
 
