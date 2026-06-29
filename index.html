@@ -314,8 +314,10 @@ input.setting-input[type="number"]{width:90px}
 .log-result-pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
 .log-result-pill.win{color:var(--green);border:1px solid var(--green)}
 .log-result-pill.loss{color:var(--red);border:1px solid var(--red)}
-.opp-win-check{display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0 2px}
-.opp-win-check input{width:20px;height:20px;cursor:pointer;accent-color:var(--red)}
+.opp-win-check{display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0 2px;align-self:center}
+.opp-win-check input{width:20px;height:20px;cursor:pointer;accent-color:var(--red);appearance:none;-webkit-appearance:none;border:1px solid var(--border-md);border-radius:4px;background:var(--surface);position:relative;margin:0;transition:background .1s,border-color .1s}
+.opp-win-check input:checked{background:var(--red);border-color:var(--red)}
+.opp-win-check input:checked::after{content:'';position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .opp-win-check input:disabled{cursor:default;opacity:.35}
 .log-adj-btn:active{opacity:.7}
 .log-adj-btn.plus-win{color:var(--green);border-color:var(--green)}
@@ -1016,7 +1018,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.32';
+const APP_VERSION = '2026.06.27.33';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
