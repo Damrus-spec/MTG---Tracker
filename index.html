@@ -995,7 +995,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.43';
+const APP_VERSION = '2026.06.27.44';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3319,24 +3319,45 @@ function histEditToggleDelete(i, evt) {
   renderHistory();
 }
 
-// Inline editor panel: winner (which participant won) + issues.
+// Inline editor panel: participants (editable player+deck, mark winner) + issues.
 function histEditPanel(h, i) {
   const d = _histEditDraft[i] || {};
-  const opps = (h.opponents||[]).filter(o=>o.playerId);
+  // Draft opponents (editable) — start from the entry's opponents.
+  const opps = d.opponents !== undefined ? d.opponents : (h.opponents || []).map(o=>({playerId:o.playerId, deckId:o.deckId}));
   const curWinnerId = d.winnerId !== undefined ? d.winnerId : (h.winnerId || null);
-  // Winner options: "You" (null) + each opponent
-  const winnerOpts = [`<button class="he-winner-opt${!curWinnerId?' sel':''}" onclick="histEditSetWinner(${i},null)">You won</button>`]
-    .concat(opps.map(o=>{
-      const r=[...(data.opponents||[]),...(data.retiredOpponents||[])].find(x=>x.id===o.playerId);
-      const dk=r?.decks?.find(x=>x.id===o.deckId);
-      const nm = r ? `${r.name}${dk?` — ${dk.partner?dk.name+' // '+dk.partner:dk.name}`:''}` : 'Unknown';
-      return `<button class="he-winner-opt${curWinnerId===o.playerId?' sel':''}" onclick="histEditSetWinner(${i},'${o.playerId}')">${nm}</button>`;
-    })).join('');
-  const winnerSection = opps.length
-    ? `<div class="he-section"><div class="he-section-title">Who won</div><div class="he-winner-row">${winnerOpts}</div></div>`
-    : `<div class="he-section"><div class="he-section-title">Who won</div><div style="font-size:11px;color:var(--text3)">No rivals recorded on this game.</div></div>`;
 
-  // Issues: current draft issues or the entry's issues
+  // "You won" option + one editable slot per opponent, plus an empty add slot.
+  const youBtn = `<button class="he-winner-opt${!curWinnerId?' sel':''}" onclick="histEditSetWinner(${i},null)" style="align-self:flex-start">✓ You won</button>`;
+
+  const slotHtml = opps.concat([{playerId:'',deckId:''}]).map((o, si)=>{
+    const selPlayer = o.playerId || '';
+    const selDeck = o.deckId || '';
+    const rival = selPlayer ? [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===selPlayer) : null;
+    const decks = (rival?.decks||[]);
+    const isWinner = curWinnerId && curWinnerId===selPlayer;
+    return `
+      <div class="opp-slot" style="align-items:center">
+        <label class="opp-win-check" title="Mark this rival as the winner">
+          <input type="checkbox" ${isWinner?'checked':''} ${selPlayer?'':'disabled'}
+            onchange="histEditSlotWinner(${i},${si},this.checked)">
+        </label>
+        <select onchange="histEditSlotPlayer(${i},${si},this.value)" style="flex:1">
+          <option value="">— Player —</option>
+          ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${r.name}</option>`).join('')}
+        </select>
+        <select onchange="histEditSlotDeck(${i},${si},this.value)" style="flex:1;display:${selPlayer?'':'none'}">
+          <option value="">— Deck —</option>
+          ${decks.map(dk=>`<option value="${dk.id}"${dk.id===selDeck?' selected':''}>${dk.partner?dk.name+' // '+dk.partner:dk.name}</option>`).join('')}
+        </select>
+        ${selPlayer?`<button class="opp-clear" onclick="histEditSlotClear(${i},${si})" title="Remove">×</button>`:''}
+      </div>`;
+  }).join('');
+
+  const winnerSection = `<div class="he-section"><div class="he-section-title">Who won / participants</div>
+    ${youBtn}
+    <div style="margin-top:6px">${slotHtml}</div></div>`;
+
+  // Issues
   const curIssues = d.issues !== undefined ? d.issues : (h.issues || []);
   const issueState = {}; curIssues.forEach(it=>{ issueState[it.issue]=it.result; });
   const issueToggles = ISSUE_PAIRS.map(([left,right])=>`
@@ -3354,8 +3375,46 @@ function histEditPanel(h, i) {
 function histEditSetWinner(i, playerId) {
   if (!_histEditDraft[i]) _histEditDraft[i] = {};
   _histEditDraft[i].winnerId = playerId; // null = you won
-  // Setting a winner implies the result too: you won iff winner is null
   _histEditDraft[i].last = playerId ? 'Loss' : 'Win';
+  renderHistory();
+}
+
+// Get the working draft opponents array for an entry (copy-on-write).
+function _histDraftOpps(i) {
+  if (!_histEditDraft[i]) _histEditDraft[i] = {};
+  if (_histEditDraft[i].opponents === undefined) {
+    const h = data.history[i];
+    _histEditDraft[i].opponents = (h.opponents||[]).map(o=>({playerId:o.playerId, deckId:o.deckId}));
+  }
+  return _histEditDraft[i].opponents;
+}
+function histEditSlotPlayer(i, si, playerId) {
+  const opps = _histDraftOpps(i);
+  if (si >= opps.length) opps.push({playerId:'', deckId:''});
+  opps[si] = { playerId, deckId:'' }; // reset deck when player changes
+  renderHistory();
+}
+function histEditSlotDeck(i, si, deckId) {
+  const opps = _histDraftOpps(i);
+  if (opps[si]) opps[si].deckId = deckId;
+  renderHistory();
+}
+function histEditSlotClear(i, si) {
+  const opps = _histDraftOpps(i);
+  const removed = opps[si];
+  opps.splice(si,1);
+  // If the removed player was the winner, revert to "you won".
+  const d = _histEditDraft[i];
+  const curWinner = d.winnerId !== undefined ? d.winnerId : (data.history[i].winnerId||null);
+  if (removed && curWinner === removed.playerId) { d.winnerId = null; d.last = 'Win'; }
+  renderHistory();
+}
+function histEditSlotWinner(i, si, checked) {
+  const opps = _histDraftOpps(i);
+  const o = opps[si];
+  if (!_histEditDraft[i]) _histEditDraft[i] = {};
+  if (checked && o && o.playerId) { _histEditDraft[i].winnerId = o.playerId; _histEditDraft[i].last = 'Loss'; }
+  else { _histEditDraft[i].winnerId = null; _histEditDraft[i].last = 'Win'; }
   renderHistory();
 }
 
@@ -3391,6 +3450,10 @@ function histEditSave() {
     if (d.losses != null) h.losses = d.losses; else if ('losses' in d) delete h.losses;
     if (d.last != null) h.last = d.last;
     if (d.winnerId !== undefined) { if (d.winnerId) h.winnerId = d.winnerId; else delete h.winnerId; }
+    if (d.opponents !== undefined) {
+      const clean = d.opponents.filter(o=>o.playerId && o.deckId);
+      if (clean.length) h.opponents = clean; else delete h.opponents;
+    }
     if (d.issues !== undefined) { if (d.issues.length) h.issues = d.issues; else delete h.issues; }
     edited++;
   }
