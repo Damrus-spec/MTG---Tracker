@@ -298,7 +298,7 @@ input.setting-input[type="number"]{width:90px}
 .issue-hist-tags{display:flex;flex-wrap:wrap;gap:5px}
 .issue-hist-tag{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500}
 .issue-hist-tag.win,.issue-hist-tag.loss{background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)}
-.h-issues{position:absolute;left:96px;right:8px;bottom:7px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
+.h-issues{position:absolute;left:96px;right:8px;bottom:-3px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
 .h-issue-tag{font-size:10px;padding:1px 7px;border-radius:8px;background:var(--surface);color:var(--text3);border:.5px solid var(--border-md);white-space:nowrap;flex-shrink:0;line-height:14px}
 .h-has-issues .h-issue-tag{color:var(--amber);border-color:var(--amber)}.h-has-issues .h-main,.h-has-issues .h-col-date,.h-has-issues .h-col-w,.h-has-issues .h-col-l,.h-has-issues .h-badge,.h-has-issues .h-del-btn{transform:translateY(-8px)}
 .issue-hist-agg{margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--border-md)}
@@ -1002,7 +1002,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.30.10';
+const APP_VERSION = '2026.06.30.11';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
