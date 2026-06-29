@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.28';
+const APP_VERSION = '2026.06.27.29';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4436,7 +4436,7 @@ function artPickerUpdatePos() {
     // cut line matches where the render actually splits.
     const splitEl = document.getElementById('ap-split');
     const splitLine = document.getElementById('ap-split-line');
-    const cutFrame = document.getElementById(_artPickerIsRival ? 'ap-frame-sq' : 'ap-frame-deck');
+    const cutFrame = document.getElementById('ap-frame-deck');
     if (splitEl && splitLine && _artPickerShowSplit && cutFrame && cutFrame.style.display !== 'none') {
       const fl = parseFloat(cutFrame.style.left)||0;
       const ft = parseFloat(cutFrame.style.top)||0;
@@ -6361,9 +6361,9 @@ function rivalDeckArtHtml(deck) {
   const sc1  = flipped && art2raw ? (deck.partnerArtScale||DEFAULT_ART_SCALE) : (deck.artScale||DEFAULT_ART_SCALE);
   const sc2  = flipped && art2raw ? (deck.artScale||DEFAULT_ART_SCALE) : (deck.partnerArtScale||DEFAULT_ART_SCALE);
   if (deck.partner && deck.partnerSingleArt) {
-    return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1, CELL_AR_SQ);
+    return splitArtHtml(art1, null, deck.name, false, pos1, null, sc1, 1, CELL_AR_DECK);
   }
-  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2, CELL_AR_SQ);
+  return splitArtHtml(art1, art2, deck.name, false, pos1, pos2, sc1, sc2, CELL_AR_DECK);
 }
 
 // Fetch art for a rival deck (uses artCache keyed by scryfallKey(name))
