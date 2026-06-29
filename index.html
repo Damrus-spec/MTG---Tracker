@@ -237,7 +237,7 @@ input.setting-input[type="number"]{width:90px}
 
 /* DECK EXPAND PANEL */
 .deck-expand{display:none;background:var(--bg);border-bottom:.5px solid var(--border);padding:10px 12px}
-.issues-row{margin-top:10px;border-top:.5px solid var(--border);padding-top:8px}
+.issues-row{margin-top:2px;border-top:.5px solid var(--border);padding-top:8px}
 .issues-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
 .issues-toggle:hover{color:var(--text2)}
 .issues-grid{display:none;margin-top:8px}
@@ -1018,7 +1018,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.33';
+const APP_VERSION = '2026.06.27.34';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
