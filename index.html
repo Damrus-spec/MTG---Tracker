@@ -298,7 +298,7 @@ input.setting-input[type="number"]{width:90px}
 .issue-hist-tags{display:flex;flex-wrap:wrap;gap:5px}
 .issue-hist-tag{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500}
 .issue-hist-tag.win,.issue-hist-tag.loss{background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)}
-.h-issues{position:absolute;left:96px;right:8px;bottom:-3px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
+.h-issues{position:absolute;left:96px;right:8px;bottom:1px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
 .h-issue-tag{font-size:10px;padding:1px 7px;border-radius:8px;background:var(--surface);color:var(--text3);border:.5px solid var(--border-md);white-space:nowrap;flex-shrink:0;line-height:14px}
 .h-has-issues .h-issue-tag{color:var(--amber);border-color:var(--amber)}.h-has-issues .h-main,.h-has-issues .h-col-date,.h-has-issues .h-col-w,.h-has-issues .h-col-l,.h-has-issues .h-badge,.h-has-issues .h-del-btn{transform:translateY(-8px)}
 .issue-hist-agg{margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--border-md)}
@@ -1002,7 +1002,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.30.11';
+const APP_VERSION = '2026.06.30.12';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -6453,33 +6453,24 @@ function renderGraph() {
       if (total>0) allPoints.push({x:date, y:parseFloat((totalW/total*100).toFixed(1))});
     }
   } else {
-    // Match the deck card's win-rate math (rebuildAllScoresFromHistory):
-    // if any entry carries an old-style cumulative snapshot (h.wins/h.losses),
-    // seed the running totals from the LAST such snapshot, then count only the
-    // individual games after it. Otherwise count every game. This makes the
-    // final graph point equal the card's headline win rate.
+    // One point per history entry, ending at the deck card's headline win rate.
+    // Walk entries chronologically, keeping running cumulative wins/losses:
+    //   - Snapshot entries (cumulative h.wins/h.losses present) RESYNC the running
+    //     totals to that snapshot and plot it. Snapshots are already cumulative.
+    //   - New-style entries (h.last only) increment the running totals and plot.
+    // Mirrors rebuildAllScoresFromHistory point-by-point so the final point equals
+    // the card, while drawing a point for every recorded entry.
     const deckHist = fullHistory.filter(h=>h.deck===deckFilter||h.deckUuid===deckFilter).sort((a,b)=>a.date.localeCompare(b.date));
-    let lastOldIdx = -1;
-    for (let i=deckHist.length-1; i>=0; i--) { if (deckHist[i].wins !== undefined) { lastOldIdx = i; break; } }
     let w=0, l=0;
-    if (lastOldIdx >= 0) {
-      // Seed from the snapshot and plot it as the first point on its own date.
-      w = deckHist[lastOldIdx].wins   || 0;
-      l = deckHist[lastOldIdx].losses || 0;
-      const seedTotal = w+l;
-      if (seedTotal>0) allPoints.push({x:deckHist[lastOldIdx].date, y:parseFloat((w/seedTotal*100).toFixed(1))});
-      // Count each individual game logged after the snapshot, cumulatively.
-      for (let i=lastOldIdx+1; i<deckHist.length; i++) {
-        if (deckHist[i].last==='Win') w++; else if (deckHist[i].last==='Loss') l++;
-        const total = w+l;
-        if (total>0) allPoints.push({x:deckHist[i].date, y:parseFloat((w/total*100).toFixed(1))});
-      }
-    } else {
-      for (const h of deckHist) {
+    for (const h of deckHist) {
+      if (h.wins !== undefined) {
+        w = h.wins   || 0;
+        l = h.losses || 0;
+      } else {
         if (h.last==='Win') w++; else if (h.last==='Loss') l++;
-        const total = w+l;
-        if (total>0) allPoints.push({x:h.date, y:parseFloat((w/total*100).toFixed(1))});
       }
+      const total = w+l;
+      if (total>0) allPoints.push({x:h.date, y:parseFloat((w/total*100).toFixed(1))});
     }
   }
 
