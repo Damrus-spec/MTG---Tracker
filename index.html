@@ -115,6 +115,9 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-edit.h-edit-changed{background:rgba(66,133,244,.06);border-left:2px solid var(--blue)}
 .h-edit.h-edit-deleted{background:rgba(224,96,96,.06);opacity:.6;border-left:2px solid var(--red)}
 .h-edit-input{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:6px 6px;font-size:12px;flex-shrink:0}
+.h-edit-input.he-num{width:46px;text-align:center;padding:6px 4px}
+.h-edit-input.he-num::-webkit-outer-spin-button,.h-edit-input.he-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.h-edit-input.he-num{-moz-appearance:textfield;appearance:textfield}
 .he-panel{margin-top:8px;border-top:.5px solid var(--border);padding-top:8px;display:flex;flex-direction:column;gap:10px}
 .he-section-title{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:5px}
 .he-winner-row{display:flex;flex-wrap:wrap;gap:6px}
@@ -995,7 +998,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.44';
+const APP_VERSION = '2026.06.27.45';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2423,12 +2426,43 @@ function gotoPage(id) {
 }
 
 function showPage(id, btn) {
+  // Leaving edit mode on tab change. If there are unsaved draft edits, confirm
+  // before discarding; otherwise just uncheck the toggle.
+  if (_histEditMode && Object.keys(_histEditDraft).length) {
+    showModal(
+      'Discard unsaved changes?',
+      'You have unsaved history edits. Leaving this tab will discard them.',
+      ()=>{ _exitHistEditAndGo(id, btn); }
+    );
+    const ok = document.getElementById('modal-ok');
+    if (ok) ok.textContent = 'Discard';
+    return; // wait for confirmation
+  }
+  if (_histEditMode) {
+    _histEditMode = false; _histEditExpanded = null;
+    const t = document.getElementById('hist-edit-toggle'); if (t) t.checked = false;
+    updateHistEditBar();
+  }
+  _showPage(id, btn);
+}
+
+// Finish leaving edit mode (after discard confirm) and navigate.
+function _exitHistEditAndGo(id, btn) {
+  _histEditMode = false; _histEditDraft = {}; _histEditExpanded = null;
+  const t = document.getElementById('hist-edit-toggle'); if (t) t.checked = false;
+  updateHistEditBar();
+  // btn may be undefined (confirm path) — resolve the nav button for the target id.
+  const target = btn || [...document.querySelectorAll('.nav-btn')].find(b => (b.getAttribute('onclick')||'').includes(`'${id}'`));
+  _showPage(id, target);
+}
+
+function _showPage(id, btn) {
   // Close any lingering autocomplete dropdowns
   document.querySelectorAll('.ac-dropdown').forEach(dd=>{ dd.innerHTML=''; dd.style.display='none'; });
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   if(id==='score')    renderScore();
   if(id==='history')  { renderHistory(); populateHistoryFilters(); }
   if(id==='rivals')    { renderRivals(); }
@@ -3063,11 +3097,8 @@ function renderHistory() { scheduleCropApply();
           ${issueHtml}
         </div>
         <input class="h-edit-input" type="date" value="${draftDate||''}" title="Edit date" onclick="event.stopPropagation()" onchange="histEditField(${i},'date',this.value)" style="width:124px">
-        <input class="h-edit-input" type="number" min="0" placeholder="W" value="${draftW}" title="Wins" onclick="event.stopPropagation()" onchange="histEditField(${i},'wins',this.value)" style="width:40px;text-align:center">
-        <input class="h-edit-input" type="number" min="0" placeholder="L" value="${draftL}" title="Losses" onclick="event.stopPropagation()" onchange="histEditField(${i},'losses',this.value)" style="width:40px;text-align:center">
-        <button class="h-del-btn" onclick="histEditToggleDelete(${i},event)" title="${isDeleted?'Undo delete':'Delete entry'}" style="color:${isDeleted?'var(--text3)':'var(--red)'}">
-          <i class="ti ti-${isDeleted?'arrow-back-up':'trash'}"></i>
-        </button>
+        <input class="h-edit-input he-num" type="number" min="0" inputmode="numeric" placeholder="W" value="${draftW}" title="Wins" onclick="event.stopPropagation()" onchange="histEditField(${i},'wins',this.value)">
+        <input class="h-edit-input he-num" type="number" min="0" inputmode="numeric" placeholder="L" value="${draftL}" title="Losses" onclick="event.stopPropagation()" onchange="histEditField(${i},'losses',this.value)">
         ${expanded ? `<div style="flex-basis:100%;width:100%" onclick="event.stopPropagation()">${histEditPanel(h, i)}</div>` : ''}
       </div>`;
     }
@@ -3366,9 +3397,15 @@ function histEditPanel(h, i) {
       <button class="he-issue-btn${issueState[right]?' sel':''}" onclick="histEditToggleIssue(${i},'${right.replace(/'/g,"\\'")}')">${right}</button>
     </div>`).join('');
 
+  const isDeleted = !!(_histEditDraft[i] && _histEditDraft[i]._deleted);
   return `<div class="he-panel">
     ${winnerSection}
     <div class="he-section"><div class="he-section-title">Issues</div><div class="he-issues">${issueToggles}</div></div>
+    <div style="display:flex;justify-content:flex-end;padding-top:2px">
+      <button onclick="histEditToggleDelete(${i},event)" style="padding:5px 12px;font-size:12px;border-radius:var(--radius-sm);border:.5px solid ${isDeleted?'var(--border-md)':'var(--red)'};background:none;color:${isDeleted?'var(--text2)':'var(--red)'};cursor:pointer">
+        <i class="ti ti-${isDeleted?'arrow-back-up':'trash'}"></i> ${isDeleted?'Undo delete':'Delete entry'}
+      </button>
+    </div>
   </div>`;
 }
 
