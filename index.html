@@ -298,7 +298,7 @@ input.setting-input[type="number"]{width:90px}
 .issue-hist-tags{display:flex;flex-wrap:wrap;gap:5px}
 .issue-hist-tag{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500}
 .issue-hist-tag.win,.issue-hist-tag.loss{background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)}
-.h-issues{position:absolute;left:96px;right:8px;bottom:1px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
+.h-issues{position:absolute;left:92px;right:8px;bottom:1px;display:flex;flex-wrap:nowrap;gap:4px;height:20px;margin:0;overflow:hidden;align-items:center}
 .h-issue-tag{font-size:10px;padding:1px 7px;border-radius:8px;background:var(--surface);color:var(--text3);border:.5px solid var(--border-md);white-space:nowrap;flex-shrink:0;line-height:14px}
 .h-has-issues .h-issue-tag{color:var(--amber);border-color:var(--amber)}.h-has-issues .h-main,.h-has-issues .h-col-date,.h-has-issues .h-col-w,.h-has-issues .h-col-l,.h-has-issues .h-badge,.h-has-issues .h-del-btn{transform:translateY(-8px)}
 .issue-hist-agg{margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--border-md)}
@@ -1002,7 +1002,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.30.12';
+const APP_VERSION = '2026.06.30.13';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -6436,19 +6436,40 @@ function renderGraph() {
   let allPoints = [];
 
   if (deckFilter === 'ALL') {
-    const seen = new Set();
-    const byDate = {};
+    // Aggregate, snapshot-aware so the final point equals the headline overall
+    // win rate (which sums each deck's snapshot-aware wins/losses).
+    // 1) Per deck, build its running cumulative (w,l) at each of its dated entries:
+    //    snapshots RESYNC the running totals; individual games increment.
+    // 2) Walk all dates globally; at each date sum every deck's most-recent
+    //    cumulative (w,l) up to that date → aggregate running win rate.
+    const byDeck = {}; // key -> sorted entries
     for (const h of fullHistory) {
-      const deckKey = h.deckUuid || uuidForName(h.deck) || h.deck;
-      const sig = `${deckKey}|${h.date}|${h.last}|${h.wins}|${h.losses}`;
-      if (seen.has(sig)) continue;
-      seen.add(sig);
-      if (!byDate[h.date]) byDate[h.date] = {w:0,l:0};
-      if (h.last==='Win') byDate[h.date].w++; else byDate[h.date].l++;
+      const key = h.deckUuid || uuidForName(h.deck) || h.deck;
+      (byDeck[key] = byDeck[key] || []).push(h);
     }
-    let totalW=0, totalL=0;
-    for (const date of Object.keys(byDate).sort()) {
-      totalW += byDate[date].w; totalL += byDate[date].l;
+    // deckStates[key] = array of {date, w, l} cumulative checkpoints (chronological)
+    const deckStates = {};
+    const allDates = new Set();
+    for (const [key, entries] of Object.entries(byDeck)) {
+      const sorted = entries.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      let w=0, l=0; const checkpoints=[];
+      for (const h of sorted) {
+        if (h.wins !== undefined) { w = h.wins||0; l = h.losses||0; }
+        else { if (h.last==='Win') w++; else if (h.last==='Loss') l++; }
+        checkpoints.push({date:h.date, w, l});
+        allDates.add(h.date);
+      }
+      deckStates[key] = checkpoints;
+    }
+    // For each global date, sum each deck's latest checkpoint at-or-before that date.
+    for (const date of Array.from(allDates).sort()) {
+      let totalW=0, totalL=0;
+      for (const cps of Object.values(deckStates)) {
+        // latest checkpoint with checkpoint.date <= date
+        let latest=null;
+        for (const cp of cps) { if (cp.date <= date) latest=cp; else break; }
+        if (latest) { totalW += latest.w; totalL += latest.l; }
+      }
       const total = totalW+totalL;
       if (total>0) allPoints.push({x:date, y:parseFloat((totalW/total*100).toFixed(1))});
     }
