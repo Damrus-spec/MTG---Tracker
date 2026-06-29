@@ -1007,7 +1007,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.29';
+const APP_VERSION = '2026.06.27.30';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4427,9 +4427,12 @@ function artPickerUpdatePos() {
         else { lblEl.style.left = ''; lblEl.style.right = (fw-(left+w)+2)+'px'; lblEl.style.top = (top+h-7)+'px'; lblEl.style.bottom=''; }
       }
     };
-    placeCropFrame(document.getElementById('ap-frame-deck'),  _apDeckMgrAR, document.getElementById('ap-lbl-deck'),  'tl');
-    placeCropFrame(document.getElementById('ap-frame-score'), AP_FRAME_SCORE_AR, document.getElementById('ap-lbl-score'), 'tr');
-    placeCropFrame(document.getElementById('ap-frame-sq'),    AP_FRAME_SQ_AR, document.getElementById('ap-lbl-sq'), 'br');
+    // Use the SAME cell-aspect constant the render uses (CELL_AR_DECK), so the
+    // editor frame and render crop identically. (Live measurement diverged from the
+    // render's fixed constant, putting the cut line in the wrong spot.)
+    placeCropFrame(document.getElementById('ap-frame-deck'),  CELL_AR_DECK, document.getElementById('ap-lbl-deck'),  'tl');
+    placeCropFrame(document.getElementById('ap-frame-score'), CELL_AR_SCORE, document.getElementById('ap-lbl-score'), 'tr');
+    placeCropFrame(document.getElementById('ap-frame-sq'),    CELL_AR_SQ, document.getElementById('ap-lbl-sq'), 'br');
 
     // Partner diagonal cut: anchor to the frame matching the cell this deck renders
     // into — square (yellow) for rival decks, Decks (green) for owned decks — so the
