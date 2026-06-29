@@ -1021,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.37';
+const APP_VERSION = '2026.06.27.38';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1609,6 +1609,12 @@ function initGSI() {
         authFailed = false; // recovered
         accessToken = resp.access_token;
         try { localStorage.setItem('mtg_token', accessToken); } catch(e) {}
+        // Track expiry and schedule a proactive, quiet refresh shortly before it
+        // lapses, so the token is renewed during idle time rather than reactively
+        // after a 401 (which forces a visible popup flash mid-action).
+        scheduleTokenRefresh(resp.expires_in);
+        _tokenIssuedAt = Date.now();
+        _tokenLifetimeMs = (Number(resp.expires_in)||3600) * 1000;
         updateSignInBtn();
         // Resolve any awaiting token-refresh callers with the fresh token
         if (_tokenWaiters.length) {
@@ -1638,6 +1644,33 @@ let authFailed = false;
 // Callers awaiting a fresh token after a 401. Resolved/rejected by the GSI callback.
 let _tokenWaiters = [];
 let _refreshInFlight = false;
+let _refreshTimer = null;
+let _tokenIssuedAt = 0;     // when the current access token was obtained (ms)
+let _tokenLifetimeMs = 3600000; // its lifetime (ms)
+// True if the token is expired or within 2 min of expiring.
+function tokenNearExpiry() {
+  if (!_tokenIssuedAt) return true;
+  return (Date.now() - _tokenIssuedAt) > (_tokenLifetimeMs - 120000);
+}
+
+// Schedule a quiet token refresh ~5 min before the current token expires. Renewing
+// ahead of expiry means the silent (prompt:'none') refresh happens in the background
+// while the token is still valid — Google won't surface a popup — instead of after a
+// 401 mid-action, which is what caused the visible login flash.
+function scheduleTokenRefresh(expiresInSec) {
+  if (_refreshTimer) { clearTimeout(_refreshTimer); _refreshTimer = null; }
+  const secs = Number(expiresInSec) || 3600;
+  // Refresh 5 minutes early, but never sooner than 30s from now.
+  const leadMs = Math.max((secs - 300) * 1000, 30000);
+  _refreshTimer = setTimeout(() => {
+    // Only refresh if signed in and the tab is visible-or-recently-active; a silent
+    // refresh on a hidden tab can be deferred by the browser anyway.
+    if (!accessToken) return;
+    try {
+      if (initGSI()) gsiClient.requestAccessToken({ prompt: 'none' });
+    } catch(e) { /* will fall back to reactive refresh on next 401 */ }
+  }, leadMs);
+}
 
 // Await a silent token refresh. Resolves with a new access token, or rejects if
 // the user needs to interactively sign in. Multiple concurrent callers share one refresh.
@@ -2182,8 +2215,10 @@ document.addEventListener('visibilitychange',()=>{
     clearTimeout(syncTimer);
     syncDrive(true);
   } else if (document.visibilityState==='visible' && accessToken && !authFailed) {
-    // Silent background check on return
-    loadFromDrive();
+    // On return: if the token is near/at expiry, refresh quietly first (the GSI
+    // callback reloads Drive on success). Otherwise just do the silent reload.
+    if (tokenNearExpiry()) { try { if (initGSI()) gsiClient.requestAccessToken({ prompt:'none' }); } catch(e){ loadFromDrive(); } }
+    else loadFromDrive();
   }
 });
 // Save immediately when window loses focus (switching app/tab)
@@ -2191,7 +2226,12 @@ window.addEventListener('blur',()=>{
   if (dirty && accessToken && hasFetchedFromDrive) { clearTimeout(syncTimer); syncDrive(true); }
 });
 // Silent background reload on refocus — never blocks navigation; skip if auth failed
-window.addEventListener('focus',()=>{ if(accessToken && !userIsEditing && !authFailed) loadFromDrive(); });
+window.addEventListener('focus',()=>{
+  if(accessToken && !userIsEditing && !authFailed){
+    if (tokenNearExpiry()) { try { if (initGSI()) gsiClient.requestAccessToken({ prompt:'none' }); } catch(e){ loadFromDrive(); } }
+    else loadFromDrive();
+  }
+});
 window.addEventListener('pagehide',()=>{ if(dirty&&accessToken&&hasFetchedFromDrive) syncDrive(true); });
 
 // ============================================================
