@@ -110,10 +110,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 /* HISTORY */
 .search-bar{width:100%;padding:9px 12px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px}
 .h-row{display:flex;align-items:center;padding:0;border-bottom:.5px solid var(--border);gap:0;overflow:hidden;min-height:52px;margin:0}
-.h-edit-row{flex-direction:column;align-items:stretch;padding:6px 10px;gap:0}
-.h-edit-row.h-edit-changed{background:rgba(66,133,244,.06);border-left:2px solid var(--blue)}
-.h-edit-row.h-edit-deleted{background:rgba(224,96,96,.06);opacity:.6;border-left:2px solid var(--red)}
-.h-edit-input{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:5px 6px;font-size:12px;flex-shrink:0}
+.h-edit{padding-right:8px;gap:6px}
+.h-edit .h-edit-input{margin:0 1px}
+.h-edit.h-edit-changed{background:rgba(66,133,244,.06);border-left:2px solid var(--blue)}
+.h-edit.h-edit-deleted{background:rgba(224,96,96,.06);opacity:.6;border-left:2px solid var(--red)}
+.h-edit-input{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:6px 6px;font-size:12px;flex-shrink:0}
 .he-panel{margin-top:8px;border-top:.5px solid var(--border);padding-top:8px;display:flex;flex-direction:column;gap:10px}
 .he-section-title{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:5px}
 .he-winner-row{display:flex;flex-wrap:wrap;gap:6px}
@@ -996,7 +997,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.41';
+const APP_VERSION = '2026.06.27.42';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3051,27 +3052,24 @@ function renderHistory() { scheduleCropApply();
       : '';
 
     if (_histEditMode) {
-      const artBlock = `<div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
-      </div>`;
       const nameBlock = (()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })();
       const expanded = _histEditExpanded === i;
-      return `<div class="h-row h-edit-row${isDeleted?' h-edit-deleted':''}${(_histEditDraft[i]&&!isDeleted)?' h-edit-changed':''}" data-idx="${i}">
-        <div style="display:flex;align-items:center;gap:8px;width:100%">
-          <span class="h-num">#${gameNum}</span>
-          ${artBlock}
-          <div class="h-main" style="flex:1;cursor:pointer" onclick="toggleHistEditExpand(${i})">
-            <div class="h-deck">${nameBlock}</div>
-          </div>
-          <input class="h-edit-input" type="date" value="${draftDate||''}" title="Edit date" onchange="histEditField(${i},'date',this.value)" style="width:120px">
-          <input class="h-edit-input" type="number" min="0" placeholder="W" value="${draftW}" title="Wins" onchange="histEditField(${i},'wins',this.value)" style="width:42px;text-align:center">
-          <input class="h-edit-input" type="number" min="0" placeholder="L" value="${draftL}" title="Losses" onchange="histEditField(${i},'losses',this.value)" style="width:42px;text-align:center">
-          <button class="h-badge ${draftLast==='Win'?'h-win':'h-loss'}" style="border:none;cursor:pointer;font-size:11px;font-weight:500;padding:3px 8px;border-radius:10px;width:44px;flex-shrink:0" onclick="histEditFlipResult(${i})" title="Flip result">${draftLast}</button>
-          <button class="h-del-btn" onclick="histEditToggleDelete(${i},event)" title="${isDeleted?'Undo delete':'Delete entry'}" style="color:${isDeleted?'var(--text3)':'var(--red)'}">
-            <i class="ti ti-${isDeleted?'arrow-back-up':'trash'}"></i>
-          </button>
+      return `<div class="h-row h-edit${expanded?' h-edit-open':''}${isDeleted?' h-edit-deleted':''}${(_histEditDraft[i]&&!isDeleted)?' h-edit-changed':''}" data-idx="${i}" style="flex-wrap:wrap;cursor:pointer" onclick="histEditRowClick(${i},event)">
+        <span class="h-num">#${gameNum}</span>
+        <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
+          ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
         </div>
-        ${expanded ? histEditPanel(h, i) : ''}
+        <div class="h-main">
+          <div class="h-deck">${nameBlock}</div>
+          ${issueHtml}
+        </div>
+        <input class="h-edit-input" type="date" value="${draftDate||''}" title="Edit date" onclick="event.stopPropagation()" onchange="histEditField(${i},'date',this.value)" style="width:124px">
+        <input class="h-edit-input" type="number" min="0" placeholder="W" value="${draftW}" title="Wins" onclick="event.stopPropagation()" onchange="histEditField(${i},'wins',this.value)" style="width:40px;text-align:center">
+        <input class="h-edit-input" type="number" min="0" placeholder="L" value="${draftL}" title="Losses" onclick="event.stopPropagation()" onchange="histEditField(${i},'losses',this.value)" style="width:40px;text-align:center">
+        <button class="h-del-btn" onclick="histEditToggleDelete(${i},event)" title="${isDeleted?'Undo delete':'Delete entry'}" style="color:${isDeleted?'var(--text3)':'var(--red)'}">
+          <i class="ti ti-${isDeleted?'arrow-back-up':'trash'}"></i>
+        </button>
+        ${expanded ? `<div style="flex-basis:100%;width:100%" onclick="event.stopPropagation()">${histEditPanel(h, i)}</div>` : ''}
       </div>`;
     }
 
@@ -3288,6 +3286,13 @@ function updateHistEditBar() {
 function toggleHistEditExpand(i) {
   _histEditExpanded = (_histEditExpanded === i) ? null : i;
   renderHistory();
+}
+
+// Clicking anywhere on an edit-mode row (art, grey areas, name) toggles its editor
+// panel — except on the inline inputs and the delete button (which stop propagation).
+function histEditRowClick(i, evt) {
+  if (evt && evt.target.closest('.h-edit-input, .h-del-btn')) return;
+  toggleHistEditExpand(i);
 }
 
 function histEditField(i, field, value) {
