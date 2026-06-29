@@ -1021,7 +1021,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.38';
+const APP_VERSION = '2026.06.27.39';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2945,7 +2945,12 @@ function showModal(title, body, onConfirm) {
 function modalConfirm() {
   const ov = document.getElementById('modal-overlay');
   if (ov) ov.style.display='none';
-  if (modalCallback) { modalCallback(); modalCallback=null; }
+  // Capture and clear BEFORE invoking, so a handler that opens another modal (and
+  // sets a new modalCallback) isn't wiped when this returns. Chained modals (e.g.
+  // import → "who are you?") rely on this.
+  const cb = modalCallback;
+  modalCallback = null;
+  if (cb) cb();
 }
 function modalCancel() {
   const ov = document.getElementById('modal-overlay');
@@ -3327,49 +3332,36 @@ function buildExportPayload() {
 
 function doExportSelected() {
   const payload = buildExportPayload();
-  const json = JSON.stringify(payload, null, 2);
-  // Download
-  const blob = new Blob([json], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `mtg-games-${new Date().toISOString().slice(0,10)}.json`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  // Copy option
+  const json = JSON.stringify(payload);
+  const n = payload.entries.length;
+  const done = () => { showToast(`${n} game${n===1?'':'s'} copied — paste to share`); clearHistorySelection(); };
   if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(json).then(
-      ()=>showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded + copied)`),
-      ()=>showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded)`)
-    );
+    navigator.clipboard.writeText(json).then(done, ()=>showExportFallback(json, n));
   } else {
-    showToast(`${payload.entries.length} game${payload.entries.length===1?'':'s'} exported (downloaded)`);
+    showExportFallback(json, n);
   }
-  clearHistorySelection();
+}
+
+// Fallback when clipboard API is unavailable: show the text to copy manually.
+function showExportFallback(json, n) {
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;color:var(--text2)">Copy this text and share it:</div>
+      <textarea readonly onclick="this.select()" style="width:100%;min-height:140px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-size:11px;font-family:monospace;resize:vertical">${json.replace(/</g,'&lt;')}</textarea>
+    </div>`;
+  showModal('Export games', body, ()=>{ clearHistorySelection(); });
 }
 
 // ── IMPORT ──
 function openHistImport() {
   const body = `
     <div style="display:flex;flex-direction:column;gap:10px">
-      <div style="font-size:13px;color:var(--text2);line-height:1.4">Import games shared by another player. Paste the exported text below, or choose a file. Your rivals will be populated with any new players/decks, and the games logged in your history.</div>
-      <textarea id="hist-import-text" placeholder="Paste exported JSON here…" style="width:100%;min-height:120px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-size:12px;font-family:monospace;resize:vertical"></textarea>
-      <label style="font-size:12px;color:var(--text2);cursor:pointer">
-        <input type="file" id="hist-import-file" accept="application/json,.json" onchange="histImportFileChosen(event)" style="font-size:12px">
-      </label>
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Paste the games text another player shared with you. New players/decks become rivals, and the games are logged in your history.</div>
+      <textarea id="hist-import-text" placeholder="Paste exported text here…" style="width:100%;min-height:120px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-size:12px;font-family:monospace;resize:vertical"></textarea>
     </div>`;
   showModal('Import games', body, ()=>runHistImport());
-  // Make the confirm button green-ish
   const ok = document.getElementById('modal-ok');
   if (ok) ok.textContent = 'Import';
-}
-
-function histImportFileChosen(evt) {
-  const file = evt.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => { const ta=document.getElementById('hist-import-text'); if(ta) ta.value = reader.result; };
-  reader.readAsText(file);
 }
 
 let _pendingImport = null; // { entries }
@@ -3416,34 +3408,91 @@ function runHistImport() {
           ${nm}${nm===guess?' <span style="color:var(--text3);font-size:11px">(best guess)</span>':''}
         </label>`).join('')}
     </div>`;
-  showModal('Who are you?', body, ()=>{
-    const sel = document.querySelector('input[name="import-me"]:checked');
-    finalizeHistImport(sel ? sel.value : guess);
-  });
-  const ok = document.getElementById('modal-ok');
-  if (ok) ok.textContent = 'Import';
+  // Defer so the first modal's confirm fully unwinds before this one opens (avoids
+  // any teardown race on the shared modal).
+  setTimeout(()=>{
+    showModal('Who are you?', body, ()=>{
+      const sel = document.querySelector('input[name="import-me"]:checked');
+      finalizeHistImport(sel ? sel.value : guess);
+    });
+    const ok = document.getElementById('modal-ok');
+    if (ok) ok.textContent = 'Import';
+  }, 0);
 }
 
 function finalizeHistImport(meName) {
   const entries = _pendingImport?.entries;
   if (!entries) return;
+  const meLc = (meName||'').toLowerCase();
+
+  const findMyDeck = (p) => ownedDecks().find(d =>
+    (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
+    ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase());
+
+  // Pre-scan: find my-decks I don't own, and entries that duplicate existing history.
+  const unowned = new Map(); // "name // partner" -> {name, partner}
+  let dupCount = 0;
+  const norm = s => (s||'').trim().toLowerCase();
+  const existingSig = new Set((data.history||[]).map(h=>{
+    const opps = (h.opponents||[]).map(o=>o.deckId).sort().join(',');
+    return `${h.date}|${norm(h.deck)}|${opps}`;
+  }));
+  for (const e of entries) {
+    if (!e || !e.me) continue;
+    const participants = [{player:e.me.player,name:e.me.name,partner:e.me.partner},
+                          ...((e.opponents||[]).map(o=>({player:o.player,name:o.name,partner:o.partner})))];
+    const myPart = participants.find(p => norm(p.player) === meLc);
+    if (!myPart || !myPart.name) continue;
+    if (!findMyDeck(myPart)) {
+      const dn = myPart.partner ? `${myPart.name} // ${myPart.partner}` : myPart.name;
+      unowned.set(dn.toLowerCase(), {name:myPart.name, partner:myPart.partner||''});
+    }
+    // Duplicate check uses my deck display name + date + matched opponent deck ids.
+    const myDeck = findMyDeck(myPart);
+    const myDeckName = myDeck ? deckDisplayName(myDeck) : (myPart.partner?`${myPart.name} // ${myPart.partner}`:myPart.name);
+    const oppDeckIds = (participants.filter(p=>p!==myPart)).map(p=>{
+      const r=(data.opponents||[]).find(x=>norm(x.name)===norm(p.player));
+      const d=r?.decks?.find(x=>norm(x.name)===norm(p.name)&&norm(x.partner||'')===norm(p.partner||''));
+      return d?.id;
+    }).filter(Boolean).sort().join(',');
+    if (existingSig.has(`${e.date}|${norm(myDeckName)}|${oppDeckIds}`)) dupCount++;
+  }
+
+  if (unowned.size || dupCount) {
+    const parts = [];
+    if (unowned.size) {
+      parts.push(`These deck${unowned.size>1?'s aren\'t':' isn\'t'} in your collection and will be added as Owned:\n  • ` +
+        [...unowned.values()].map(d=>d.partner?`${d.name} // ${d.partner}`:d.name).join('\n  • '));
+    }
+    if (dupCount) {
+      parts.push(`${dupCount} game${dupCount>1?'s'  :''} look like duplicate${dupCount>1?'s':''} of matches you already logged (same deck, opponents, and date). They may just be rematches.`);
+    }
+    parts.push('Proceed with the import?');
+    setTimeout(()=>showModal('Confirm import', parts.join('\n\n'), ()=>commitHistImport(meName, true)), 0);
+  } else {
+    commitHistImport(meName, true);
+  }
+}
+
+function commitHistImport(meName, addUnownedDecks) {
+  const entries = _pendingImport?.entries;
+  if (!entries) return;
   _pendingImport = null;
   const meLc = (meName||'').toLowerCase();
-  let logged = 0, newRivals = 0, newDecks = 0, skipped = 0;
+  const norm = s => (s||'').trim().toLowerCase();
+  let logged = 0, newRivals = 0, newDecks = 0, newMyDecks = 0, skipped = 0;
   const today = new Date().toISOString().slice(0,10);
 
   const findOrCreateRival = (name) => {
     if (!data.opponents) data.opponents = [];
-    let r = data.opponents.find(x => (x.name||'').toLowerCase() === (name||'').toLowerCase());
+    let r = data.opponents.find(x => norm(x.name) === norm(name));
     if (!r) { r = { id: genUUID(), name: name||'Unknown', decks: [] }; data.opponents.push(r); newRivals++; }
     if (!r.decks) r.decks = [];
     return r;
   };
   const findOrCreateDeck = (rival, dname, dpartner) => {
     if (!dname) return null;
-    let d = rival.decks.find(x =>
-      (x.name||'').toLowerCase() === dname.toLowerCase() &&
-      ((x.partner||'')||'').toLowerCase() === ((dpartner||'')||'').toLowerCase());
+    let d = rival.decks.find(x => norm(x.name)===norm(dname) && norm(x.partner||'')===norm(dpartner||''));
     if (!d) {
       d = { id: genUUID(), name: dname };
       if (dpartner) d.partner = dpartner;
@@ -3453,14 +3502,14 @@ function finalizeHistImport(meName) {
     return d;
   };
   const findMyDeck = (p) => ownedDecks().find(d =>
-    (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
-    ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase());
+    norm(d.name)===norm(p.name) && norm(d.partner||'')===norm(p.partner||''));
 
   for (const e of entries) {
     if (!e || !e.me) continue;
     const participants = [{ player:e.me.player, name:e.me.name, partner:e.me.partner },
                           ...((e.opponents||[]).map(o=>({player:o.player, name:o.name, partner:o.partner})))];
-    const myPart = participants.find(p => (p.player||'').toLowerCase() === meLc);
+    const myPart = participants.find(p => norm(p.player) === meLc);
+    if (!myPart || !myPart.name) { skipped++; continue; }
     const oppParts = participants.filter(p => p !== myPart);
 
     const oppRefs = [];
@@ -3469,19 +3518,24 @@ function finalizeHistImport(meName) {
       const r = findOrCreateRival(p.player);
       const d = findOrCreateDeck(r, p.name, p.partner);
       if (d) oppRefs.push({ playerId: r.id, deckId: d.id });
-      if (e.winner && (p.player||'').toLowerCase() === e.winner.toLowerCase()) winnerId = r.id;
+      if (e.winner && norm(p.player) === norm(e.winner)) winnerId = r.id;
     }
 
-    // My deck: prefer a matching owned deck; if I have none matching, still log using
-    // the display name from the import so the game isn't lost.
-    const myDeck = myPart ? findMyDeck(myPart) : null;
-    const myDeckName = myPart ? (myPart.partner ? `${myPart.name} // ${myPart.partner}` : myPart.name) : null;
-    if (!myPart || !myDeckName) { skipped++; continue; }
+    // My deck: matching owned deck, or add it to my collection if confirmed.
+    let myDeck = findMyDeck(myPart);
+    if (!myDeck && addUnownedDecks) {
+      const uuid = genUUID();
+      myDeck = { uuid, color:'?', name:myPart.name, partner:myPart.partner||'', label:'', status:'Owned' };
+      if (!data.colorDecks) data.colorDecks = [];
+      data.colorDecks.push(myDeck); newMyDecks++;
+      fetchMissingArt([myPart.name]); if (myPart.partner) fetchMissingArt([myPart.partner]);
+      fetchColorIdentity(myPart.name, myPart.partner||null).then(ci=>{ if(ci){ myDeck.color = ci; scheduleSync(); } });
+    }
+    if (!myDeck) { skipped++; continue; }
 
-    const winnerIsMe = e.winner && (e.winner.toLowerCase() === meLc);
+    const winnerIsMe = e.winner && (norm(e.winner) === meLc);
     const last = winnerIsMe ? 'Win' : (e.winner ? 'Loss' : 'Win');
-    const entry = { id: genUUID(), date: e.date || today, deck: myDeck ? deckDisplayName(myDeck) : myDeckName, last };
-    if (myDeck?.uuid) entry.deckUuid = myDeck.uuid;
+    const entry = { id: genUUID(), date: e.date || today, deck: deckDisplayName(myDeck), deckUuid: myDeck.uuid, last };
     if (oppRefs.length) entry.opponents = oppRefs;
     if (!winnerIsMe && winnerId) entry.winnerId = winnerId;
     data.history.push(entry);
@@ -3489,8 +3543,9 @@ function finalizeHistImport(meName) {
   }
 
   rebuildAllScoresFromHistory();
-  renderHistory(); renderScore(); renderRivals(); scheduleSync();
-  let msg = `Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} deck${newDecks===1?'':'s'}`;
+  renderHistory(); renderScore(); renderRivals(); renderDeckMgr(); scheduleSync();
+  let msg = `Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} rival deck${newDecks===1?'':'s'}`;
+  if (newMyDecks) msg += ` · +${newMyDecks} of your deck${newMyDecks===1?'':'s'}`;
   if (skipped) msg += ` · ${skipped} skipped`;
   showToast(msg);
 }
