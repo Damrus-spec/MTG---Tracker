@@ -998,7 +998,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.27.45';
+const APP_VERSION = '2026.06.27.46';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2983,9 +2983,22 @@ function toggleHistSort() {
 }
 
 function toggleHistEdit(on) {
+  if (!on && _histEditMode && Object.keys(_histEditDraft).length) {
+    // Unchecking with unsaved edits — confirm discard; re-check the box if cancelled.
+    showModal(
+      'Discard unsaved changes?',
+      'You have unsaved history edits. Turning off edit mode will discard them.',
+      ()=>{ _histEditDraft = {}; _histEditMode = false; _histEditExpanded = null; const tb=document.getElementById('hist-edit-toggle'); if(tb) tb.checked=false; updateHistEditBar(); renderHistory(); }
+    );
+    const ok = document.getElementById('modal-ok');
+    if (ok) ok.textContent = 'Discard';
+    // Re-check the toggle for now; modalCancel leaves edit mode on. If confirmed,
+    // the callback turns it off and the next render shows the box unchecked.
+    const t = document.getElementById('hist-edit-toggle'); if (t) t.checked = true;
+    return;
+  }
   _histEditMode = !!on;
-  if (!_histEditMode) { _histEditExpanded = null; }
-  // Leaving selection modes when entering edit mode to avoid overlap
+  if (!_histEditMode) { _histEditExpanded = null; _histEditDraft = {}; }
   if (_histEditMode) { historySelected.clear(); updateHistoryDeleteBar(); }
   updateHistEditBar();
   renderHistory();
@@ -3076,8 +3089,11 @@ function renderHistory() { scheduleCropApply();
     const isSel = historySelected.has(i);
     const d = _histEditDraft[i] || {};
     const draftDate = d.date != null ? d.date : h.date;
-    const draftW = d.wins != null ? d.wins : (h.wins!=null?h.wins:'');
-    const draftL = d.losses != null ? d.losses : (h.losses!=null?h.losses:'');
+    // In edit mode, per-game entries (no stored wins/losses) pre-fill with the
+    // running cumulative tally (_cumW/_cumL). The value only gets STORED if the
+    // user actually changes it (onchange) — otherwise the entry stays per-game.
+    const draftW = d.wins != null ? d.wins : (h.wins!=null ? h.wins : (h._cumW!=null?h._cumW:''));
+    const draftL = d.losses != null ? d.losses : (h.losses!=null ? h.losses : (h._cumL!=null?h._cumL:''));
     const draftLast = d.last != null ? d.last : h.last;
     const isDeleted = !!d._deleted;
     const issueHtml = (h.issues && h.issues.length)
