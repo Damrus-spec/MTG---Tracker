@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.5';
+const APP_VERSION = '2026.07.01.6';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7528,6 +7528,7 @@ function openAddRivalDeckModal(rivalId) {
   const rival = (data.opponents||[]).find(r=>r.id===rivalId);
   if (!rival) return;
   const modalHtml = `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0">
+    ${rival.isSelf?'<div style="font-size:12px;color:var(--green);line-height:1.4">This rival is tagged as your own decks — if the name matches one you own, art and details will be copied over automatically.</div>':''}
     <label style="font-size:11px;color:var(--text3)">Commander name</label>
     <div style="position:relative">
       <input id="rdm-name" type="text" placeholder="Legendary creature…" autocomplete="off"
@@ -7546,17 +7547,52 @@ function openAddRivalDeckModal(rivalId) {
     if (!name) return;
     const partner = document.getElementById('rdm-partner')?.value?.trim() || null;
     if (!rival.decks) rival.decks=[];
-    rival.decks.push({ id: genUUID(), name, partner: partner||undefined });
-    fetchMissingArt([name]);
-    if (partner) fetchMissingArt([partner]);
+    const newDeck = { id: genUUID(), name, partner: partner||undefined };
+    // If this rival is tagged as your own decks and the name lines up with one
+    // you actually own, copy its art/colour over — single source of truth,
+    // instead of re-fetching or re-configuring art for the same physical deck.
+    let matchedOwned = null;
+    if (rival.isSelf) {
+      const norm = s => (s||'').trim().toLowerCase();
+      matchedOwned = ownedDecks().find(d => norm(d.name)===norm(name) && (!partner || norm(d.partner||'')===norm(partner)))
+                  || ownedDecks().find(d => norm(d.name)===norm(name));
+      if (matchedOwned) {
+        if (matchedOwned.partner && !newDeck.partner) newDeck.partner = matchedOwned.partner;
+        if (matchedOwned.color) newDeck.color = matchedOwned.color;
+        ['artOverride','artOverrideName','partnerArtOverride','partnerArtOverrideName',
+         'artPosition','partnerArtPosition','artScale','partnerArtScale',
+         'artFlipped','partnerSingleArt'].forEach(k=>{
+          if (matchedOwned[k]!==undefined) newDeck[k]=matchedOwned[k];
+        });
+      }
+    }
+    rival.decks.push(newDeck);
+    if (!matchedOwned) {
+      fetchMissingArt([name]);
+      if (newDeck.partner) fetchMissingArt([newDeck.partner]);
+    }
     scheduleSync(); renderRivals();
+    if (matchedOwned) showToast('Deck added — matched to your own deck');
   });
   setTimeout(()=>{
     acCommanderMode.add('rdm-name'); acCommanderMode.add('rdm-partner');
     initAC('rdm-name', null); initAC('rdm-partner', null);
     acCallbacks['rdm-name'] = async (name) => {
-      // Autofill partner from the commander's "Partner with" pairing (cached + retried)
       const partnerEl = document.getElementById('rdm-partner');
+      // If this rival is your own decks, prefer prefilling from the matching
+      // owned deck's partner over the generic "Partner with" lookup.
+      if (rival.isSelf) {
+        const norm = s => (s||'').trim().toLowerCase();
+        const owned = ownedDecks().find(d => norm(d.name)===norm(name));
+        if (owned) {
+          if (partnerEl && !partnerEl.value && owned.partner) {
+            partnerEl.value = owned.partner;
+            partnerEl.classList.add('ac-valid');
+          }
+          return;
+        }
+      }
+      // Autofill partner from the commander's "Partner with" pairing (cached + retried)
       if (!partnerEl || partnerEl.value) return; // don't overwrite if already filled
       const partner = await lookupPartner(name);
       // Re-check the field is still empty (user may have typed during the await)
