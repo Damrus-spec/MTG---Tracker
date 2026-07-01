@@ -737,11 +737,6 @@ input.setting-input[type="number"]{width:90px}
           <input type="number" class="setting-input" id="s-issueLimit" min="1" max="200" step="1"
             oninput="saveSetting('issueLimit',this.value)" style="width:60px;text-align:center">
         </div>
-        <div class="setting-block">
-          <div class="setting-name">Clean up duplicate entries</div>
-          <div class="setting-desc">Removes duplicate score and history entries. Fixes retired decks showing twice, stale UUID records, and manually-added history duplicates.</div>
-          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px" title="Remove duplicate history and score entries" onclick="runDbCleanup()">Clean up now</button>
-        </div>
       </div>
       <div class="card">
         <div class="setting-block">
@@ -1002,7 +997,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.06.30.13';
+const APP_VERSION = '2026.07.01.1';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3726,11 +3721,69 @@ function runHistImport() {
   setTimeout(()=>{
     showModal('Who are you?', body, ()=>{
       const sel = document.querySelector('input[name="import-me"]:checked');
-      finalizeHistImport(sel ? sel.value : guess);
+      askParticipantMapping(sel ? sel.value : guess, names);
     });
     const ok = document.getElementById('modal-ok');
     if (ok) ok.textContent = 'Import';
   }, 0);
+}
+
+// Step 2 (only when there are other participants besides "me"): let the importer
+// verify how each imported name maps onto their own rival list, rather than
+// silently matching on exact name string. Handles the case where a player's own
+// name in the exporter's file (e.g. their generic/unset "Me" label, or a nickname
+// like "Arjo") doesn't literally match how that same person is already recorded
+// as a rival locally.
+function askParticipantMapping(meName, names) {
+  const others = names.filter(nm => nm !== meName);
+  if (!others.length) { finalizeHistImport(meName); return; }
+  window._pendingImportMapNames = others;
+  const norm = s => (s||'').trim().toLowerCase();
+  const rivals = (data.opponents||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Match the other player${others.length!==1?'s':''} in this import to your rivals, or add as new.</div>
+      ${others.map((nm,i)=>{
+        const exact = rivals.find(r => norm(r.name)===norm(nm));
+        return `
+        <div style="display:flex;flex-direction:column;gap:5px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm)">
+          <div style="font-size:12px;color:var(--text3)">Imported as "${nm.replace(/"/g,'&quot;')}"</div>
+          <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:7px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:13px">
+            <option value="new" ${!exact?'selected':''}>+ New rival</option>
+            ${rivals.map(r=>`<option value="${r.id}" ${exact&&exact.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}</option>`).join('')}
+          </select>
+          <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:7px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:13px;${exact?'display:none':''}">
+        </div>`;
+      }).join('')}
+    </div>`;
+  setTimeout(()=>{
+    showModal('Match players', body, ()=>confirmParticipantMapping(meName));
+    const ok = document.getElementById('modal-ok');
+    if (ok) ok.textContent = 'Import';
+  }, 0);
+}
+function onParticipantMapChange(i) {
+  const sel = document.getElementById(`pmap-sel-${i}`);
+  const inp = document.getElementById(`pmap-name-${i}`);
+  if (sel && inp) inp.style.display = (sel.value === 'new') ? '' : 'none';
+}
+function confirmParticipantMapping(meName) {
+  const others = window._pendingImportMapNames || [];
+  const map = {};
+  others.forEach((nm,i)=>{
+    const sel = document.getElementById(`pmap-sel-${i}`);
+    const val = sel ? sel.value : 'new';
+    if (val === 'new') {
+      const inp = document.getElementById(`pmap-name-${i}`);
+      const name = (inp && inp.value.trim()) || nm;
+      map[nm.trim().toLowerCase()] = { type:'new', name };
+    } else {
+      map[nm.trim().toLowerCase()] = { type:'existing', rivalId: val };
+    }
+  });
+  window._pendingImportMapNames = null;
+  window._pendingParticipantMap = map;
+  finalizeHistImport(meName);
 }
 
 function finalizeHistImport(meName) {
@@ -3741,6 +3794,21 @@ function finalizeHistImport(meName) {
   const findMyDeck = (p) => ownedDecks().find(d =>
     (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
     ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase());
+
+  // Resolves an opponent participant to an existing rival using the verified
+  // participant map from askParticipantMapping (if the import had one to build),
+  // falling back to exact-name matching. Read-only: never creates a rival.
+  const norm0 = s => (s||'').trim().toLowerCase();
+  function resolveMappedRival(p) {
+    const map = window._pendingParticipantMap;
+    const key = norm0(p.player);
+    if (map && map[key]) {
+      const m = map[key];
+      if (m.type === 'existing') return (data.opponents||[]).find(x=>x.id===m.rivalId);
+      return (data.opponents||[]).find(x=>norm0(x.name)===norm0(m.name));
+    }
+    return (data.opponents||[]).find(x=>norm0(x.name)===norm0(p.player));
+  }
 
   // Pre-scan: find my-decks I don't own, and entries that duplicate existing history.
   const unowned = new Map(); // "name // partner" -> {name, partner}
@@ -3764,7 +3832,7 @@ function finalizeHistImport(meName) {
     const myDeck = findMyDeck(myPart);
     const myDeckName = myDeck ? deckDisplayName(myDeck) : (myPart.partner?`${myPart.name} // ${myPart.partner}`:myPart.name);
     const oppDeckIds = (participants.filter(p=>p!==myPart)).map(p=>{
-      const r=(data.opponents||[]).find(x=>norm(x.name)===norm(p.player));
+      const r = resolveMappedRival(p);
       const d=r?.decks?.find(x=>norm(x.name)===norm(p.name)&&norm(x.partner||'')===norm(p.partner||''));
       return d?.id;
     }).filter(Boolean).sort().join(',');
@@ -3803,6 +3871,24 @@ function commitHistImport(meName, addUnownedDecks) {
     if (!r.decks) r.decks = [];
     return r;
   };
+  // Resolves an opponent participant to a rival using the verified participant
+  // map from askParticipantMapping when present (either an explicitly-chosen
+  // existing rival, or a confirmed/corrected name for a new one); falls back to
+  // exact-name matching for imports that skipped the mapping step (only one
+  // other participant across the whole import — nothing to disambiguate).
+  const resolveRival = (p) => {
+    const map = window._pendingParticipantMap;
+    const key = norm(p.player);
+    if (map && map[key]) {
+      const m = map[key];
+      if (m.type === 'existing') {
+        const r = data.opponents?.find(x=>x.id===m.rivalId);
+        if (r) { if (!r.decks) r.decks=[]; return r; }
+      }
+      return findOrCreateRival(m.name || p.player);
+    }
+    return findOrCreateRival(p.player);
+  };
   const findOrCreateDeck = (rival, dname, dpartner) => {
     if (!dname) return null;
     let d = rival.decks.find(x => norm(x.name)===norm(dname) && norm(x.partner||'')===norm(dpartner||''));
@@ -3828,7 +3914,7 @@ function commitHistImport(meName, addUnownedDecks) {
     const oppRefs = [];
     let winnerId = undefined;
     for (const p of oppParts) {
-      const r = findOrCreateRival(p.player);
+      const r = resolveRival(p);
       const d = findOrCreateDeck(r, p.name, p.partner);
       if (d) oppRefs.push({ playerId: r.id, deckId: d.id });
       if (e.winner && norm(p.player) === norm(e.winner)) winnerId = r.id;
@@ -3857,6 +3943,7 @@ function commitHistImport(meName, addUnownedDecks) {
 
   rebuildAllScoresFromHistory();
   renderHistory(); renderScore(); renderRivals(); renderDeckMgr(); scheduleSync();
+  window._pendingParticipantMap = null;
   let msg = `Imported ${logged} game${logged===1?'':'s'} · +${newRivals} rival${newRivals===1?'':'s'} · +${newDecks} rival deck${newDecks===1?'':'s'}`;
   if (newMyDecks) msg += ` · +${newMyDecks} of your deck${newMyDecks===1?'':'s'}`;
   if (skipped) msg += ` · ${skipped} skipped`;
@@ -6368,22 +6455,6 @@ function recoverDeletedDecks() {
       showToast(`Restored ${list.length} deck${list.length!==1?'s':''} as Retired`);
     }
   );
-}
-
-function runDbCleanup() {
-  for (const h of (data.history||[])) {
-    if (h.deckUuid && h.deck && data.scores?.[h.deckUuid] && !data.scores[h.deckUuid]._name) {
-      data.scores[h.deckUuid]._name = h.deck;
-    }
-  }
-  migrateDataToUuids();
-  const cleaned = cleanStaleScores();
-  deduplicateHistory();
-  saveLocal();
-  syncDrive(true);
-  renderScore();
-  renderHistory();
-  showToast(cleaned ? 'Duplicates removed — syncing to Drive' : 'Cleaned — syncing to Drive');
 }
 
 function runRebuildScores() {
