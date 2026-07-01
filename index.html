@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.10';
+const APP_VERSION = '2026.07.01.11';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2492,6 +2492,24 @@ function gotoPage(id) {
 }
 
 function showPage(id, btn) {
+  // Leaving the Score tab with pending game logs: prompt before discarding, so
+  // pending entries can't silently linger (or be forgotten) across tabs.
+  // Confirm = clear + navigate; Cancel = stay on Score to submit them.
+  const _onScore = document.getElementById('page-score')?.classList.contains('active');
+  const _hasPending = typeof pending !== 'undefined' && Object.entries(pending||{}).some(([,v])=>v.wins>0||v.losses>0);
+  if (_onScore && id !== 'score' && _hasPending) {
+    showModal('Clear pending entries?', 'This will discard all pending game logs. Cancel to stay and submit them instead.', () => {
+      Object.keys(pending).forEach(k => delete pending[k]);
+      Object.keys(pendingIssues||{}).forEach(k => delete pendingIssues[k]);
+      Object.keys(pendingOpponents||{}).forEach(k => delete pendingOpponents[k]);
+      renderPendingBar();
+      const target = btn || [...document.querySelectorAll('.nav-btn')].find(b => (b.getAttribute('onclick')||'').includes(`'${id}'`));
+      _showPage(id, target);
+    });
+    const ok = document.getElementById('modal-ok');
+    if (ok) ok.textContent = 'Discard';
+    return; // wait for confirmation
+  }
   // Leaving edit mode on tab change. If there are unsaved draft edits, confirm
   // before discarding; otherwise just uncheck the toggle.
   if (_histEditMode && Object.keys(_histEditDraft).length) {
