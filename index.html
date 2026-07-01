@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.6';
+const APP_VERSION = '2026.07.01.7';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3743,11 +3743,11 @@ function runHistImport() {
             ${nm}${isMe?' <span style="font-size:11px;opacity:.8">— this is you</span>':''}
           </label>
           <div style="display:flex;flex-direction:column;gap:5px;padding-left:24px">
-            <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px">
+            <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" ${isMe?'disabled':''} style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${isMe?'opacity:.4;cursor:not-allowed':''}">
               <option value="new" ${!match?'selected':''}>+ New rival</option>
               ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}${r.isSelf?' (your decks)':''}</option>`).join('')}
             </select>
-            <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${match?'display:none':''}">
+            <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" ${isMe?'disabled':''} style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${isMe?'opacity:.4;cursor:not-allowed;':(match?'display:none':'')}">
           </div>
         </div>`;
       }).join('')}
@@ -3767,7 +3767,9 @@ function runHistImport() {
 // Every participant card keeps the same layout (radio + rival-match row); the
 // only thing that changes on selection is a green highlight on whichever card
 // is currently marked "you", so it's unambiguous who's selected without
-// hiding/reflowing content underneath.
+// hiding/reflowing content underneath. The rival-match controls for that card
+// are disabled — mapping "yourself" to a rival is a no-op on confirm, so an
+// active-looking dropdown there was misleading (picking something did nothing).
 function onImportMeChange() {
   const sel = document.querySelector('input[name="import-me"]:checked');
   const meVal = sel ? sel.value : null;
@@ -3775,11 +3777,21 @@ function onImportMeChange() {
     const card = document.getElementById(`import-card-${i}`);
     const label = card?.querySelector('label');
     const tag = card?.querySelector('label span');
+    const selEl = document.getElementById(`pmap-sel-${i}`);
+    const inp = document.getElementById(`pmap-name-${i}`);
     const isMe = nm === meVal;
     if (card) { card.style.background = isMe?'var(--green-bg)':'var(--surface)'; card.style.borderColor = isMe?'var(--green)':'var(--border-md)'; }
     if (label) label.style.color = isMe?'var(--green)':'var(--text)';
     if (tag) tag.remove();
     if (isMe && label) label.insertAdjacentHTML('beforeend', ' <span style="font-size:11px;opacity:.8">— this is you</span>');
+    if (selEl) { selEl.disabled = isMe; selEl.style.opacity = isMe?'.4':''; selEl.style.cursor = isMe?'not-allowed':''; }
+    if (inp) {
+      inp.disabled = isMe;
+      inp.style.opacity = isMe?'.4':'';
+      inp.style.cursor = isMe?'not-allowed':'';
+      if (!isMe) inp.style.display = (selEl && selEl.value==='new') ? '' : 'none';
+      else inp.style.display = '';
+    }
   });
 }
 function onParticipantMapChange(i) {
