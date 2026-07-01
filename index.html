@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.2';
+const APP_VERSION = '2026.07.01.3';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3723,70 +3723,62 @@ function runHistImport() {
   const knownRival = (nm) => (data.opponents||[]).some(r => (r.name||'').toLowerCase()===nm.toLowerCase());
   let guess = names.find(ownsDeckFor) || names.find(nm => !knownRival(nm)) || names[0];
 
+  window._pendingImportNames = names;
+  const rivals = (data.opponents||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const body = `
     <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;color:var(--text2);line-height:1.4">Which player are you? We'll log these games from your perspective; everyone else becomes a rival.</div>
-      ${names.map(nm=>`
-        <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:13px">
-          <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${nm===guess?'checked':''} style="accent-color:var(--blue)">
-          ${nm}${nm===guess?' <span style="color:var(--text3);font-size:11px">(best guess)</span>':''}
-        </label>`).join('')}
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Which player are you? Everyone else becomes (or matches) a rival — check the match below each name and override if it's wrong.</div>
+      ${names.map((nm,i)=>{
+        const match = bestRivalMatch(nm, rivals);
+        return `
+        <div style="display:flex;flex-direction:column;gap:6px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${nm===guess?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--blue)">
+            ${nm}${nm===guess?' <span style="color:var(--text3);font-size:11px">(best guess)</span>':''}
+          </label>
+          <div id="pmap-row-${i}" style="display:flex;flex-direction:column;gap:5px;padding-left:24px;${nm===guess?'display:none':''}">
+            <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px">
+              <option value="new" ${!match?'selected':''}>+ New rival</option>
+              ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}</option>`).join('')}
+            </select>
+            <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${match?'display:none':''}">
+          </div>
+        </div>`;
+      }).join('')}
     </div>`;
   // Defer so the first modal's confirm fully unwinds before this one opens (avoids
   // any teardown race on the shared modal).
   setTimeout(()=>{
     showModal('Who are you?', body, ()=>{
       const sel = document.querySelector('input[name="import-me"]:checked');
-      askParticipantMapping(sel ? sel.value : guess, names);
+      confirmUnifiedParticipantMapping(sel ? sel.value : guess);
     });
     const ok = document.getElementById('modal-ok');
     if (ok) ok.textContent = 'Import';
+    onImportMeChange();
   }, 0);
 }
 
-// Step 2 (only when there are other participants besides "me"): let the importer
-// verify how each imported name maps onto their own rival list, rather than
-// silently matching on exact name string. Handles the case where a player's own
-// name in the exporter's file (e.g. their generic/unset "Me" label, or a nickname
-// like "Arjo") doesn't literally match how that same person is already recorded
-// as a rival locally.
-function askParticipantMapping(meName, names) {
-  const others = names.filter(nm => nm !== meName);
-  if (!others.length) { finalizeHistImport(meName); return; }
-  window._pendingImportMapNames = others;
-  const norm = s => (s||'').trim().toLowerCase();
-  const rivals = (data.opponents||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  const body = `
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div style="font-size:13px;color:var(--text2);line-height:1.4">Match the other player${others.length!==1?'s':''} in this import to your rivals, or add as new.</div>
-      ${others.map((nm,i)=>{
-        const exact = rivals.find(r => norm(r.name)===norm(nm));
-        return `
-        <div style="display:flex;flex-direction:column;gap:5px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm)">
-          <div style="font-size:12px;color:var(--text3)">Imported as "${nm.replace(/"/g,'&quot;')}"</div>
-          <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:7px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:13px">
-            <option value="new" ${!exact?'selected':''}>+ New rival</option>
-            ${rivals.map(r=>`<option value="${r.id}" ${exact&&exact.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}</option>`).join('')}
-          </select>
-          <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:7px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:13px;${exact?'display:none':''}">
-        </div>`;
-      }).join('')}
-    </div>`;
-  setTimeout(()=>{
-    showModal('Match players', body, ()=>confirmParticipantMapping(meName));
-    const ok = document.getElementById('modal-ok');
-    if (ok) ok.textContent = 'Import';
-  }, 0);
+// Hides the rival-mapping row under whichever name is currently selected as "me"
+// (you don't map yourself to a rival), and reveals it for every other name.
+function onImportMeChange() {
+  const sel = document.querySelector('input[name="import-me"]:checked');
+  const meVal = sel ? sel.value : null;
+  (window._pendingImportNames||[]).forEach((nm, i) => {
+    const row = document.getElementById(`pmap-row-${i}`);
+    if (row) row.style.display = (nm === meVal) ? 'none' : '';
+  });
 }
 function onParticipantMapChange(i) {
   const sel = document.getElementById(`pmap-sel-${i}`);
   const inp = document.getElementById(`pmap-name-${i}`);
   if (sel && inp) inp.style.display = (sel.value === 'new') ? '' : 'none';
 }
-function confirmParticipantMapping(meName) {
-  const others = window._pendingImportMapNames || [];
+function confirmUnifiedParticipantMapping(meName) {
+  const names = window._pendingImportNames || [];
   const map = {};
-  others.forEach((nm,i)=>{
+  names.forEach((nm,i)=>{
+    if (nm === meName) return; // no mapping needed for yourself
     const sel = document.getElementById(`pmap-sel-${i}`);
     const val = sel ? sel.value : 'new';
     if (val === 'new') {
@@ -3797,9 +3789,48 @@ function confirmParticipantMapping(meName) {
       map[nm.trim().toLowerCase()] = { type:'existing', rivalId: val };
     }
   });
-  window._pendingImportMapNames = null;
+  window._pendingImportNames = null;
   window._pendingParticipantMap = map;
   finalizeHistImport(meName);
+}
+
+// Fuzzy rival lookup for auto-matching imported participant names: exact
+// (normalized) match first, then substring containment either direction, then
+// closest by edit distance within a tolerance scaled to name length. Returns
+// the best-guess rival or null if nothing is close enough.
+function bestRivalMatch(name, rivals) {
+  const norm = s => (s||'').trim().toLowerCase();
+  const n = norm(name);
+  if (!n || !rivals.length) return null;
+  const exact = rivals.find(r => norm(r.name) === n);
+  if (exact) return exact;
+  const contains = rivals.find(r => {
+    const rn = norm(r.name);
+    return rn && (rn.includes(n) || n.includes(rn));
+  });
+  if (contains) return contains;
+  let best = null, bestDist = Infinity;
+  for (const r of rivals) {
+    const rn = norm(r.name);
+    if (!rn) continue;
+    const d = levenshteinDist(n, rn);
+    const tolerance = Math.max(1, Math.floor(Math.max(n.length, rn.length) * 0.3));
+    if (d <= tolerance && d < bestDist) { best = r; bestDist = d; }
+  }
+  return best;
+}
+function levenshteinDist(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({length:n+1}, (_,j)=>j);
+  for (let i=1; i<=m; i++) {
+    const cur = [i];
+    for (let j=1; j<=n; j++) {
+      cur[j] = a[i-1]===b[j-1] ? prev[j-1] : 1 + Math.min(prev[j-1], prev[j], cur[j-1]);
+    }
+    prev = cur;
+  }
+  return prev[n];
 }
 
 function finalizeHistImport(meName) {
@@ -3812,8 +3843,8 @@ function finalizeHistImport(meName) {
     ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase());
 
   // Resolves an opponent participant to an existing rival using the verified
-  // participant map from askParticipantMapping (if the import had one to build),
-  // falling back to exact-name matching. Read-only: never creates a rival.
+  // participant map from the "Who are you?" mapping step (if the import had one
+  // to build), falling back to exact-name matching. Read-only: never creates a rival.
   const norm0 = s => (s||'').trim().toLowerCase();
   function resolveMappedRival(p) {
     const map = window._pendingParticipantMap;
@@ -3888,10 +3919,10 @@ function commitHistImport(meName, addUnownedDecks) {
     return r;
   };
   // Resolves an opponent participant to a rival using the verified participant
-  // map from askParticipantMapping when present (either an explicitly-chosen
-  // existing rival, or a confirmed/corrected name for a new one); falls back to
-  // exact-name matching for imports that skipped the mapping step (only one
-  // other participant across the whole import — nothing to disambiguate).
+  // map from the "Who are you?" mapping step when present (either an explicitly-
+  // chosen existing rival, or a confirmed/corrected name for a new one); falls
+  // back to exact-name matching for imports that skipped the mapping step (only
+  // one other participant across the whole import — nothing to disambiguate).
   const resolveRival = (p) => {
     const map = window._pendingParticipantMap;
     const key = norm(p.player);
