@@ -647,6 +647,22 @@ input.setting-input[type="number"]{width:90px}
 
   <div class="settings-section">
     <div class="settings-label" onclick="toggleSettingsSection(this)">
+      Profile<i class="ti ti-chevron-down s-chevron"></i>
+    </div>
+    <div class="settings-body">
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Player name</div>
+          <div class="setting-desc">How you're identified when exporting games to share. Use the name your friends already know you by, so imports match up cleanly.</div>
+          <input type="text" class="setting-input" id="s-playerName" placeholder="e.g. Arjo" maxlength="40"
+            oninput="saveStrSetting('playerName',this.value.trim())" style="width:100%">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-label" onclick="toggleSettingsSection(this)">
       Score — win rate thresholds<i class="ti ti-chevron-down s-chevron"></i>
     </div>
     <div class="settings-body">
@@ -997,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.1';
+const APP_VERSION = '2026.07.01.2';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5837,6 +5853,8 @@ function updateEditorTab() { /* Editor tab removed; history editing now lives in
 
 function renderSettings() {
   const s=cfg();
+  const nameEl = document.getElementById('s-playerName');
+  if (nameEl) nameEl.value = s.playerName || '';
   document.getElementById('s-pubStompWin').value = s.pubStompWin||60;
   document.getElementById('s-maxWin').value     = s.maxWin;
   document.getElementById('s-strongWin').value  = s.strongWin;
