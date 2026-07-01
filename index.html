@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.3';
+const APP_VERSION = '2026.07.01.4';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3730,13 +3730,14 @@ function runHistImport() {
       <div style="font-size:13px;color:var(--text2);line-height:1.4">Which player are you? Everyone else becomes (or matches) a rival — check the match below each name and override if it's wrong.</div>
       ${names.map((nm,i)=>{
         const match = bestRivalMatch(nm, rivals);
+        const isMe = nm===guess;
         return `
-        <div style="display:flex;flex-direction:column;gap:6px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm)">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-            <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${nm===guess?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--blue)">
-            ${nm}${nm===guess?' <span style="color:var(--text3);font-size:11px">(best guess)</span>':''}
+        <div id="import-card-${i}" style="display:flex;flex-direction:column;gap:6px;padding:9px 10px;background:${isMe?'var(--green-bg)':'var(--surface)'};border:.5px solid ${isMe?'var(--green)':'var(--border-md)'};border-radius:var(--radius-sm)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:${isMe?'var(--green)':'var(--text)'}">
+            <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${isMe?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--green)">
+            ${nm}${isMe?' <span style="font-size:11px;opacity:.8">— this is you</span>':''}
           </label>
-          <div id="pmap-row-${i}" style="display:flex;flex-direction:column;gap:5px;padding-left:24px;${nm===guess?'display:none':''}">
+          <div style="display:flex;flex-direction:column;gap:5px;padding-left:24px">
             <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px">
               <option value="new" ${!match?'selected':''}>+ New rival</option>
               ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}</option>`).join('')}
@@ -3755,18 +3756,25 @@ function runHistImport() {
     });
     const ok = document.getElementById('modal-ok');
     if (ok) ok.textContent = 'Import';
-    onImportMeChange();
   }, 0);
 }
 
-// Hides the rival-mapping row under whichever name is currently selected as "me"
-// (you don't map yourself to a rival), and reveals it for every other name.
+// Every participant card keeps the same layout (radio + rival-match row); the
+// only thing that changes on selection is a green highlight on whichever card
+// is currently marked "you", so it's unambiguous who's selected without
+// hiding/reflowing content underneath.
 function onImportMeChange() {
   const sel = document.querySelector('input[name="import-me"]:checked');
   const meVal = sel ? sel.value : null;
   (window._pendingImportNames||[]).forEach((nm, i) => {
-    const row = document.getElementById(`pmap-row-${i}`);
-    if (row) row.style.display = (nm === meVal) ? 'none' : '';
+    const card = document.getElementById(`import-card-${i}`);
+    const label = card?.querySelector('label');
+    const tag = card?.querySelector('label span');
+    const isMe = nm === meVal;
+    if (card) { card.style.background = isMe?'var(--green-bg)':'var(--surface)'; card.style.borderColor = isMe?'var(--green)':'var(--border-md)'; }
+    if (label) label.style.color = isMe?'var(--green)':'var(--text)';
+    if (tag) tag.remove();
+    if (isMe && label) label.insertAdjacentHTML('beforeend', ' <span style="font-size:11px;opacity:.8">— this is you</span>');
   });
 }
 function onParticipantMapChange(i) {
