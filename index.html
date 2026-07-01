@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.9';
+const APP_VERSION = '2026.07.01.10';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1658,10 +1658,32 @@ function scheduleTokenRefresh(expiresInSec) {
     // Only refresh if signed in and the tab is visible-or-recently-active; a silent
     // refresh on a hidden tab can be deferred by the browser anyway.
     if (!accessToken) return;
-    try {
-      if (initGSI()) gsiClient.requestAccessToken({ prompt: 'none' });
-    } catch(e) { /* will fall back to reactive refresh on next 401 */ }
+    quietTokenRefresh(); // guarded — falls back to reactive refresh on next 401
   }, leadMs);
+}
+
+// Single guarded entry point for background (quiet) token refreshes. All
+// focus/visibility/timer triggers go through here so that only ONE
+// requestAccessToken can be in flight at a time, with a 30s cooldown — this is
+// what stops the repeated Google popup on page load (each popup closing fired
+// the window 'focus' handler, which requested another token, opening another
+// popup, and so on).
+let _lastQuietRefresh = 0;
+function quietTokenRefresh() {
+  if (_refreshInFlight) return true;                     // one already running
+  if (Date.now() - _lastQuietRefresh < 30000) return false; // cooldown
+  if (!initGSI()) return false;
+  _refreshInFlight = true;
+  _lastQuietRefresh = Date.now();
+  try {
+    gsiClient.requestAccessToken({ prompt: 'none' });
+    // Safety: if the GSI callback never fires, release the guard
+    setTimeout(() => { _refreshInFlight = false; }, 15000);
+    return true;
+  } catch(e) {
+    _refreshInFlight = false;
+    return false;
+  }
 }
 
 // Await a silent token refresh. Resolves with a new access token, or rejects if
@@ -1685,6 +1707,7 @@ function tokenRefresh() {
     }
     try {
       // The shared callback (set in initGSI) drains _tokenWaiters on success/error.
+      _lastQuietRefresh = Date.now(); // background triggers back off while this settles
       gsiClient.requestAccessToken({ prompt: 'none' });
       // Safety timeout: if no callback in 15s, reject waiters so callers don't hang
       setTimeout(() => {
@@ -2232,8 +2255,10 @@ document.addEventListener('visibilitychange',()=>{
     syncDrive(true);
   } else if (document.visibilityState==='visible' && accessToken && !authFailed) {
     // On return: if the token is near/at expiry, refresh quietly first (the GSI
-    // callback reloads Drive on success). Otherwise just do the silent reload.
-    if (tokenNearExpiry()) { try { if (initGSI()) gsiClient.requestAccessToken({ prompt:'none' }); } catch(e){ loadFromDrive(); } }
+    // callback reloads Drive on success). Guarded + cooldown so this can never
+    // stack popups; if a refresh is already in flight or on cooldown, just try
+    // the reload — a 401 there funnels into the same shared refresh.
+    if (tokenNearExpiry()) { if (!quietTokenRefresh()) loadFromDrive(); }
     else loadFromDrive();
   }
 });
@@ -2244,7 +2269,9 @@ window.addEventListener('blur',()=>{
 // Silent background reload on refocus — never blocks navigation; skip if auth failed
 window.addEventListener('focus',()=>{
   if(accessToken && !userIsEditing && !authFailed){
-    if (tokenNearExpiry()) { try { if (initGSI()) gsiClient.requestAccessToken({ prompt:'none' }); } catch(e){ loadFromDrive(); } }
+    // Guarded: the sign-in popup closing refocuses this window, so this handler
+    // MUST NOT fire another token request while one is in flight (popup loop).
+    if (tokenNearExpiry()) { if (!quietTokenRefresh()) loadFromDrive(); }
     else loadFromDrive();
   }
 });
