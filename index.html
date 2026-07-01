@@ -655,7 +655,7 @@ input.setting-input[type="number"]{width:90px}
           <div class="setting-name">Player name</div>
           <div class="setting-desc">How you're identified when exporting games to share. Use the name your friends already know you by, so imports match up cleanly.</div>
           <input type="text" class="setting-input" id="s-playerName" placeholder="e.g. Arjo" maxlength="40"
-            oninput="saveStrSetting('playerName',this.value.trim())" style="width:100%">
+            oninput="savePlayerName(this.value.trim())" style="width:100%">
         </div>
       </div>
     </div>
@@ -1013,7 +1013,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.7';
+const APP_VERSION = '2026.07.01.8';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3700,20 +3700,31 @@ function runHistImport() {
   const entries = Array.isArray(payload) ? payload : payload.entries;
   if (!Array.isArray(entries) || !entries.length) { showToast('No games found in import'); return; }
   _pendingImport = { entries };
-  // Collect distinct participant names across all games.
+  // Collect distinct participant names across all games, and every distinct
+  // deck (name+partner) each of them is seen piloting.
   const names = [];
   const seen = new Set();
+  const decksByName = {}; // lowercased name -> [{name,partner,display}]
   for (const e of entries) {
     const parts = [e.me, ...((e.opponents)||[])].filter(Boolean);
     for (const p of parts) {
       const nm = (p.player||'').trim();
-      if (nm && !seen.has(nm.toLowerCase())) { seen.add(nm.toLowerCase()); names.push(nm); }
+      if (!nm) continue;
+      const key = nm.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); names.push(nm); }
+      if (p.name) {
+        const list = decksByName[key] = decksByName[key] || [];
+        const display = p.partner ? `${p.name} // ${p.partner}` : p.name;
+        if (!list.some(x=>x.display===display)) list.push({name:p.name, partner:p.partner||'', display});
+      }
     }
   }
   if (names.length <= 1) { finalizeHistImport(names[0] || (cfg().playerName||'Me')); return; }
 
-  // Auto-guess "me": the participant whose deck I own; else the one who isn't a
-  // known rival of mine.
+  // Auto-guess "me": your Player name setting first (most reliable, since you
+  // set it explicitly); then the participant whose deck I own; else the one
+  // who isn't a known rival of mine.
+  const configName = (cfg().playerName||'').trim().toLowerCase();
   const ownsDeckFor = (nm) => entries.some(e => {
     const parts = [e.me, ...((e.opponents)||[])].filter(Boolean);
     return parts.some(p => (p.player||'').toLowerCase()===nm.toLowerCase() && ownedDecks().some(d =>
@@ -3724,7 +3735,28 @@ function runHistImport() {
   // don't count as "a known rival" here: excluding them would wrongly skip the
   // real "you" if you happen to have one of these under your own name.
   const knownRival = (nm) => (data.opponents||[]).some(r => !r.isSelf && (r.name||'').toLowerCase()===nm.toLowerCase());
-  let guess = names.find(ownsDeckFor) || names.find(nm => !knownRival(nm)) || names[0];
+  let guess = (configName && names.find(nm=>nm.toLowerCase()===configName))
+    || names.find(ownsDeckFor) || names.find(nm => !knownRival(nm)) || names[0];
+
+  // For each name, find decks it played that match something already tracked
+  // under one of your self-tagged ("your decks") rivals — used both to inform
+  // the "this is you" row (no rival mapping needed, but flag the deck link)
+  // and, on commit, to reuse that rival deck's art instead of a fresh fetch.
+  const findSelfRivalMatches = (nm) => {
+    const list = decksByName[nm.toLowerCase()] || [];
+    const norm = s => (s||'').trim().toLowerCase();
+    const selfRivals = (data.opponents||[]).filter(r=>r.isSelf);
+    const out = [];
+    for (const dk of list) {
+      for (const r of selfRivals) {
+        const d = (r.decks||[]).find(x=>norm(x.name)===norm(dk.name) && norm(x.partner||'')===norm(dk.partner||''));
+        if (d) { out.push({display:dk.display, rivalName:r.name}); break; }
+      }
+    }
+    return out;
+  };
+  window._pendingImportSelfMatches = {};
+  names.forEach(nm => { window._pendingImportSelfMatches[nm] = findSelfRivalMatches(nm); });
 
   window._pendingImportNames = names;
   const rivals = (data.opponents||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -3736,18 +3768,26 @@ function runHistImport() {
         // still selectable manually below, just never silently assumed.
         const match = bestRivalMatch(nm, rivals.filter(r=>!r.isSelf));
         const isMe = nm===guess;
+        const selfMatches = window._pendingImportSelfMatches[nm]||[];
         return `
         <div id="import-card-${i}" style="display:flex;flex-direction:column;gap:6px;padding:9px 10px;background:${isMe?'var(--green-bg)':'var(--surface)'};border:.5px solid ${isMe?'var(--green)':'var(--border-md)'};border-radius:var(--radius-sm)">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:${isMe?'var(--green)':'var(--text)'}">
             <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${isMe?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--green)">
             ${nm}${isMe?' <span style="font-size:11px;opacity:.8">— this is you</span>':''}
           </label>
-          <div style="display:flex;flex-direction:column;gap:5px;padding-left:24px">
-            <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" ${isMe?'disabled':''} style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${isMe?'opacity:.4;cursor:not-allowed':''}">
-              <option value="new" ${!match?'selected':''}>+ New rival</option>
-              ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}${r.isSelf?' (your decks)':''}</option>`).join('')}
-            </select>
-            <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" ${isMe?'disabled':''} style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${isMe?'opacity:.4;cursor:not-allowed;':(match?'display:none':'')}">
+          <div style="padding-left:24px">
+            <div id="pmap-rival-${i}" style="display:${isMe?'none':'flex'};flex-direction:column;gap:5px">
+              <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px">
+                <option value="new" ${!match?'selected':''}>+ New rival</option>
+                ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}${r.isSelf?' (your decks)':''}</option>`).join('')}
+              </select>
+              <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${match?'display:none':''}">
+            </div>
+            <div id="pmap-self-${i}" style="display:${isMe?'block':'none'};font-size:11px;color:var(--text3);line-height:1.4">
+              ${selfMatches.length
+                ? `✓ Matches your deck${selfMatches.length!==1?'s':''} ${selfMatches.map(m=>`"${m.display}"`).join(', ')} tracked under "${selfMatches[0].rivalName}" — will link automatically.`
+                : `No rival mapping needed — this is you.`}
+            </div>
           </div>
         </div>`;
       }).join('')}
@@ -3764,12 +3804,11 @@ function runHistImport() {
   }, 0);
 }
 
-// Every participant card keeps the same layout (radio + rival-match row); the
-// only thing that changes on selection is a green highlight on whichever card
-// is currently marked "you", so it's unambiguous who's selected without
-// hiding/reflowing content underneath. The rival-match controls for that card
-// are disabled — mapping "yourself" to a rival is a no-op on confirm, so an
-// active-looking dropdown there was misleading (picking something did nothing).
+// Every participant card keeps the same layout; the only thing that changes on
+// selection is a green highlight on whichever card is currently marked "you".
+// That card swaps its rival-mapping controls (meaningless for yourself — you
+// don't map yourself to a rival) for a read-only note about any of your own
+// decks recognized from a self-tagged rival, which link automatically on import.
 function onImportMeChange() {
   const sel = document.querySelector('input[name="import-me"]:checked');
   const meVal = sel ? sel.value : null;
@@ -3777,21 +3816,15 @@ function onImportMeChange() {
     const card = document.getElementById(`import-card-${i}`);
     const label = card?.querySelector('label');
     const tag = card?.querySelector('label span');
-    const selEl = document.getElementById(`pmap-sel-${i}`);
-    const inp = document.getElementById(`pmap-name-${i}`);
+    const rivalRow = document.getElementById(`pmap-rival-${i}`);
+    const selfRow = document.getElementById(`pmap-self-${i}`);
     const isMe = nm === meVal;
     if (card) { card.style.background = isMe?'var(--green-bg)':'var(--surface)'; card.style.borderColor = isMe?'var(--green)':'var(--border-md)'; }
     if (label) label.style.color = isMe?'var(--green)':'var(--text)';
     if (tag) tag.remove();
     if (isMe && label) label.insertAdjacentHTML('beforeend', ' <span style="font-size:11px;opacity:.8">— this is you</span>');
-    if (selEl) { selEl.disabled = isMe; selEl.style.opacity = isMe?'.4':''; selEl.style.cursor = isMe?'not-allowed':''; }
-    if (inp) {
-      inp.disabled = isMe;
-      inp.style.opacity = isMe?'.4':'';
-      inp.style.cursor = isMe?'not-allowed':'';
-      if (!isMe) inp.style.display = (selEl && selEl.value==='new') ? '' : 'none';
-      else inp.style.display = '';
-    }
+    if (rivalRow) rivalRow.style.display = isMe ? 'none' : 'flex';
+    if (selfRow) selfRow.style.display = isMe ? 'block' : 'none';
   });
 }
 function onParticipantMapChange(i) {
@@ -3974,6 +4007,17 @@ function commitHistImport(meName, addUnownedDecks) {
   };
   const findMyDeck = (p) => ownedDecks().find(d =>
     norm(d.name)===norm(p.name) && norm(d.partner||'')===norm(p.partner||''));
+  // Your own decks tracked under a self-tagged ("your decks") rival — used as
+  // an art/colour source when a "me" deck isn't in your owned collection yet,
+  // so it links to that existing record instead of a from-scratch fetch.
+  const findSelfRivalDeck = (p) => {
+    for (const r of (data.opponents||[])) {
+      if (!r.isSelf) continue;
+      const d = (r.decks||[]).find(x => norm(x.name)===norm(p.name) && norm(x.partner||'')===norm(p.partner||''));
+      if (d) return d;
+    }
+    return null;
+  };
 
   for (const e of entries) {
     if (!e || !e.me) continue;
@@ -3996,11 +4040,21 @@ function commitHistImport(meName, addUnownedDecks) {
     let myDeck = findMyDeck(myPart);
     if (!myDeck && addUnownedDecks) {
       const uuid = genUUID();
-      myDeck = { uuid, color:'?', name:myPart.name, partner:myPart.partner||'', label:'', status:'Owned' };
+      const selfMatch = findSelfRivalDeck(myPart);
+      myDeck = { uuid, color: selfMatch?.color || '?', name:myPart.name, partner:myPart.partner||(selfMatch?.partner||''), label:'', status:'Owned' };
+      if (selfMatch) {
+        ['artOverride','artOverrideName','partnerArtOverride','partnerArtOverrideName',
+         'artPosition','partnerArtPosition','artScale','partnerArtScale',
+         'artFlipped','partnerSingleArt'].forEach(k=>{
+          if (selfMatch[k]!==undefined) myDeck[k]=selfMatch[k];
+        });
+      }
       if (!data.colorDecks) data.colorDecks = [];
       data.colorDecks.push(myDeck); newMyDecks++;
-      fetchMissingArt([myPart.name]); if (myPart.partner) fetchMissingArt([myPart.partner]);
-      fetchColorIdentity(myPart.name, myPart.partner||null).then(ci=>{ if(ci){ myDeck.color = ci; scheduleSync(); } });
+      if (!selfMatch) {
+        fetchMissingArt([myPart.name]); if (myPart.partner) fetchMissingArt([myPart.partner]);
+        fetchColorIdentity(myPart.name, myPart.partner||null).then(ci=>{ if(ci){ myDeck.color = ci; scheduleSync(); } });
+      }
     }
     if (!myDeck) { skipped++; continue; }
 
@@ -7491,13 +7545,31 @@ function addRival() {
 // keeps such records out of the automatic "who am I" guess and rival auto-match
 // during history import, since a self-tagged rival sharing your name (or a
 // friend's own self-tagged rival sharing theirs) would otherwise get silently
-// conflated with the real person's identity.
+// conflated with the real person's identity. Its name is kept in sync with your
+// Player name setting (single source of truth), so it always reads as "you".
 function toggleRivalIsSelf(rivalId) {
   const r = (data.opponents||[]).find(x=>x.id===rivalId);
   if (!r) return;
   r.isSelf = !r.isSelf;
+  if (r.isSelf) {
+    const pname = (cfg().playerName||'').trim();
+    if (pname) r.name = pname;
+  }
   scheduleSync(); renderRivals();
   showToast(r.isSelf ? 'Marked as your own decks — excluded from auto-matching on import' : 'Unmarked');
+}
+
+// Keeps any self-tagged ("your decks") rivals renamed in step with the Player
+// name setting, so the two never drift apart — the rival record is meant to
+// always represent you, by name, for import matching purposes.
+function savePlayerName(val) {
+  saveStrSetting('playerName', val);
+  if (!val) return;
+  let touched = false;
+  for (const r of (data.opponents||[])) {
+    if (r.isSelf && r.name !== val) { r.name = val; touched = true; }
+  }
+  if (touched) { scheduleSync(); renderRivals(); }
 }
 
 function updateRivalDeckField(rivalId, deckId, field, value) {
