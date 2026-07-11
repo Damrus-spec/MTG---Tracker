@@ -778,6 +778,30 @@ input.setting-input[type="number"]{width:90px}
     </div>
   </div>
 
+  <div class="settings-section">
+    <div class="settings-label" onclick="toggleSettingsSection(this)">
+      Debug<i class="ti ti-chevron-down s-chevron"></i>
+    </div>
+    <div class="settings-body">
+      <div class="card">
+        <div class="setting-block">
+          <div class="setting-name">Data self-check</div>
+          <div class="setting-desc">Verifies deck UUIDs, score/history consistency and rival references. Also runs automatically after each load; issues appear in the log below.</div>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;width:fit-content" onclick="runInvariantChecks(false)"><i class="ti ti-checkup-list"></i> Run self-check</button>
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Debug log</div>
+          <div class="setting-desc">Recent sync/auth errors, uncaught errors and self-check results (newest first). Copy and share this when reporting an issue.</div>
+          <div style="display:flex;gap:8px;margin:8px 0">
+            <button class="submit-btn" style="padding:8px 14px;font-size:13px" onclick="copyDebugLog()"><i class="ti ti-copy"></i> Copy</button>
+            <button class="submit-btn" style="padding:8px 14px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="clearDebugLog()"><i class="ti ti-eraser"></i> Clear</button>
+          </div>
+          <pre id="debug-log-body" style="background:var(--bg);border:.5px solid var(--border);border-radius:6px;padding:10px;font-size:11px;line-height:1.5;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text2);margin:0">No entries yet.</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 
@@ -1000,6 +1024,18 @@ function genUUID() {
     return (c==='x'?r:(r&0x3|0x8)).toString(16);
   });
 }
+// Escape for HTML text nodes and double-quoted attributes. Round-trip safe
+// for dataset reads (the browser decodes entities when reading attributes back).
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+// Escape for a single-quoted JS string inside a double-quoted inline handler,
+// e.g. onclick="fn('${escJs(v)}')" — survives HTML attr decode + JS parse intact.
+function escJs(s) {
+  return String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
 function deckDisplayName(d) {
   if (!d) return '';
   if (d.label) return d.label;          // custom display name takes priority
@@ -1013,7 +1049,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.11';
+const APP_VERSION = '2026.07.01.12';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1184,7 +1220,7 @@ function askImportTargetRival(decks) {
   window._pendingImportDecks = decks;
   const html = `
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-      ${rivals.map(r=>`<button onclick="importDecksIntoRival('${r.id}',window._pendingImportDecks);closeModal()" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${r.name}</button>`).join('')}
+      ${rivals.map(r=>`<button onclick="importDecksIntoRival('${r.id}',window._pendingImportDecks);closeModal()" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${esc(r.name)}</button>`).join('')}
       <button onclick="(()=>{const n=prompt('New rival name:');if(n&&n.trim()){const nr={id:genUUID(),name:n.trim(),decks:[]};if(!data.opponents)data.opponents=[];data.opponents.push(nr);importDecksIntoRival(nr.id,window._pendingImportDecks);closeModal();}})()" style="padding:10px 14px;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:13px;text-align:left">+ New rival…</button>
     </div>`;
   showModal('Import into which rival?', html, null);
@@ -1234,7 +1270,7 @@ function resolveImportConflicts(rivalId, conflicts, addedCount) {
   window.__importState = { rivalId, sd, match, rest, addedCount };
   const html = `
     <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px">
-      This rival already has <b>${match.name}${match.partner?' // '+match.partner:''}</b>. Choose how to handle the imported copy:
+      This rival already has <b>${esc(match.name + (match.partner?' // '+match.partner:''))}</b>. Choose how to handle the imported copy:
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <button onclick="__importConflict('${rivalId}','merge')" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">Merge — keep history, apply imported art &amp; framing</button>
@@ -1265,9 +1301,9 @@ function __importConflict(rivalId, action) {
 // HTML version — renders partner on a second line
 function deckDisplayNameHtml(d) {
   if (!d) return '';
-  if (d.label) return d.label;
-  if (d.partner) return `<span style="display:flex;flex-direction:column;line-height:1.3">${d.name}<span style="font-size:0.85em;color:var(--text2)">${d.partner}</span></span>`;
-  return d.name || '';
+  if (d.label) return esc(d.label);
+  if (d.partner) return `<span style="display:flex;flex-direction:column;line-height:1.3">${esc(d.name)}<span style="font-size:0.85em;color:var(--text2)">${esc(d.partner)}</span></span>`;
+  return esc(d.name || '');
 }
 // The commander identity string — always the raw name(s), never the label.
 // Used for Scryfall lookups and history matching.
@@ -1575,6 +1611,7 @@ function initGSI() {
       scope: SCOPES,
       callback: (resp) => {
         if (resp.error) {
+          dbgLog('Google token error: ' + resp.error);
           // Silent sign-in failed — need user interaction. Latch authFailed so
           // background focus/visibility handlers stop retrying (which was causing
           // a repeating Google login popup).
@@ -2085,6 +2122,83 @@ function mergeFilesIntoData(decks, wants, lists) {
   if (!data.retiredOpponents) data.retiredOpponents = [];
 }
 
+// ── Debug log: in-memory ring buffer surfaced in Settings → Debug.
+// Captures sync/auth failures, uncaught errors, and self-check results so
+// issues on other people's devices can be diagnosed without devtools. ──
+const _dbgLog = [];
+function dbgLog(msg, err) {
+  const detail = err ? ' — ' + (err && err.message ? err.message : String(err)) : '';
+  const line = new Date().toTimeString().slice(0,8) + ' ' + msg + detail;
+  _dbgLog.push(line);
+  if (_dbgLog.length > 300) _dbgLog.splice(0, _dbgLog.length - 300);
+  try { console.error('[mtg]', line); } catch(e) {}
+  renderDebugLog();
+}
+function renderDebugLog() {
+  const el = document.getElementById('debug-log-body');
+  if (el) el.textContent = _dbgLog.length ? _dbgLog.slice().reverse().join('\n') : 'No entries yet.';
+}
+function copyDebugLog() {
+  const text = _dbgLog.slice().reverse().join('\n') || '(empty)';
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(()=>showToast('Debug log copied'), ()=>showToast('Copy failed'));
+}
+function clearDebugLog() { _dbgLog.length = 0; renderDebugLog(); }
+window.addEventListener('error', e => dbgLog(`JS error: ${e.message||'?'} @ ${(e.filename||'').split('/').pop()}:${e.lineno||'?'}`));
+window.addEventListener('unhandledrejection', e => dbgLog('Unhandled promise rejection', e.reason));
+
+// ── Data self-check: structural invariants. Runs silently after each Drive
+// load; results go to the debug log. Manual run via Settings → Debug. ──
+function runInvariantChecks(silent) {
+  const problems = [];
+  try {
+    const seen = new Set();
+    (data.colorDecks||[]).forEach(d => {
+      if (!d.uuid) problems.push(`Deck missing uuid: ${d.name||'?'}`);
+      else if (seen.has(d.uuid)) problems.push(`Duplicate deck uuid: ${d.uuid} (${d.name||'?'})`);
+      else seen.add(d.uuid);
+    });
+    const allRivals = [...(data.opponents||[]), ...(data.retiredOpponents||[])];
+    const rivalById = {};
+    allRivals.forEach(r => {
+      if (rivalById[r.id]) problems.push(`Duplicate rival id: ${r.id} (${r.name})`);
+      rivalById[r.id] = r;
+    });
+    let orphanHist = 0, badOpp = 0;
+    const byDeck = {};
+    (data.history||[]).forEach(h => {
+      if (!h.last) return;
+      const key = h.deckUuid || uuidForName(h.deck) || h.deck;
+      (byDeck[key] = byDeck[key] || []).push(h);
+      if (!deckByUuid(key) && !(data.scores||{})[key]) orphanHist++;
+      (h.opponents||[]).forEach(o => {
+        const r = rivalById[o.playerId];
+        if (!r || !(r.decks||[]).some(d => d.id === o.deckId)) badOpp++;
+      });
+    });
+    if (orphanHist) problems.push(`${orphanHist} history entr${orphanHist===1?'y':'ies'} not linked to any deck or score entry`);
+    if (badOpp) problems.push(`${badOpp} game opponent tag${badOpp===1?'':'s'} referencing a missing rival/deck`);
+    // Score vs history consistency — only decks whose history is fully
+    // new-style (legacy cumulative entries are reconciled by rebuild instead)
+    for (const [key, entries] of Object.entries(byDeck)) {
+      if (entries.some(h => h.wins !== undefined)) continue;
+      let w = 0, l = 0;
+      entries.forEach(h => { if (h.last === 'Win') w++; else if (h.last === 'Loss') l++; });
+      const s = (data.scores||{})[key];
+      if (!s) { problems.push(`No score entry for "${displayNameForUuid(key)||key}" (${w}W ${l}L in history)`); continue; }
+      if ((s.wins||0) !== w || (s.losses||0) !== l)
+        problems.push(`Score drift for "${displayNameForUuid(key)||key}": scores ${s.wins||0}W ${s.losses||0}L vs history ${w}W ${l}L`);
+    }
+  } catch(e) { problems.push('Self-check crashed — ' + (e.message||e)); }
+  if (problems.length) {
+    problems.forEach(p => dbgLog('Self-check: ' + p));
+    if (!silent) showToast(`Self-check: ${problems.length} issue${problems.length!==1?'s':''} — see log below`);
+  } else {
+    dbgLog(`Self-check passed — ${(data.colorDecks||[]).length} decks, ${(data.history||[]).filter(h=>h.last).length} games`);
+    if (!silent) showToast('Self-check passed');
+  }
+  return problems;
+}
+
 async function syncDrive(silent) {
   if (syncing||!accessToken) return;
   if (authFailed) { dirty = true; return; } // don't trigger refresh popups; flush after re-auth
@@ -2129,7 +2243,7 @@ async function syncDrive(silent) {
     if (newListsId) { driveListsId = newListsId; try{localStorage.setItem('mtg_lists_id', driveListsId);}catch(e){} }
 
     setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-  } catch(e){ setSyncStatus('red','Offline — saved locally'); }
+  } catch(e){ dbgLog('Drive save failed', e); setSyncStatus('red','Offline — saved locally'); }
   syncing=false;
 }
 // ── Editing guard ──
@@ -2188,7 +2302,7 @@ async function loadFromDrive(force) {
       migrateDataToUuids(); cleanStaleScores();
       saveLocal(); renderAll();
       setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    } catch(e) { /* silently ignore background fetch errors */ }
+    } catch(e) { dbgLog('Background Drive fetch failed', e); }
     return;
   }
 
@@ -2237,8 +2351,9 @@ async function loadFromDrive(force) {
     hasFetchedFromDrive = true; lastFetchTime = Date.now();
     migrateDataToUuids(); cleanStaleScores(); deduplicateHistory();
     saveLocal(); renderAll();
+    runInvariantChecks(true);
     setSyncStatus('ok', legacy ? 'Migrated & loaded ' : 'Loaded ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-  } catch(e){ setSyncStatus('red','Offline — using local'); }
+  } catch(e){ dbgLog('Drive load failed', e); setSyncStatus('red','Offline — using local'); }
 }
 function scheduleSync() {
   saveLocal();
@@ -2766,11 +2881,11 @@ function renderScore() { scheduleCropApply();
               </label>
               <select id="opp-player-${eid}-${i}" onchange="onOppPlayerChange('${eid}','${sn}',${i})" style="flex:1">
                 <option value="">— Player —</option>
-                ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${r.name}</option>`).join('')}
+                ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
               </select>
               <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
                 <option value="">— Deck —</option>
-                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('')}
+                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('')}
               </select>
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
@@ -3218,7 +3333,7 @@ function renderHistory() { scheduleCropApply();
       </div>`;
     }
 
-    return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${h.deck}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
+    return `<div class="h-row${isSel?' h-selected':''}${h.issues&&h.issues.length?' h-has-issues':''}" style="cursor:pointer" onclick="onHistoryRowClick('${escJs(h.deck)}',${h.deckUuid?`'${h.deckUuid}'`:'null'},event)">
       <span class="h-num">#${gameNum}</span>
       <div class="h-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
         ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
@@ -3304,13 +3419,13 @@ function openIssuePanelFull(deckName, uuid) {
           const dtot = dk.wins+dk.losses;
           const dwr  = dtot>0 ? Math.round(dk.wins/dtot*100) : null;
           return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 12px;font-size:11px;color:var(--text2)">
-            <span style="flex:1">${dk.name}</span>
+            <span style="flex:1">${esc(dk.name)}</span>
             <span style="color:var(--text3)">${dk.wins}W ${dk.losses}L${dwr!=null?' · '+dwr+'%':''}</span>
           </div>`;
         }).join('');
         return `<div style="padding:5px 0;border-bottom:.5px solid var(--border)">
           <div style="display:flex;align-items:center;gap:6px;font-size:12px">
-            <span style="flex:1;font-weight:600;color:var(--text)">${ra.name}</span>
+            <span style="flex:1;font-weight:600;color:var(--text)">${esc(ra.name)}</span>
             <span style="color:var(--text3);font-size:11px">${ra.wins}W ${ra.losses}L${wr!=null?' · '+wr+'%':''}</span>
           </div>
           ${deckRows}
@@ -3490,11 +3605,11 @@ function histEditPanel(h, i) {
         </label>
         <select onchange="histEditSlotPlayer(${i},${si},this.value)" style="flex:1">
           <option value="">— Player —</option>
-          ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${r.name}</option>`).join('')}
+          ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
         </select>
         <select onchange="histEditSlotDeck(${i},${si},this.value)" style="flex:1;display:${selPlayer?'':'none'}">
           <option value="">— Deck —</option>
-          ${decks.map(dk=>`<option value="${dk.id}"${dk.id===selDeck?' selected':''}>${dk.partner?dk.name+' // '+dk.partner:dk.name}</option>`).join('')}
+          ${decks.map(dk=>`<option value="${dk.id}"${dk.id===selDeck?' selected':''}>${esc(dk.partner?dk.name+' // '+dk.partner:dk.name)}</option>`).join('')}
         </select>
         ${selPlayer?`<button class="opp-clear" onclick="histEditSlotClear(${i},${si})" title="Remove">×</button>`:''}
       </div>`;
@@ -4313,9 +4428,9 @@ function renderBuyList() {
     const art=artCache[key];
     return `<div class="buy-item-row">
       <div class="buy-item-art${art?'':' loading'}" data-art="${key}">
-        ${art?`<img src="${art}" alt="${item.name}" loading="lazy">`:''}
+        ${art?`<img src="${art}" alt="${esc(item.name)}" loading="lazy">`:''}
       </div>
-      <a class="buy-item-name" href="${cardLink(item.name)}" target="_blank" style="text-decoration:none;color:inherit">${item.name} <i class="ti ti-external-link" style="font-size:11px;opacity:.5;vertical-align:middle"></i></a>
+      <a class="buy-item-name" href="${cardLink(item.name)}" target="_blank" style="text-decoration:none;color:inherit">${esc(item.name)} <i class="ti ti-external-link" style="font-size:11px;opacity:.5;vertical-align:middle"></i></a>
       <span class="buy-item-qty">${item.qty}x</span>
       ${priceLabel(item.name)}
       <button class="buy-item-del" onclick="removeBuyItem('${item.name.replace(/'/g,"\\'")}')"><i class="ti ti-x"></i></button>
@@ -5097,12 +5212,6 @@ function updateDeckField(idx, field, value) {
   scheduleSync();
 }
 
-function toggleDeckGroup(status) {
-  if (!window._deckGroupOpen) window._deckGroupOpen = {Owned:true,Building:true,Planned:true};
-  window._deckGroupOpen[status] = window._deckGroupOpen[status]===false ? true : false;
-  renderDeckMgr();
-}
-
 async function redetectColor(idx) {
   const deck = data.colorDecks[idx];
   if (!deck || !deck.name) return;
@@ -5570,12 +5679,12 @@ function openArtSlotChooser(idx) {
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
-          <div style="font-weight:500">${(deck.name||'').replace(/</g,'&lt;')}</div>
+          <div style="font-weight:500">${esc(deck.name||'')}</div>
           <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+(deck.artOverrideName||'').replace(/</g,'&lt;'):' · default'}</div>
         </button>
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
-          <div style="font-weight:500">${deck.partner}</div>
+          <div style="font-weight:500">${esc(deck.partner)}</div>
           <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
         </button>
         <div style="display:flex;gap:6px">
@@ -5937,7 +6046,7 @@ function editorDiscard() {
 function editorOpenAdd() {
   // Populate deck dropdown
   const decks = (data.colorDecks||[]).filter(d=>d.name);
-  const deckOpts = decks.map(d=>`<option value="${d.uuid||''}" data-name="${deckDisplayName(d).replace(/"/g,'&quot;')}">${deckDisplayName(d)}</option>`).join('');
+  const deckOpts = decks.map(d=>`<option value="${d.uuid||''}" data-name="${esc(deckDisplayName(d))}">${esc(deckDisplayName(d))}</option>`).join('');
   const today = new Date().toISOString().slice(0,10);
   showModal('Add history entry',
     `Fill in the entry details below.`,
@@ -7244,7 +7353,7 @@ function autofillPreferredRivals(eid) {
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     if (ds) {
       ds.innerHTML = '<option value="">— Deck —</option>' +
-        activeDecks.map(d=>`<option value="${d.id}">${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('');
+        activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('');
       ds.value = deckId;
       ds.style.display = '';
     }
@@ -7274,7 +7383,7 @@ function onOppPlayerChange(eid, deckKey, slot) {
     const rival = (data.opponents||[]).find(r=>r.id===playerId);
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     deckSel.innerHTML = '<option value="">— Deck —</option>' +
-      activeDecks.map(d=>`<option value="${d.id}">${d.partner?d.name+' // '+d.partner:d.name}</option>`).join('');
+      activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('');
     deckSel.style.display = '';
     // Auto-select: preferred (starred) deck first, then only-deck fallback
     const preferred = activeDecks.find(d=>d.preferred);
@@ -7466,7 +7575,7 @@ function renderRivalHistory(rivalId, rivalDeckId) {
         <div style="padding:11px 0;border-bottom:.5px solid var(--border);display:flex;flex-direction:column;gap:7px">
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-size:11px;color:var(--text3);flex-shrink:0;min-width:62px">${fmtDate(g.date)}</span>
-            <span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.deck||'—'}</span>
+            <span style="font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.deck||'—')}</span>
             ${h2hBadge(mainMatch, '', `${myName} vs ${title}`)}
             <span style="font-size:11px;font-weight:600;color:${resultColor};flex-shrink:0;white-space:nowrap">${resultText}</span>
           </div>
@@ -7476,7 +7585,7 @@ function renderRivalHistory(rivalId, rivalDeckId) {
               const overall = h2hVs(o.playerId, o.deckId, null);
               const matchup = myKey ? h2hVs(o.playerId, o.deckId, myKey) : {total:0};
               return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline;flex:1;min-width:140px">${resolveOppName(o)}</button>
+                <button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline;flex:1;min-width:140px">${esc(resolveOppName(o))}</button>
                 ${h2hBadge(overall, 'overall', 'Your overall record vs this deck (all your decks)')}
                 ${h2hBadge(matchup, 'matchup', `${myName} vs this deck`)}
               </div>`;
@@ -7559,7 +7668,7 @@ function renderRivals() { scheduleCropApply();
     rows += `<div data-rival-group="${r.id}" data-retired="${isRetiredRival?1:0}" onclick="toggleRivalCollapse('${r.id}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:8px 12px 6px;background:var(--bg);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap">
       <i class="ti ti-grip-vertical" title="Drag to reorder" onclick="event.stopPropagation()" onpointerdown="startRivalDrag(event,'${r.id}',${isRetiredRival?'true':'false'})" style="font-size:13px;color:var(--text3);flex-shrink:0;cursor:grab;touch-action:none;padding:6px 3px;margin:-6px -1px"></i>
       <i class="ti ti-chevron-${isCollapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
-      <span style="flex:1">${r.name}${r.isSelf?'<span style="font-weight:400;color:var(--green);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">your decks</span>':''}${isRetiredRival?'<span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">retired rival</span>':''}</span>
+      <span style="flex:1">${esc(r.name)}${r.isSelf?'<span style="font-weight:400;color:var(--green);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">your decks</span>':''}${isRetiredRival?'<span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">retired rival</span>':''}</span>
       <span class="deck-wr ${wrCls}" style="font-size:11px">${wr!=null?wr+'%':'—'}</span>
       <span style="font-weight:400;color:var(--text3);font-size:10px;text-transform:none;letter-spacing:0">${st.total} game${st.total!==1?'s':''}</span>
       ${!isRetiredRival
@@ -7886,12 +7995,12 @@ function openRivalDeckArtPicker(rivalId, deckId) {
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',false),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
-          <div style="font-weight:500">${deck.name}</div>
+          <div style="font-weight:500">${esc(deck.name)}</div>
           <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
         </button>
         <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
-          <div style="font-weight:500">${deck.partner}</div>
+          <div style="font-weight:500">${esc(deck.partner)}</div>
           <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
         </button>
         <div style="display:flex;gap:6px">
