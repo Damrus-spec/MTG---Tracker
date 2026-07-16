@@ -158,7 +158,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .h-head-act{flex-shrink:0;width:23px}
 .h-head .h-col-w{color:var(--green)}
 .h-head .h-col-l{color:var(--red)}
-#page-history:has(#hist-edit-toggle:checked) .h-head{display:none}
+#page-history:has(#hist-edit-toggle:checked) .h-head{display:flex;padding-right:8px}
+#page-history:has(#hist-edit-toggle:checked) .h-head-badge,
+#page-history:has(#hist-edit-toggle:checked) .h-head-act{display:none}
+#page-history:has(#hist-edit-toggle:checked) .h-head .h-col-date{width:124px;margin:0 3px;text-align:left}
+#page-history:has(#hist-edit-toggle:checked) .h-head .h-col-w,
+#page-history:has(#hist-edit-toggle:checked) .h-head .h-col-l{width:46px;margin:0 3px}
+.h-head [title]{cursor:help}
 
 /* ── WANTS ── */
 .wants-tabs{display:flex;margin-bottom:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);overflow:hidden}
@@ -577,7 +583,7 @@ input.setting-input[type="number"]{width:90px}
       <button onclick="clearHistorySelection()" style="padding:5px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2)">Cancel</button>
     </div>
   </div>
-  <div class="card no-pad"><div class="h-head"><span class="h-num">#</span><span class="h-head-art"></span><span class="h-head-main">Commander</span><span class="h-col-date">Date</span><span class="h-col-w">W</span><span class="h-col-l">L</span><span class="h-head-badge">Result</span><span class="h-head-act"></span><span class="h-head-act"></span></div><div id="history-list"></div></div>
+  <div class="card no-pad"><div class="h-head"><span class="h-num">#</span><span class="h-head-art"></span><span class="h-head-main">Commander</span><span class="h-col-date">Date</span><span class="h-col-w" title="Total wins with this deck">W</span><span class="h-col-l" title="Total losses with this deck">L</span><span class="h-head-badge" title="This game's result (win or loss)">Result</span><span class="h-head-act"></span><span class="h-head-act"></span></div><div id="history-list"></div></div>
 </div>
 
 <!-- WANTS -->
@@ -1059,7 +1065,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.14';
+const APP_VERSION = '2026.07.01.15';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
