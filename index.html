@@ -149,6 +149,19 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 #page-history.delete-mode .h-del-active{opacity:1!important}
 .h-del-btn:active,.h-del-active{color:var(--red)!important}
 .h-selected{background:var(--red-bg)}
+/* -- History column header -- */
+.h-head{display:flex;align-items:center;padding:7px 0;border-bottom:.5px solid var(--border-md);letter-spacing:.04em;text-transform:uppercase}
+.h-head span{font-size:10px;color:var(--text3)}
+.h-head-art{width:52px;flex-shrink:0}
+.h-head-main{flex:1;min-width:0;padding:0 8px}
+.h-head-badge{flex-shrink:0;width:44px;text-align:center;margin:0 6px}
+.h-head-act{flex-shrink:0;width:23px}
+.h-head .h-col-w{color:var(--green)}
+.h-head .h-col-l{color:var(--red)}
+#page-history:has(#hist-edit-toggle:checked) .h-head{display:none}
+/* Deck name: wrap to 2 lines instead of hard truncation */
+.h-deck{white-space:normal;text-overflow:clip}
+.h-deck-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.2}
 
 /* ── WANTS ── */
 .wants-tabs{display:flex;margin-bottom:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);overflow:hidden}
@@ -567,7 +580,7 @@ input.setting-input[type="number"]{width:90px}
       <button onclick="clearHistorySelection()" style="padding:5px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2)">Cancel</button>
     </div>
   </div>
-  <div class="card no-pad"><div id="history-list"></div></div>
+  <div class="card no-pad"><div class="h-head"><span class="h-num">#</span><span class="h-head-art"></span><span class="h-head-main">Commander</span><span class="h-col-date">Date</span><span class="h-col-w">W</span><span class="h-col-l">L</span><span class="h-head-badge">Result</span><span class="h-head-act"></span><span class="h-head-act"></span></div><div id="history-list"></div></div>
 </div>
 
 <!-- WANTS -->
@@ -1049,7 +1062,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.12';
+const APP_VERSION = '2026.07.01.13';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2148,7 +2161,15 @@ window.addEventListener('unhandledrejection', e => dbgLog('Unhandled promise rej
 
 // ── Data self-check: structural invariants. Runs silently after each Drive
 // load; results go to the debug log. Manual run via Settings → Debug. ──
+let _lastSilentCheck = 0;
 function runInvariantChecks(silent) {
+  // Boot runs the forced Drive load twice (stored token + post-refresh reload),
+  // which double-logged the silent self-check. Dedupe silent runs within 10s;
+  // manual runs from Settings always execute.
+  if (silent) {
+    if (Date.now() - _lastSilentCheck < 10000) return [];
+    _lastSilentCheck = Date.now();
+  }
   const problems = [];
   try {
     const seen = new Set();
@@ -2193,7 +2214,8 @@ function runInvariantChecks(silent) {
     problems.forEach(p => dbgLog('Self-check: ' + p));
     if (!silent) showToast(`Self-check: ${problems.length} issue${problems.length!==1?'s':''} — see log below`);
   } else {
-    dbgLog(`Self-check passed — ${(data.colorDecks||[]).length} decks, ${(data.history||[]).filter(h=>h.last).length} games`);
+    const totalGames = Object.values(data.scores||{}).reduce((n,s)=>n+(s.wins||0)+(s.losses||0),0);
+    dbgLog(`Self-check passed — ${(data.colorDecks||[]).length} decks, ${totalGames} games (${(data.history||[]).filter(h=>h.last).length} history entries)`);
     if (!silent) showToast('Self-check passed');
   }
   return problems;
@@ -3339,7 +3361,7 @@ function renderHistory() { scheduleCropApply();
         ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
       </div>
       <div class="h-main">
-        <div class="h-deck">${(()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })()}</div>
+        <div class="h-deck" title="${esc((h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck)}">${(()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : `<span class="h-deck-name">${n}</span>`; })()}</div>
       </div>
       <span class="h-col-date">${fmtDate(h.date)}</span>
       ${h._cumW!=null?`<span class="h-col-w">${h._cumW}</span><span class="h-col-l">${h._cumL}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
