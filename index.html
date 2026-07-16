@@ -873,13 +873,13 @@ input.setting-input[type="number"]{width:90px}
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="-200" max="300" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-400" max="400" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
         </div>
-        <input id="ap-y" type="range" min="-100" max="200" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-y" type="range" min="-300" max="300" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -1066,7 +1066,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.18';
+const APP_VERSION = '2026.07.01.19';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1515,14 +1515,16 @@ function centerToObjectPos(px, py, cellAR, artAR, sc, clampExtra) {
   winW = Math.min(1, winW / sc);
   winH = Math.min(1, winH / sc);
   // Center P (0..1) -> object-position op via: op = (P - win/2)/(1-win).
-  // Clamp op to [−extra, 1+extra]. For full cells extra=0 (cover stays filled).
-  // For partner wedges the art only fills a diagonal slice, so it can be pushed
-  // further off the cell edge (the off-wedge part isn't visible) — extra > 0.
-  const ex = clampExtra || 0;
+  // Clamp op to [-2, 2] (was [−extra, 1+extra], i.e. [0,1] for full cells). The
+  // wider range lets art be pushed well past the cell edge in every cell, at the
+  // cost of the old "cover always stays filled" guarantee — pushing far enough
+  // now exposes background. clampExtra is kept in the signature for call-site
+  // compatibility but no longer narrows the range.
+  const CLAMP_MIN = -2, CLAMP_MAX = 2;
   const conv = (P, win) => {
     if (win >= 1) return 0.5;
     const op = (P - win/2) / (1 - win);
-    return Math.max(-ex, Math.min(1 + ex, op));
+    return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, op));
   };
   return [conv(px/100, winW) * 100, conv(py/100, winH) * 100];
 }
