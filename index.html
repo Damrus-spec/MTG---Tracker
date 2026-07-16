@@ -1065,7 +1065,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.16';
+const APP_VERSION = '2026.07.01.17';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5483,21 +5483,41 @@ function artPickerUpdatePos() {
     placeCropFrame(document.getElementById('ap-frame-score'), CELL_AR_SCORE, document.getElementById('ap-lbl-score'), 'tr');
     placeCropFrame(document.getElementById('ap-frame-sq'),    CELL_AR_SQ, document.getElementById('ap-lbl-sq'), 'br');
 
-    // Partner diagonal cut: anchor to the frame matching the cell this deck renders
-    // into — square (yellow) for rival decks, Decks (green) for owned decks — so the
-    // cut line matches where the render actually splits.
+    // Partner diagonal cut. Each art is clipped to a wedge at 57.5%/42.5% of EACH
+    // cell's width, so the cut lands on a different part of the art per tab. Draw a
+    // colour-matched diagonal on every visible frame (deck green / score blue /
+    // square yellow), and dim the half cropped away for the wedge being edited
+    // (rival -> square cell, owned -> deck cell) so the preview matches the render.
     const splitEl = document.getElementById('ap-split');
-    const splitLine = document.getElementById('ap-split-line');
-    const cutFrame = document.getElementById('ap-frame-deck');
-    if (splitEl && splitLine && _artPickerShowSplit && cutFrame && cutFrame.style.display !== 'none') {
-      const fl = parseFloat(cutFrame.style.left)||0;
-      const ft = parseFloat(cutFrame.style.top)||0;
-      const fwf = parseFloat(cutFrame.style.width)||0;
-      const fhf = parseFloat(cutFrame.style.height)||0;
-      splitLine.setAttribute('x1', fl + 0.575*fwf);
-      splitLine.setAttribute('y1', ft);
-      splitLine.setAttribute('x2', fl + 0.425*fwf);
-      splitLine.setAttribute('y2', ft + fhf);
+    if (splitEl && _artPickerShowSplit) {
+      const NS = 'http://www.w3.org/2000/svg';
+      const FRAMES = [['ap-frame-deck','#5bd16a'],['ap-frame-score','#4da3ff'],['ap-frame-sq','#ffcc44']];
+      splitEl.innerHTML = '';
+      let dim = null;
+      FRAMES.forEach(([id, col]) => {
+        const fr = document.getElementById(id);
+        if (!fr || fr.style.display === 'none') return;
+        const fl = parseFloat(fr.style.left)||0, ft = parseFloat(fr.style.top)||0;
+        const fw = parseFloat(fr.style.width)||0, fh = parseFloat(fr.style.height)||0;
+        const xTop = fl + 0.575*fw, xBot = fl + 0.425*fw;
+        const ln = document.createElementNS(NS, 'line');
+        ln.setAttribute('x1', xTop); ln.setAttribute('y1', ft);
+        ln.setAttribute('x2', xBot); ln.setAttribute('y2', ft + fh);
+        ln.setAttribute('stroke', col); ln.setAttribute('stroke-width', '2');
+        ln.setAttribute('stroke-dasharray', '5 4'); ln.setAttribute('opacity', '0.95');
+        splitEl.appendChild(ln);
+        const isCtx = _artPickerIsRival ? (id === 'ap-frame-sq') : (id === 'ap-frame-deck');
+        if (isCtx) dim = { fl, ft, fw, fh, xTop, xBot };
+      });
+      if (dim) {
+        const { fl, ft, fw, fh, xTop, xBot } = dim;
+        const poly = document.createElementNS(NS, 'polygon');
+        poly.setAttribute('points', (_artPickerSplitSide === 'left')
+          ? `${xTop},${ft} ${fl+fw},${ft} ${fl+fw},${ft+fh} ${xBot},${ft+fh}`
+          : `${fl},${ft} ${xTop},${ft} ${xBot},${ft+fh} ${fl},${ft+fh}`);
+        poly.setAttribute('fill', 'rgba(0,0,0,0.5)');
+        splitEl.appendChild(poly);
+      }
       splitEl.style.display = 'block';
     } else if (splitEl) {
       splitEl.style.display = 'none';
