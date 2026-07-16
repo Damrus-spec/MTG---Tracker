@@ -161,7 +161,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 #page-history:has(#hist-edit-toggle:checked) .h-head{display:flex;padding-right:8px}
 #page-history:has(#hist-edit-toggle:checked) .h-head-badge,
 #page-history:has(#hist-edit-toggle:checked) .h-head-act{display:none}
-#page-history:has(#hist-edit-toggle:checked) .h-head .h-col-date{width:124px;margin:0 3px;text-align:left}
+#page-history:has(#hist-edit-toggle:checked) .h-head .h-col-date{width:124px;margin:0 3px;text-align:center}
 #page-history:has(#hist-edit-toggle:checked) .h-head .h-col-w,
 #page-history:has(#hist-edit-toggle:checked) .h-head .h-col-l{width:46px;margin:0 3px}
 .h-head [title]{cursor:help}
@@ -1065,7 +1065,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.15';
+const APP_VERSION = '2026.07.01.16';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
