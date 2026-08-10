@@ -1071,7 +1071,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.25';
+const APP_VERSION = '2026.07.01.26';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4515,7 +4515,10 @@ function renderBuyList() {
           for (const s of (item.sources||[])) {
             if (seenDecks.has(s.deckUuid)) continue; seenDecks.add(s.deckUuid);
             const nm = displayNameForUuid(s.deckUuid) || 'Unknown deck';
-            pills.push(`<button class="buy-item-deckpill" onclick="gotoDeckWants('${escJs(s.deckUuid)}')" title="Go to ${esc(nm)} in By deck">${esc(nm.split(' // ')[0])}</button>`);
+            // Pill label: just the first word of the commander (up to the first
+            // comma or space) — "Marchesa", "Scion", "Ghidorah". Full name on hover.
+            const short = nm.split(' // ')[0].split(/[,\s]/)[0];
+            pills.push(`<button class="buy-item-deckpill" onclick="gotoDeckWants('${escJs(s.deckUuid)}')" title="Go to ${esc(nm)} in By deck">${esc(short)}</button>`);
           }
           return pills.length ? `<div class="buy-item-decks">${pills.join('')}</div>` : '';
         })()}
