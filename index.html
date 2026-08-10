@@ -179,7 +179,11 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .buy-item-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 .buy-item-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .buy-item-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.buy-item-name{flex:1;font-size:14px;font-weight:500;align-self:center;padding-left:10px}
+.buy-item-main{flex:1;min-width:0;align-self:center;padding-left:10px;display:flex;flex-direction:column;gap:4px}
+.buy-item-name{font-size:14px;font-weight:500}
+.buy-item-decks{display:flex;flex-wrap:wrap;gap:5px}
+.buy-item-deckpill{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);cursor:pointer;font-family:inherit;line-height:1.4;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.buy-item-deckpill:hover{color:var(--text);border-color:var(--accent)}
 .buy-item-qty{font-size:13px;color:var(--text2);flex-shrink:0;align-self:center}
 .buy-item-price{font-size:13px;font-weight:500;flex-shrink:0;min-width:56px;text-align:right;align-self:center}
 .buy-item-price.loading{color:var(--text3);font-size:11px}
@@ -1067,7 +1071,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.23';
+const APP_VERSION = '2026.07.01.24';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4422,6 +4426,23 @@ function switchWantsTab(tab, btn) {
 
 function renderWants() { scheduleCropApply(); renderBuyList(); renderDeckWants(); }
 
+// Jump from a buy-list deck pill straight to that deck in the By-deck view:
+// switch sub-tab, expand the section, re-render, then scroll it into view.
+function gotoDeckWants(uuid) {
+  wantsTab = 'deck';
+  document.querySelectorAll('.wants-tab').forEach(b=>b.classList.remove('active'));
+  const deckBtn = [...document.querySelectorAll('.wants-tab')].find(b=>(b.getAttribute('onclick')||'').includes("'deck'"));
+  if (deckBtn) deckBtn.classList.add('active');
+  document.getElementById('wants-buy').style.display  = 'none';
+  document.getElementById('wants-deck').style.display = '';
+  deckSectionOpen[uuid] = true;
+  renderDeckWants();
+  requestAnimationFrame(() => {
+    const hdr = document.querySelector(`.deck-sec-header[data-deck="${uuid}"]`);
+    if (hdr) hdr.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 function buildBuyList() {
   // Rules:
   //   buy        → always show, regardless of replacement
@@ -4478,7 +4499,18 @@ function renderBuyList() {
       <div class="buy-item-art${art?'':' loading'}" data-art="${key}">
         ${art?`<img src="${art}" alt="${esc(item.name)}" loading="lazy">`:''}
       </div>
-      <a class="buy-item-name" href="${cardLink(item.name)}" target="_blank" style="text-decoration:none;color:inherit">${esc(item.name)} <i class="ti ti-external-link" style="font-size:11px;opacity:.5;vertical-align:middle"></i></a>
+      <div class="buy-item-main">
+        <a class="buy-item-name" href="${cardLink(item.name)}" target="_blank" style="text-decoration:none;color:inherit">${esc(item.name)} <i class="ti ti-external-link" style="font-size:11px;opacity:.5;vertical-align:middle"></i></a>
+        ${(()=>{ // deck-source pills: one per distinct deck this card is wanted in
+          const seenDecks = new Set(); const pills = [];
+          for (const s of (item.sources||[])) {
+            if (seenDecks.has(s.deckUuid)) continue; seenDecks.add(s.deckUuid);
+            const nm = displayNameForUuid(s.deckUuid) || 'Unknown deck';
+            pills.push(`<button class="buy-item-deckpill" onclick="gotoDeckWants('${escJs(s.deckUuid)}')" title="Go to ${esc(nm)} in By deck">${esc(nm.split(' // ')[0])}</button>`);
+          }
+          return pills.length ? `<div class="buy-item-decks">${pills.join('')}</div>` : '';
+        })()}
+      </div>
       <span class="buy-item-qty">${item.qty}x</span>
       ${priceLabel(item.name)}
       <button class="buy-item-del" onclick="removeBuyItem('${item.name.replace(/'/g,"\\'")}')"><i class="ti ti-x"></i></button>
