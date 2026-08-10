@@ -1071,7 +1071,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.24';
+const APP_VERSION = '2026.07.01.25';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4439,7 +4439,16 @@ function gotoDeckWants(uuid) {
   renderDeckWants();
   requestAnimationFrame(() => {
     const hdr = document.querySelector(`.deck-sec-header[data-deck="${uuid}"]`);
-    if (hdr) hdr.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!hdr) return;
+    // scrollIntoView(block:'start') lands the header at viewport top, hidden
+    // behind the two stacked sticky bars (.sync-bar + .nav). Offset by their
+    // measured heights + a small margin so the commander sits just below them.
+    const bars = ['.sync-bar', '.nav'].reduce((h, sel) => {
+      const el = document.querySelector(sel);
+      return h + (el ? el.getBoundingClientRect().height : 0);
+    }, 0);
+    const y = window.pageYOffset + hdr.getBoundingClientRect().top - bars - 8;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
   });
 }
 
