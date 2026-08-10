@@ -1023,6 +1023,7 @@ let wantsTab = 'buy';
 // per-deck open/close state for wants by-deck
 let deckSectionOpen = {};
 let wdlPanelOpen = {}; // tracks open decklist panels in wants tab
+let wIssuesPanelOpen = {}; // tracks open issues panels in wants tab
 // UUIDs of Building decks excluded from the buy list (default: all included)
 let deckBuylistExcluded = new Set();
 
@@ -1066,7 +1067,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.20';
+const APP_VERSION = '2026.07.01.21';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4774,6 +4775,16 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
           </div>
         </div>
       </div>
+      ${(()=>{ const aggHtml = wIssuesAggHtml(uuid, deck); if (!aggHtml) return '';
+        const open = wIssuesPanelOpen[uuid];
+        return `<!-- Issues panel -->
+      <div style="border-top:.5px solid var(--border);margin-top:4px">
+        <button class="issues-toggle" id="wiss-toggle-${uuid}" onclick="toggleWantsIssuesPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${open?'var(--accent)':'var(--text3)'}">
+          <i class="ti ti-alert-triangle" style="font-size:12px"></i> Issues
+          <i id="wiss-chev-${uuid}" class="ti ti-${open?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
+        </button>
+        <div id="wiss-panel-${uuid}" style="display:${open?'block':'none'};padding-bottom:10px">${aggHtml}</div>
+      </div>`; })()}
       <!-- Decklist panel -->
       <div style="border-top:.5px solid var(--border);margin-top:4px">
         <button class="issues-toggle" id="wdl-toggle-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[uuid]?'var(--accent)':'var(--text3)'}">
@@ -6355,6 +6366,42 @@ function decklistCardCount(uuid) {
 }
 function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; }
 function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '').replace(/\\n/g, '\n'); }
+
+// Aggregate the deck's last-10 issue-bearing games into win/loss counts,
+// mirroring openIssuePanel — single source of truth is data.history. Reuses
+// getIssuesLast10 so this and the Score-tab issue indicator stay in step.
+function wIssuesAggHtml(uuid, deckName) {
+  const entries = getIssuesLast10(uuid, deckName);
+  if (!entries.length) return '';
+  const agg = {};
+  for (const h of entries) {
+    for (const iss of (h.issues||[])) {
+      if (!agg[iss.issue]) agg[iss.issue] = {win:0,loss:0};
+      if (iss.result === 'Win') agg[iss.issue].win++; else agg[iss.issue].loss++;
+    }
+  }
+  const sorted = Object.entries(agg).sort((a,b)=>(b[1].win+b[1].loss)-(a[1].win+a[1].loss));
+  return `<div class="issue-hist-agg" style="margin:0">
+      <div class="issue-hist-agg-title">All-time totals (last ${cfg().issueLimit||10}, ${entries.length} game${entries.length!==1?'s':''} with issues)</div>
+      ${sorted.map(([iss,c])=>`
+        <div class="issue-hist-agg-row">
+          <span style="color:var(--text);font-weight:600;min-width:28px">${c.win+c.loss}×</span>
+          <span style="color:var(--text);flex:1">${esc(iss)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+function toggleWantsIssuesPanel(uuid) {
+  const panel = document.getElementById('wiss-panel-'+uuid);
+  if (!panel) return;
+  const isOpen = panel.style.display === 'none' || !panel.style.display;
+  panel.style.display = isOpen ? 'block' : 'none';
+  const btn  = document.getElementById('wiss-toggle-'+uuid);
+  const chev = document.getElementById('wiss-chev-'+uuid);
+  if (btn)  btn.style.color  = isOpen ? 'var(--accent)' : 'var(--text3)';
+  if (chev) chev.className   = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  wIssuesPanelOpen[uuid] = isOpen;
+}
 
 function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
