@@ -1067,7 +1067,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.22';
+const APP_VERSION = '2026.07.01.23';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4711,14 +4711,22 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   const cmdName = deck.split(' // ')[0];
   const key = scryfallKey(cmdName);
   const art = artCache[key];
-  const buyCount = entries.filter(e=>e.inStatus==='buy').length;
+  // Break the count down by status so it's readable at a glance: cards still to
+  // buy vs cards on hand/undecided that still need slotting into the deck. "to
+  // slot" = everything not marked buy (maybe + owned).
+  const buyCount  = entries.filter(e=>e.inStatus==='buy').length;
+  const slotCount = entries.length - buyCount;
+  const countLabel = [
+    slotCount ? slotCount+' to slot' : '',
+    buyCount  ? buyCount+' to buy'   : ''
+  ].filter(Boolean).join(' · ') || (entries.length+' cards');
   return `<div class="deck-section">
     <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" role="button" aria-expanded="${isOpen?'true':'false'}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
         ${deckArtHtml(uuid, CELL_AR_SQ)}
       </div>
       <span class="deck-sec-name">${partnerNameHtml(deck)}</span>
-      <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
+      <span class="deck-sec-count">${countLabel}</span>
       ${group==='Building'?`<label class="deck-buylist-toggle" onclick="event.stopPropagation()" title="Include/exclude this deck from the buy list">
         <input type="checkbox" ${deckBuylistExcluded.has(uuid)?'':'checked'} onchange="toggleDeckBuylist('${uuid}',this.checked)">
         buy list
