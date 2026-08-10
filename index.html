@@ -1067,7 +1067,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.21';
+const APP_VERSION = '2026.07.01.22';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1323,6 +1323,16 @@ function deckDisplayNameHtml(d) {
   if (d.partner) return `<span style="display:flex;flex-direction:column;line-height:1.3">${esc(d.name)}<span style="font-size:0.85em;color:var(--text2)">${esc(d.partner)}</span></span>`;
   return esc(d.name || '');
 }
+
+// Render a resolved display string ("Name" or "Name // Partner") as escaped HTML,
+// stacking the partner on a second line. Single source of truth for the inline
+// two-line name blocks that were previously hand-written (and often unescaped).
+function partnerNameHtml(name) {
+  const n = String(name || '');
+  if (!n.includes(' // ')) return esc(n);
+  const [a, b] = n.split(' // ');
+  return `<span style="display:flex;flex-direction:column;line-height:1.3">${esc(a)}<span style="font-size:0.85em;color:var(--text2)">${esc(b)}</span></span>`;
+}
 // The commander identity string — always the raw name(s), never the label.
 // Used for Scryfall lookups and history matching.
 function deckCommanderName(d) {
@@ -1489,12 +1499,30 @@ function posToObjectPos(pos) {
     return [isNaN(ox)?50:ox, isNaN(oy)?50:oy];
   }
   if (pos[0] === '~') {
-    // Deprecated translate-offset format doesn't map cleanly to cover; center it.
-    return [50, 50];
+    // Deprecated translate-offset format: "~<tx>% <ty>%" shifted the art by a
+    // CSS translate. A leftward/upward translate moves the visible center the
+    // opposite way, so approximate the equivalent centre point as 50 - t on each
+    // axis (clamped to a sane range) rather than discarding to dead-centre.
+    const [tx, ty] = pos.slice(1).split(' ').map(v => parseFloat(v));
+    const cx = isNaN(tx) ? 50 : Math.max(0, Math.min(100, 50 - tx));
+    const cy = isNaN(ty) ? 50 : Math.max(0, Math.min(100, 50 - ty));
+    return [cx, cy];
   }
   // Legacy object-position values were already cover positions
   const [ox, oy] = pos.split(' ').map(v => parseFloat(v));
   return [isNaN(ox)?50:ox, isNaN(oy)?0:oy];
+}
+
+// Render/editor crop clamp bounds. Single source of truth so the reposition
+// preview frame and the actual render clamp identically (WYSIWYG). The wide
+// [-2,2] range lets art be pushed well past the cell edge; the old "cover always
+// stays filled" [0,1] guarantee is intentionally gone (pushing far exposes bg).
+const CROP_CLAMP_MIN = -2, CROP_CLAMP_MAX = 2;
+// P and returned value are 0..1 fractions; win is the visible-window fraction.
+function clampObjectPos(P, win) {
+  if (win >= 1) return 0.5;
+  const op = (P - win/2) / (1 - win);
+  return Math.max(CROP_CLAMP_MIN, Math.min(CROP_CLAMP_MAX, op));
 }
 
 // Centered-crop model: stored (px,py) = the art point to CENTER in the cell.
@@ -1515,18 +1543,9 @@ function centerToObjectPos(px, py, cellAR, artAR, sc, clampExtra) {
   else                { winH = 1; winW = cellAR / artAR; }
   winW = Math.min(1, winW / sc);
   winH = Math.min(1, winH / sc);
-  // Center P (0..1) -> object-position op via: op = (P - win/2)/(1-win).
-  // Clamp op to [-2, 2] (was [−extra, 1+extra], i.e. [0,1] for full cells). The
-  // wider range lets art be pushed well past the cell edge in every cell, at the
-  // cost of the old "cover always stays filled" guarantee — pushing far enough
-  // now exposes background. clampExtra is kept in the signature for call-site
-  // compatibility but no longer narrows the range.
-  const CLAMP_MIN = -2, CLAMP_MAX = 2;
-  const conv = (P, win) => {
-    if (win >= 1) return 0.5;
-    const op = (P - win/2) / (1 - win);
-    return Math.max(CLAMP_MIN, Math.min(CLAMP_MAX, op));
-  };
+  // Center P (0..1) -> object-position op via clampObjectPos (shared with the
+  // reposition editor's frame preview so the two can never drift out of sync).
+  const conv = (P, win) => clampObjectPos(P, win);
   return [conv(px/100, winW) * 100, conv(py/100, winH) * 100];
 }
 function applyCenterCrop(img) {
@@ -2815,7 +2834,7 @@ function renderScore() { scheduleCropApply();
           ${d._deck ? deckArtHtml(d._deck.uuid, CELL_AR_SCORE) : splitArtHtml(art, prtArt, cmdName, false, undefined, undefined, undefined, undefined, CELL_AR_SCORE)}
         </div>
         <div class="deck-left">
-          <div class="deck-name">${d.name.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${d.name.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${d.name.split(' // ')[1]}</span></span>` : d.name}</div>
+          <div class="deck-name">${partnerNameHtml(d.name)}</div>
           <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · ${lp}</div>
         </div>
         <div class="deck-wr ${cls}">${d.winRate||0}%</div>
@@ -2851,7 +2870,7 @@ function renderScore() { scheduleCropApply();
         <div class="log-pending-preview" id="${pid}"></div>
         <!-- Issues tracking -->
         <div class="issues-row">
-          <button class="issues-toggle" id="it-${eid}" onclick="toggleIssueGrid('${eid}')">
+          <button class="issues-toggle" id="it-${eid}" aria-expanded="false" aria-controls="ig-${eid}" onclick="toggleIssueGrid('${eid}')">
             <i class="ti ti-tag" style="font-size:12px"></i> Issues
             <i class="ti ti-chevron-down" style="font-size:11px"></i>
           </button>
@@ -2955,7 +2974,7 @@ function renderScore() { scheduleCropApply();
           ${artHtml}
         </div>
         <div class="deck-left">
-          <div class="deck-name">${cleanN.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${cleanN.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${cleanN.split(' // ')[1]}</span></span>` : cleanN}</div>
+          <div class="deck-name">${partnerNameHtml(cleanN)}</div>
           <div class="deck-meta">${s.total} games · ${s.wins}W · ${s.losses}L · ${fmtDate(s.lastDate)}</div>
         </div>
         <div class="deck-wr ${cls}">${s.winRate}%</div>
@@ -3344,7 +3363,7 @@ function renderHistory() { scheduleCropApply();
       : '';
 
     if (_histEditMode) {
-      const nameBlock = (()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })();
+      const nameBlock = partnerNameHtml((h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck);
       const expanded = _histEditExpanded === i;
       return `<div class="h-row h-edit${expanded?' h-edit-open':''}${isDeleted?' h-edit-deleted':''}${(_histEditDraft[i]&&!isDeleted)?' h-edit-changed':''}" data-idx="${i}" style="flex-wrap:wrap;cursor:pointer" onclick="histEditRowClick(${i},event)">
         <span class="h-num">#${gameNum}</span>
@@ -3368,7 +3387,7 @@ function renderHistory() { scheduleCropApply();
         ${h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : splitArtHtml(art, (()=>{const pp=h.deck.includes(' // ')?h.deck.split(' // ')[1].trim():null; return pp?artCache[scryfallKey(pp)]:null;})(), h.deck, false, undefined, undefined, undefined, undefined, CELL_AR_SQ)}
       </div>
       <div class="h-main">
-        <div class="h-deck" title="${esc((h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck)}">${(()=>{ const n=(h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck; return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })()}</div>
+        <div class="h-deck" title="${esc((h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck)}">${partnerNameHtml((h.deckUuid ? displayNameForUuid(h.deckUuid) : null)||h.deck)}</div>
       </div>
       <span class="h-col-date">${fmtDate(h.date)}</span>
       ${h._cumW!=null?`<span class="h-col-w">${h._cumW}</span><span class="h-col-l">${h._cumL}</span>`:'<span class="h-col-w"></span><span class="h-col-l"></span>'}
@@ -4694,11 +4713,11 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   const art = artCache[key];
   const buyCount = entries.filter(e=>e.inStatus==='buy').length;
   return `<div class="deck-section">
-    <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" onclick="toggleWantsDeckSection(this.dataset.deck)">
+    <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" role="button" aria-expanded="${isOpen?'true':'false'}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
         ${deckArtHtml(uuid, CELL_AR_SQ)}
       </div>
-      <span class="deck-sec-name">${deck.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${deck.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${deck.split(' // ')[1]}</span></span>` : deck}</span>
+      <span class="deck-sec-name">${partnerNameHtml(deck)}</span>
       <span class="deck-sec-count">${entries.length} cards${buyCount?' · '+buyCount+' to buy':''}</span>
       ${group==='Building'?`<label class="deck-buylist-toggle" onclick="event.stopPropagation()" title="Include/exclude this deck from the buy list">
         <input type="checkbox" ${deckBuylistExcluded.has(uuid)?'':'checked'} onchange="toggleDeckBuylist('${uuid}',this.checked)">
@@ -4779,19 +4798,19 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
         const open = wIssuesPanelOpen[uuid];
         return `<!-- Issues panel -->
       <div style="border-top:.5px solid var(--border);margin-top:4px">
-        <button class="issues-toggle" id="wiss-toggle-${uuid}" onclick="toggleWantsIssuesPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${open?'var(--accent)':'var(--text3)'}">
+        <button class="issues-toggle" id="wiss-toggle-${uuid}" aria-expanded="${open?'true':'false'}" aria-controls="wiss-panel-${uuid}" onclick="toggleWantsIssuesPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${open?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-alert-triangle" style="font-size:12px"></i> Issues
           <i id="wiss-chev-${uuid}" class="ti ti-${open?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
         </button>
-        <div id="wiss-panel-${uuid}" style="display:${open?'block':'none'};padding-bottom:10px">${aggHtml}</div>
+        <div id="wiss-panel-${uuid}" role="region" style="display:${open?'block':'none'};padding-bottom:10px">${aggHtml}</div>
       </div>`; })()}
       <!-- Decklist panel -->
       <div style="border-top:.5px solid var(--border);margin-top:4px">
-        <button class="issues-toggle" id="wdl-toggle-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[uuid]?'var(--accent)':'var(--text3)'}">
+        <button class="issues-toggle" id="wdl-toggle-${uuid}" aria-expanded="${wdlPanelOpen[uuid]?'true':'false'}" aria-controls="wdl-panel-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[uuid]?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-cards" style="font-size:12px"></i> Decklist
           <i id="wdl-chev-${uuid}" class="ti ti-${wdlPanelOpen[uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
         </button>
-        <div id="wdl-panel-${uuid}" style="display:${wdlPanelOpen[uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
+        <div id="wdl-panel-${uuid}" role="region" style="display:${wdlPanelOpen[uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
           <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')" value="${wdlPanelOpen[uuid]?wdlGetUrl(uuid):''}">
           <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')">${wdlPanelOpen[uuid]?wdlGetList(uuid):''}</textarea>
           <div class="decklist-meta" id="wdl-meta-${uuid}">${wdlPanelOpen[uuid]?decklistCardCount(uuid):''}</div>
@@ -5094,7 +5113,7 @@ function renderDeckMgr() { scheduleCropApply();
     if(d.status!==lastStatus){
       lastStatus=d.status;
       const collapsed = collapsedDeckGroups.has(d.status);
-      header=`<div onclick="toggleDeckGroup('${d.status}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 14px 4px;background:var(--bg);display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+      header=`<div role="button" aria-expanded="${collapsedDeckGroups.has(d.status)?'false':'true'}" onclick="toggleDeckGroup('${d.status}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:10px 14px 4px;background:var(--bg);display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
         <i class="ti ti-chevron-${collapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
         <span style="flex:1">${d.status}</span>
         <span style="font-weight:400;color:var(--text3);font-size:9px;text-transform:none;letter-spacing:0">${groupCounts[d.status]} deck${groupCounts[d.status]!==1?'s':''}</span>
@@ -5465,17 +5484,10 @@ function artPickerUpdatePos() {
       winWFrac = Math.min(1, winWFrac / sc);
       winHFrac = Math.min(1, winHFrac / sc);
       const w = dispW * winWFrac, h = dispH * winHFrac;
-      // Clamp object-position FRACTION to [-extra, 1+extra]. Full cells: extra 0
-      // (stay on art). Partner wedges: a moderate extra so the slice can pan past
-      // the cell edge a bit, without the frame running off-screen.
-      const extra = _artPickerShowSplit ? 0.5 : 0;
-      const opFrac = (P, win) => {
-        if (win >= 1) return 0.5;
-        const op = (P/100 - win/2) / (1 - win);
-        return Math.max(-extra, Math.min(1 + extra, op));
-      };
-      const opx = opFrac(x, winWFrac);
-      const opy = opFrac(y, winHFrac);
+      // Same clamp the render uses (clampObjectPos) — keeps the preview frame and
+      // the rendered crop pixel-identical at the extremes.
+      const opx = clampObjectPos(x/100, winWFrac);
+      const opy = clampObjectPos(y/100, winHFrac);
       // object-position fraction -> frame left/top: left = dispL + op*(dispW - w)
       const left = dispL + opx * (dispW - w);
       const top  = dispT + opy * (dispH - h);
@@ -5920,7 +5932,7 @@ function renderEditor() {
         return `<div class="editor-art${hasArt?'':' loading'}" data-art="${k}">${artHtml}</div>`;
       })()}</td>
       <td>
-        <span style="font-size:12px;color:var(--text)">${(()=>{ const n=((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '').replace(/</g,'&lt;'); return n.includes(' // ') ? `<span style="display:flex;flex-direction:column;line-height:1.3">${n.split(' // ')[0]}<span style="font-size:0.85em;color:var(--text2)">${n.split(' // ')[1]}</span></span>` : n; })()}</span>
+        <span style="font-size:12px;color:var(--text)">${partnerNameHtml((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '')}</span>
       </td>
       <td><input class="editor-input date-input" type="date" value="${h.date||''}"
         title="Click to edit date"
@@ -6398,7 +6410,7 @@ function toggleWantsIssuesPanel(uuid) {
   panel.style.display = isOpen ? 'block' : 'none';
   const btn  = document.getElementById('wiss-toggle-'+uuid);
   const chev = document.getElementById('wiss-chev-'+uuid);
-  if (btn)  btn.style.color  = isOpen ? 'var(--accent)' : 'var(--text3)';
+  if (btn) { btn.style.color = isOpen ? 'var(--accent)' : 'var(--text3)'; btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false'); }
   if (chev) chev.className   = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
   wIssuesPanelOpen[uuid] = isOpen;
 }
@@ -6412,7 +6424,7 @@ function toggleWantsDecklistPanel(uuid) {
   panel.style.gap        = '8px';
   const btn  = document.getElementById('wdl-toggle-'+uuid);
   const chev = document.getElementById('wdl-chev-'+uuid);
-  if (btn)  btn.style.color  = isOpen ? 'var(--accent)' : 'var(--text3)';
+  if (btn) { btn.style.color = isOpen ? 'var(--accent)' : 'var(--text3)'; btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false'); }
   if (chev) chev.className   = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
   wdlPanelOpen[uuid] = isOpen;
   if (isOpen) {
@@ -6607,6 +6619,7 @@ function toggleIssueGrid(eid) {
   grid.classList.toggle('open');
   const btn = document.getElementById('it-'+eid);
   if (btn) {
+    btn.setAttribute('aria-expanded', grid.classList.contains('open') ? 'true' : 'false');
     const icons = btn.querySelectorAll('i');
     const last = icons[icons.length-1];
     if (last) last.className = grid.classList.contains('open') ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
@@ -7762,7 +7775,7 @@ function renderRivals() { scheduleCropApply();
 
     // Player group header — mirrors the status group header in renderDeckMgr
     const isCollapsed = collapsedRivals.has(r.id);
-    rows += `<div data-rival-group="${r.id}" data-retired="${isRetiredRival?1:0}" onclick="toggleRivalCollapse('${r.id}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:8px 12px 6px;background:var(--bg);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap">
+    rows += `<div data-rival-group="${r.id}" data-retired="${isRetiredRival?1:0}" role="button" aria-expanded="${isCollapsed?'false':'true'}" onclick="toggleRivalCollapse('${r.id}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:8px 12px 6px;background:var(--bg);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap">
       <i class="ti ti-grip-vertical" title="Drag to reorder" onclick="event.stopPropagation()" onpointerdown="startRivalDrag(event,'${r.id}',${isRetiredRival?'true':'false'})" style="font-size:13px;color:var(--text3);flex-shrink:0;cursor:grab;touch-action:none;padding:6px 3px;margin:-6px -1px"></i>
       <i class="ti ti-chevron-${isCollapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
       <span style="flex:1">${esc(r.name)}${r.isSelf?'<span style="font-weight:400;color:var(--green);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">your decks</span>':''}${isRetiredRival?'<span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">retired rival</span>':''}</span>
