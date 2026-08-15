@@ -1077,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.34';
+const APP_VERSION = '2026.07.01.35';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2576,7 +2576,7 @@ async function fetchArtBulk(names) {
 // name -> primaryType map, and cache that map in IndexedDB. Card typing then
 // becomes instant and offline. Refreshed weekly. Per-card GET remains as a
 // fallback for the odd brand-new card not yet in the export.
-const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypes';
+const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV2';
 const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
 
 function bulkIdbOpen() {
@@ -2607,7 +2607,7 @@ function bulkIdbSet(key, value) {
 }
 
 // In-memory handle to the name->type map once loaded/parsed this session.
-let _bulkTypeMap = null;      // { scryfallKey: primaryType }
+let _bulkTypeMap = null;      // { scryfallKey: {t: primaryType, ci: [colors]} }
 let _bulkLoadPromise = null;  // de-dupes concurrent load attempts
 let bulkTypeStatus = 'idle';  // idle | loading | ready | failed (for the UI)
 
@@ -2640,8 +2640,9 @@ async function bulkDownloadAndParse() {
   const addCard = (card) => {
     if (!card || !card.name) return;
     const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
-    map[scryfallKey(card.name)] = cat;
-    (card.card_faces || []).forEach(f => { if (f.name) map[scryfallKey(f.name)] = cat; });
+    const rec = { t: cat, ci: card.color_identity || [] };
+    map[scryfallKey(card.name)] = rec;
+    (card.card_faces || []).forEach(f => { if (f.name) map[scryfallKey(f.name)] = rec; });
   };
 
   if (isJsonl) {
@@ -6792,7 +6793,7 @@ async function wdlEnsureTypes(uuid) {
   if (bulk) {
     for (const n of names) {
       const k = scryfallKey(n);
-      if (!cardTypeCache[k] && bulk[k]) cardTypeCache[k] = bulk[k];
+      if (!cardTypeCache[k] && bulk[k]) cardTypeCache[k] = bulk[k].t;
     }
     repaint();
   }
@@ -7595,7 +7596,15 @@ function colorIdentityToLabel(ci) {
 async function fetchColorIdentity(cardName, partnerName) {
   async function getCI(name) {
     if (!name) return [];
-    // Try exact first, fall back to fuzzy
+    // Fast path: the bulk Oracle map already has color_identity for every
+    // card — instant + offline, no request. Load it opportunistically (it may
+    // already be cached from the decklist panel).
+    try {
+      const bulk = await ensureBulkTypes();
+      const rec = bulk && bulk[scryfallKey(name)];
+      if (rec && rec.ci) return rec.ci;
+    } catch(e) { /* fall through to live API */ }
+    // Fallback: live API (brand-new cards not yet in the weekly export).
     let res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
     if (!res.ok) res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
     if (!res.ok) return [];
