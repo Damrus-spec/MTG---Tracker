@@ -250,7 +250,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 #page-rivals .deck-mgr-row{align-items:center}
 .deck-mgr-row:last-child{border-bottom:none}
 .deck-mgr-card .deck-mgr-row{border-bottom:none}
-.deck-mgr-decklist{border-top:.5px solid var(--border)}
+.deck-mgr-decklist:empty{display:none}
 .decklist-grouped{border:.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);padding:8px 10px;max-height:420px;overflow:auto;cursor:text}
 .decklist-grouped:hover{border-color:var(--border-md)}
 .deck-mgr-art{width:150px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative}
@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.38';
+const APP_VERSION = '2026.07.01.39';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5489,18 +5489,19 @@ function renderDeckMgr() { scheduleCropApply();
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </div>
+        ${(d.status==='Owned'||d.status==='Building') ? `
+        <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="margin-top:3px;padding:5px 0;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
+          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+          <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
+        </button>` : ''}
       </div>
       ${d.status==='Retired'?`
         <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
       `:''}
       <button class="deck-mgr-del" onclick="deleteDeck(${i})" title="Remove"><i class="ti ti-trash"></i></button>
     </div>${(d.status==='Owned'||d.status==='Building') ? `
-      <div class="deck-mgr-decklist">
-        <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="padding:6px 10px;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
-          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
-          <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
-        </button>
-        <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding:0 10px 10px">
+      <div class="deck-mgr-decklist" id="wdl-wrap-${d.uuid}" style="display:${wdlPanelOpen[d.uuid]?'block':'none'}">
+        <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding:8px 10px 10px">
           <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
           <div class="decklist-grouped" id="wdl-grouped-${d.uuid}" onclick="wdlRevealRaw('${d.uuid}')" title="Tap to edit / copy the raw list">${wdlPanelOpen[d.uuid]?wdlGroupedHtml(d.uuid):''}</div>
           <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" style="display:none" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')" onblur="wdlHideRaw('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
@@ -6850,6 +6851,10 @@ function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
   if (!panel) return;
   const isOpen = panel.style.display === 'none' || !panel.style.display;
+  // The card-level wrapper is hidden while collapsed so nothing sits between
+  // decks; reveal it in sync with the panel.
+  const wrap = document.getElementById('wdl-wrap-'+uuid);
+  if (wrap) wrap.style.display = isOpen ? 'block' : 'none';
   panel.style.display    = isOpen ? 'flex' : 'none';
   panel.style.flexDirection = 'column';
   panel.style.gap        = '8px';
