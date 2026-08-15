@@ -1077,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.33';
+const APP_VERSION = '2026.07.01.34';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2569,6 +2569,146 @@ async function fetchArtBulk(names) {
 // Card primary-type cache: scryfallKey(name) -> category string. Populated
 // lazily from Scryfall so the decklist panel can group cards. Display-only —
 // the stored decklist stays raw text.
+// ── Bulk card-type loader (Scryfall Oracle Cards) ────────────────────────────
+// Typing a whole 100-card deck via per-card requests trips Scryfall's rate
+// limiter. Instead we fetch their Oracle Cards bulk export ONCE (a ~25MB
+// gzipped JSONL), decompress + parse it in-browser to a compact
+// name -> primaryType map, and cache that map in IndexedDB. Card typing then
+// becomes instant and offline. Refreshed weekly. Per-card GET remains as a
+// fallback for the odd brand-new card not yet in the export.
+const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypes';
+const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
+
+function bulkIdbOpen() {
+  return new Promise((resolve, reject) => {
+    let req;
+    try { req = indexedDB.open(BULK_DB, 1); }
+    catch(e) { return reject(e); }
+    req.onupgradeneeded = () => { req.result.createObjectStore(BULK_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function bulkIdbGet(key) {
+  return bulkIdbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(BULK_STORE, 'readonly');
+    const r = tx.objectStore(BULK_STORE).get(key);
+    r.onsuccess = () => { resolve(r.result || null); db.close(); };
+    r.onerror = () => { reject(r.error); db.close(); };
+  })).catch(() => null);
+}
+function bulkIdbSet(key, value) {
+  return bulkIdbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(BULK_STORE, 'readwrite');
+    const r = tx.objectStore(BULK_STORE).put(value, key);
+    r.onsuccess = () => { resolve(true); db.close(); };
+    r.onerror = () => { reject(r.error); db.close(); };
+  })).catch(() => false);
+}
+
+// In-memory handle to the name->type map once loaded/parsed this session.
+let _bulkTypeMap = null;      // { scryfallKey: primaryType }
+let _bulkLoadPromise = null;  // de-dupes concurrent load attempts
+let bulkTypeStatus = 'idle';  // idle | loading | ready | failed (for the UI)
+
+// Stream-download the gzipped JSONL and build the name->type map. Uses
+// DecompressionStream where available; the whole thing stays off the main
+// data path so a failure just leaves grouping on the per-card fallback.
+async function bulkDownloadAndParse() {
+  const metaRes = await fetch('https://api.scryfall.com/bulk-data/oracle-cards', {headers:{Accept:'application/json'}});
+  if (!metaRes.ok) throw new Error('bulk meta HTTP ' + metaRes.status);
+  const meta = await metaRes.json();
+  const url = meta.jsonl_download_uri || meta.download_uri;
+  if (!url) throw new Error('no bulk download uri');
+  const isJsonl = /\.jsonl/i.test(url);
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error('bulk file HTTP ' + res.status);
+
+  // Decompress gzip via the platform stream, falling back to raw body if the
+  // server already decoded it (content-encoding negotiation can vary).
+  let stream = res.body;
+  try {
+    if (typeof DecompressionStream !== 'undefined' && /gz/i.test(url)) {
+      stream = res.body.pipeThrough(new DecompressionStream('gzip'));
+    }
+  } catch(e) { stream = res.body; }
+
+  const reader = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  const map = {};
+  let buf = '';
+  const addCard = (card) => {
+    if (!card || !card.name) return;
+    const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
+    map[scryfallKey(card.name)] = cat;
+    (card.card_faces || []).forEach(f => { if (f.name) map[scryfallKey(f.name)] = cat; });
+  };
+
+  if (isJsonl) {
+    // JSON Lines: one card object per line.
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line) { try { addCard(JSON.parse(line)); } catch(e){} }
+      }
+    }
+    if (buf.trim()) { try { addCard(JSON.parse(buf.trim())); } catch(e){} }
+  } else {
+    // Legacy single JSON array — accumulate then parse once.
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+    }
+    try { (JSON.parse(buf) || []).forEach(addCard); } catch(e) { throw new Error('bulk JSON parse failed'); }
+  }
+  return { map, updatedAt: meta.updated_at || new Date().toISOString() };
+}
+
+// Ensure the bulk type map is available: from IndexedDB if fresh, else download.
+// Returns the map (possibly {}), never throws.
+async function ensureBulkTypes() {
+  if (_bulkTypeMap) return _bulkTypeMap;
+  if (_bulkLoadPromise) return _bulkLoadPromise;
+  bulkTypeStatus = 'loading';
+  _bulkLoadPromise = (async () => {
+    // Try cache first
+    try {
+      const cached = await bulkIdbGet(BULK_KEY);
+      if (cached && cached.map && cached.savedAt && (Date.now() - cached.savedAt) < BULK_MAX_AGE_MS) {
+        _bulkTypeMap = cached.map;
+        bulkTypeStatus = 'ready';
+        dbgLog(`Bulk types: loaded ${Object.keys(cached.map).length} from cache`);
+        return _bulkTypeMap;
+      }
+    } catch(e) { /* fall through to download */ }
+    // Download + parse + cache
+    try {
+      const { map, updatedAt } = await bulkDownloadAndParse();
+      _bulkTypeMap = map;
+      bulkTypeStatus = 'ready';
+      await bulkIdbSet(BULK_KEY, { map, updatedAt, savedAt: Date.now() });
+      dbgLog(`Bulk types: downloaded + cached ${Object.keys(map).length} cards`);
+      return map;
+    } catch(e) {
+      bulkTypeStatus = 'failed';
+      dbgLog('Bulk types download failed — using per-card fallback', e);
+      // Last resort: a stale cache is better than nothing.
+      try { const c = await bulkIdbGet(BULK_KEY); if (c && c.map) { _bulkTypeMap = c.map; bulkTypeStatus='ready'; return c.map; } } catch(_){}
+      _bulkTypeMap = {};
+      return _bulkTypeMap;
+    } finally {
+      _bulkLoadPromise = null;
+    }
+  })();
+  return _bulkLoadPromise;
+}
+
 const cardTypeCache = {};
 // Map a Scryfall type_line to one primary bucket. Order matters: a card is
 // filed under the first type it matches (Moxfield-style precedence), and lands
@@ -6635,15 +6775,37 @@ function wdlHideRaw(uuid) {
 // Fetch missing card types for this deck, then refresh the grouped view.
 async function wdlEnsureTypes(uuid) {
   const names = wdlParseEntries(uuid).map(e => e.name);
-  const missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
+  let missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
   if (!missing.length) return;
   const repaint = () => {
     const g = document.getElementById('wdl-grouped-'+uuid);
     if (g && g.style.display !== 'none') g.innerHTML = wdlGroupedHtml(uuid);
   };
-  _typeFetchOnProgress = repaint;
-  await fetchCardTypesBulk(missing);
-  _typeFetchOnProgress = null;
+  const setMeta = (txt) => {
+    const m = document.getElementById('wdl-meta-'+uuid);
+    if (m) m.textContent = txt;
+  };
+
+  // 1) Bulk map first — one download, then instant typing for everything in it.
+  if (bulkTypeStatus !== 'ready' && bulkTypeStatus !== 'failed') setMeta('Loading card types…');
+  const bulk = await ensureBulkTypes();
+  if (bulk) {
+    for (const n of names) {
+      const k = scryfallKey(n);
+      if (!cardTypeCache[k] && bulk[k]) cardTypeCache[k] = bulk[k];
+    }
+    repaint();
+  }
+
+  // 2) Per-card GET fallback only for cards the bulk file didn't cover
+  //    (e.g. very fresh spoilers). Usually empty, so no rate-limit pressure.
+  missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
+  if (missing.length) {
+    _typeFetchOnProgress = repaint;
+    await fetchCardTypesBulk(missing);
+    _typeFetchOnProgress = null;
+  }
+  setMeta(decklistCardCount(uuid));
   repaint();
 }
 
