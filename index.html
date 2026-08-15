@@ -1077,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.32';
+const APP_VERSION = '2026.07.01.33';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2597,34 +2597,61 @@ function primaryTypeFromLine(typeLine) {
 // "simple" request (Accept header only, no preflight) and matches the pattern
 // the rest of the app already uses successfully. Types cache permanently, so
 // this per-card cost is paid once per card, ever.
+// One guarded GET with 429 back-off. Returns the parsed card or null.
+// A 429 (rate limit) comes back WITHOUT CORS headers, which the browser
+// surfaces as a CORS error — so we treat network errors like a 429 and retry
+// with growing delay rather than immediately firing more requests.
+async function scryGetCard(url) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const res = await fetch(url, {headers:{Accept:'application/json'}});
+      if (res.status === 429) { await sleep(400 * (attempt + 1)); continue; }
+      if (res.status === 404) return null;          // genuine miss, don't retry
+      if (!res.ok) { await sleep(300 * (attempt + 1)); continue; }
+      return await res.json();
+    } catch(e) {
+      // NetworkError here is almost always a headerless 429 — back off.
+      await sleep(400 * (attempt + 1));
+    }
+  }
+  return null; // exhausted retries
+}
+
+// Resolve card types via sequential GET /cards/named. Paced conservatively and
+// with 429 back-off so a 100-card deck can't trip Scryfall's rate limiter (the
+// batch POST /collection is CORS-preflight-blocked from the browser). Fuzzy is
+// only tried on a genuine miss, never after a 429, to avoid doubling traffic.
+let _typeFetchRunning = false;
 async function fetchCardTypesBulk(names) {
   const unique = [...new Set((names||[]).filter(n => n && !cardTypeCache[scryfallKey(n)]))];
-  let resolved = 0, notFound = 0;
-  for (const name of unique) {
-    let cat = null;
-    try {
-      let res = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`,
-        {headers:{Accept:'application/json'}});
-      if (!res.ok) {
-        res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`,
-          {headers:{Accept:'application/json'}});
-      }
-      if (res.ok) {
-        const card = await res.json();
-        cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
+  if (!unique.length) return;
+  // Serialize: never run two type sweeps at once (would double the rate).
+  while (_typeFetchRunning) await sleep(150);
+  _typeFetchRunning = true;
+  let resolved = 0, other = 0;
+  try {
+    for (const name of unique) {
+      if (cardTypeCache[scryfallKey(name)]) continue; // filled by a prior pass
+      let card = await scryGetCard(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
+      if (!card) card = await scryGetCard(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+      if (card) {
+        const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
         cardTypeCache[scryfallKey(card.name || name)] = cat;
         (card.card_faces || []).forEach(f => { if (f.name) cardTypeCache[scryfallKey(f.name)] = cat; });
+        cardTypeCache[scryfallKey(name)] = cat;
+        resolved++;
+      } else {
+        cardTypeCache[scryfallKey(name)] = 'Other';
+        other++;
       }
-    } catch(e) { /* leave for next open; logged in aggregate below */ }
-    if (cat) { cardTypeCache[scryfallKey(name)] = cat; resolved++; }
-    else     { cardTypeCache[scryfallKey(name)] = 'Other'; notFound++; }
-    // Progressive refresh: repaint the open grouped view every few cards so
-    // groups visibly fill in rather than all appearing at the end.
-    if ((resolved + notFound) % 8 === 0 && typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
-    await sleep(80); // stay well under Scryfall's ~10 req/s limit
+      if ((resolved + other) % 6 === 0 && typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
+      await sleep(120); // ~8 req/s ceiling, under Scryfall's ~10/s
+    }
+  } finally {
+    _typeFetchRunning = false;
   }
   if (typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
-  if (unique.length) dbgLog(`Decklist types: ${resolved} resolved, ${notFound} unresolved, of ${unique.length}`);
+  dbgLog(`Decklist types: ${resolved} resolved, ${other} unresolved, of ${unique.length}`);
 }
 // Optional per-deck progress hook set by wdlEnsureTypes while a fetch runs.
 let _typeFetchOnProgress = null;
