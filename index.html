@@ -1071,7 +1071,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.27';
+const APP_VERSION = '2026.07.01.28';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4859,22 +4859,6 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
         </button>
         <div id="wiss-panel-${uuid}" role="region" style="display:${open?'block':'none'};padding-bottom:10px">${aggHtml}</div>
       </div>`; })()}
-      <!-- Decklist panel -->
-      <div style="border-top:.5px solid var(--border);margin-top:4px">
-        <button class="issues-toggle" id="wdl-toggle-${uuid}" aria-expanded="${wdlPanelOpen[uuid]?'true':'false'}" aria-controls="wdl-panel-${uuid}" onclick="toggleWantsDecklistPanel('${uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[uuid]?'var(--accent)':'var(--text3)'}">
-          <i class="ti ti-cards" style="font-size:12px"></i> Decklist
-          <i id="wdl-chev-${uuid}" class="ti ti-${wdlPanelOpen[uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
-        </button>
-        <div id="wdl-panel-${uuid}" role="region" style="display:${wdlPanelOpen[uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
-          <input class="decklist-url-input" id="wdl-url-${uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${uuid}')" value="${wdlPanelOpen[uuid]?wdlGetUrl(uuid):''}">
-          <textarea class="decklist-textarea" id="wdl-ta-${uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${uuid}')">${wdlPanelOpen[uuid]?wdlGetList(uuid):''}</textarea>
-          <div class="decklist-meta" id="wdl-meta-${uuid}">${wdlPanelOpen[uuid]?decklistCardCount(uuid):''}</div>
-          <div class="decklist-actions">
-            <button class="decklist-save-btn" id="wdl-save-${uuid}" onclick="wdlSave('${uuid}')">Save</button>
-            <button class="decklist-push-btn" id="wdl-push-${uuid}" onclick="wdlPush('${uuid}')" disabled>Copy &amp; open Moxfield</button>
-          </div>
-        </div>
-      </div>
     </div>
   </div>`;
 }
@@ -5233,6 +5217,22 @@ function renderDeckMgr() { scheduleCropApply();
             ${['Owned','Building','Planned'].map(s=>`<option value="${s}"${s===d.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </div>
+        ${(d.status==='Owned'||d.status==='Building') ? `
+        <div style="border-top:.5px solid var(--border);margin-top:6px">
+          <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="padding:8px 0;width:100%;display:flex;align-items:center;gap:5px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
+            <i class="ti ti-cards" style="font-size:12px"></i> Decklist
+            <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
+          </button>
+          <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
+            <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
+            <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
+            <div class="decklist-meta" id="wdl-meta-${d.uuid}">${wdlPanelOpen[d.uuid]?decklistCardCount(d.uuid):''}</div>
+            <div class="decklist-actions">
+              <button class="decklist-save-btn" id="wdl-save-${d.uuid}" onclick="wdlSave('${d.uuid}')">Save</button>
+              <button class="decklist-push-btn" id="wdl-push-${d.uuid}" onclick="wdlPush('${d.uuid}')" disabled>Copy &amp; open Moxfield</button>
+            </div>
+          </div>
+        </div>` : ''}
       </div>
       ${d.status==='Retired'?`
         <button onclick="reactivateDeck(${i})" title="Restore this deck to Owned" style="background:none;border:.5px solid var(--green);border-radius:var(--radius-sm);cursor:pointer;color:var(--green);padding:4px 8px;font-size:11px">Restore</button>
@@ -6546,54 +6546,8 @@ function wdlPush(uuid) {
 }
 
 // ============================================================
-// DECKLIST PANEL
+// DECKLIST SCRUBBING (shared by the Decks-tab decklist panel)
 // ============================================================
-function toggleDecklistPanel(eid, uuid) {
-  const panel = document.getElementById('dl-'+eid);
-  if (!panel) return;
-  const isOpen = panel.classList.toggle('open');
-  const btn = document.getElementById('dl-toggle-'+eid);
-  if (btn) {
-    const icons = btn.querySelectorAll('i');
-    const last = icons[icons.length-1];
-    if (last) last.className = isOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
-  }
-  if (isOpen) populateDecklistPanel(eid, uuid);
-}
-
-function populateDecklistPanel(eid, uuid) {
-  const entry = (data.deckLists||{})[uuid] || {};
-  const urlEl  = document.getElementById('dl-url-'+eid);
-  const taEl   = document.getElementById('dl-ta-'+eid);
-  if (urlEl) urlEl.value = entry.url  || '';
-  if (taEl)  taEl.value  = entry.list || '';
-  updateDecklistMeta(eid, uuid);
-}
-
-function updateDecklistMeta(eid, uuid) {
-  const metaEl = document.getElementById('dl-meta-'+eid);
-  const pushBtn = document.getElementById('dl-push-'+eid);
-  const entry = (data.deckLists||{})[uuid] || {};
-  const total = (entry.list||'').replace(/\\n/g,'\n').split('\n').reduce((sum, l) => {
-    const m = l.trim().match(/^(\d+)\s+/);
-    return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
-  }, 0);
-  if (metaEl) metaEl.textContent = total ? `${total} cards stored` : '';
-  if (pushBtn) pushBtn.disabled = !entry.list || !entry.url;
-}
-
-function decklistUrlChanged(uuid, eid) {
-  // just enables/disables push button live — actual save on Save click
-  const urlEl  = document.getElementById('dl-url-'+eid);
-  const taEl   = document.getElementById('dl-ta-'+eid);
-  const pushBtn = document.getElementById('dl-push-'+eid);
-  if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
-}
-
-function decklistTextareaChanged(uuid, eid) {
-  decklistUrlChanged(uuid, eid); // same live enable/disable logic
-}
-
 // Normalize a single deck-export line down to "<count> <name>".
 // Handles Moxfield/MTGO/Archidekt style: set codes (XXX), collector numbers
 // (incl. FRF-20, 258★), foil/special markers (★ *F*), and #!Category tags.
@@ -6634,38 +6588,6 @@ function scrubCardList(text) {
     .map(scrubCardLine)
     .filter(Boolean)
     .join('\n');
-}
-
-function saveDecklistData(uuid, eid) {
-  if (!uuid) return;
-  const urlEl = document.getElementById('dl-url-'+eid);
-  const taEl  = document.getElementById('dl-ta-'+eid);
-  if (!data.deckLists) data.deckLists = {};
-  data.deckLists[uuid] = {
-    url:  (urlEl ? urlEl.value.trim() : ''),
-    list: (taEl  ? scrubCardList(taEl.value)  : '')
-  };
-  // Reflect the scrubbed version back into the textarea so the user sees it
-  if (taEl) taEl.value = data.deckLists[uuid].list;
-  updateDecklistMeta(eid, uuid);
-  scheduleSync();
-  // Brief visual feedback on save button
-  const btn = document.querySelector(`#dl-${eid} .decklist-save-btn`);
-  if (btn) { btn.textContent = 'Saved ✓'; setTimeout(()=>{ btn.textContent='Save'; },1500); }
-}
-
-function pushToMoxfield(uuid, eid) {
-  const entry = (data.deckLists||{})[uuid];
-  if (!entry || !entry.list || !entry.url) return;
-  // Copy decklist to clipboard
-  navigator.clipboard.writeText(entry.list).catch(()=>{});
-  // Build bulk edit URL — strip trailing slash, append /edit
-  const base = entry.url.replace(/\/+$/, '');
-  const editUrl = base.endsWith('/edit') ? base : base + '/edit';
-  window.open(editUrl, '_blank');
-  // Brief feedback
-  const btn = document.getElementById('dl-push-'+eid);
-  if (btn) { btn.textContent = 'Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
 }
 
 function toggleIssueGrid(eid) {
