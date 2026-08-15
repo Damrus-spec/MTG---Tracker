@@ -1077,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.30';
+const APP_VERSION = '2026.07.01.31';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2592,6 +2592,7 @@ function primaryTypeFromLine(typeLine) {
 // cardTypeCache; names already cached are skipped by the caller.
 async function fetchCardTypesBulk(names) {
   const unique = [...new Set((names||[]).filter(n => n && !cardTypeCache[scryfallKey(n)]))];
+  let resolved = 0, notFound = 0;
   for (let i = 0; i < unique.length; i += 75) {
     const chunk = unique.slice(i, i + 75);
     try {
@@ -2600,16 +2601,23 @@ async function fetchCardTypesBulk(names) {
         headers: {'Content-Type':'application/json', Accept:'application/json'},
         body: JSON.stringify({ identifiers: chunk.map(n => ({ name: n })) })
       });
-      if (!res.ok) continue;
+      if (!res.ok) { dbgLog(`Decklist type fetch HTTP ${res.status} for ${chunk.length} cards`); continue; }
       const j = await res.json();
       for (const card of (j.data || [])) {
         const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
         cardTypeCache[scryfallKey(card.name || '')] = cat;
         (card.card_faces || []).forEach(f => { if (f.name) cardTypeCache[scryfallKey(f.name)] = cat; });
+        resolved++;
       }
-    } catch(e) { /* leave uncached names to fall into "Other" */ }
+      // Scryfall echoes unmatched identifiers in not_found — cache them as a
+      // resolved 'Other' so we don't refetch them every open.
+      for (const nf of (j.not_found || [])) {
+        if (nf && nf.name) { cardTypeCache[scryfallKey(nf.name)] = 'Other'; notFound++; }
+      }
+    } catch(e) { dbgLog('Decklist type fetch failed (network/CORS)', e); }
     if (i + 75 < unique.length) await sleep(80);
   }
+  dbgLog(`Decklist types: ${resolved} resolved, ${notFound} not found, of ${unique.length} requested`);
 }
 
 // Tracks in-flight high-priority (deck) art resolution so lower-priority
