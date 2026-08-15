@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.40';
+const APP_VERSION = '2026.07.01.41';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -6700,9 +6700,22 @@ function closeIssuePanel() {
 // WANTS TAB DECKLIST PANEL
 // ============================================================
 function decklistCardCount(uuid) {
-  const list = ((data.deckLists||{})[uuid]||{}).list||'';
-  const n = (list||'').replace(/\\n/g,'\n').split('\n').reduce((s,l)=>{const m=l.trim().match(/^(\d+)\s+/);return s+(m?parseInt(m[1]):(l.trim()?1:0));},0);
-  return n ? n+' cards stored' : '';
+  const entries = wdlParseEntries(uuid);
+  const total = entries.reduce((s,e)=>s+e.qty, 0);
+  if (!total) return '';
+  // Per-type breakdown (only types present), same buckets/order as the grouped
+  // view. Uses cardTypeCache — unresolved cards just fall under Other.
+  const byType = {};
+  for (const e of entries) {
+    const cat = cardTypeCache[scryfallKey(e.name)] || 'Other';
+    byType[cat] = (byType[cat] || 0) + e.qty;
+  }
+  const parts = WDL_TYPE_ORDER
+    .filter(cat => byType[cat])
+    .map(cat => `${byType[cat]} ${cat.toLowerCase()}`);
+  return parts.length
+    ? `${total} cards stored · ${parts.join(', ')}`
+    : `${total} cards stored`;
 }
 function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; }
 function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '').replace(/\\n/g, '\n'); }
