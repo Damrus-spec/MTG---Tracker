@@ -1077,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.35';
+const APP_VERSION = '2026.07.01.36';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2578,6 +2578,30 @@ async function fetchArtBulk(names) {
 // fallback for the odd brand-new card not yet in the export.
 const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV2';
 const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
+// Names the API confirmed it can't resolve (tokens, non-cards, typos). Persisted
+// so we don't re-hit Scryfall for them every reload — that was the source of the
+// repeated 404/429 spam. Keyed by scryfallKey.
+const BULK_NEG_KEY = 'typeNegCacheV1';
+let _typeNegLoaded = false;
+async function loadTypeNegCache() {
+  if (_typeNegLoaded) return;
+  _typeNegLoaded = true;
+  try {
+    const neg = await bulkIdbGet(BULK_NEG_KEY);
+    if (neg && Array.isArray(neg.keys)) {
+      for (const k of neg.keys) if (!cardTypeCache[k]) cardTypeCache[k] = 'Other';
+    }
+  } catch(e) { /* non-fatal */ }
+}
+let _typeNegDirty = false;
+async function saveTypeNegCache() {
+  if (!_typeNegDirty) return;
+  _typeNegDirty = false;
+  try {
+    const keys = Object.keys(cardTypeCache).filter(k => cardTypeCache[k] === 'Other');
+    await bulkIdbSet(BULK_NEG_KEY, { keys });
+  } catch(e) { /* non-fatal */ }
+}
 
 function bulkIdbOpen() {
   return new Promise((resolve, reject) => {
@@ -2764,6 +2788,7 @@ async function scryGetCard(url) {
 // only tried on a genuine miss, never after a 429, to avoid doubling traffic.
 let _typeFetchRunning = false;
 async function fetchCardTypesBulk(names) {
+  await loadTypeNegCache(); // seed known-unresolvable names so we skip them
   const unique = [...new Set((names||[]).filter(n => n && !cardTypeCache[scryfallKey(n)]))];
   if (!unique.length) return;
   // Serialize: never run two type sweeps at once (would double the rate).
@@ -2772,17 +2797,24 @@ async function fetchCardTypesBulk(names) {
   let resolved = 0, other = 0;
   try {
     for (const name of unique) {
-      if (cardTypeCache[scryfallKey(name)]) continue; // filled by a prior pass
+      const k = scryfallKey(name);
+      if (cardTypeCache[k]) continue; // filled by a prior pass / neg cache
+      // Token/non-card lines (e.g. "Toy token", "Rabbit Token") aren't real
+      // card names and always 404 — skip the request entirely.
+      if (/\btoken\b/i.test(name) || /\bemblem\b/i.test(name)) {
+        cardTypeCache[k] = 'Other'; _typeNegDirty = true; other++; continue;
+      }
       let card = await scryGetCard(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
       if (!card) card = await scryGetCard(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
       if (card) {
         const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
         cardTypeCache[scryfallKey(card.name || name)] = cat;
         (card.card_faces || []).forEach(f => { if (f.name) cardTypeCache[scryfallKey(f.name)] = cat; });
-        cardTypeCache[scryfallKey(name)] = cat;
+        cardTypeCache[k] = cat;
         resolved++;
       } else {
-        cardTypeCache[scryfallKey(name)] = 'Other';
+        // Persist as unresolvable so we never re-fetch it on future loads.
+        cardTypeCache[k] = 'Other'; _typeNegDirty = true;
         other++;
       }
       if ((resolved + other) % 6 === 0 && typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
@@ -2790,6 +2822,7 @@ async function fetchCardTypesBulk(names) {
     }
   } finally {
     _typeFetchRunning = false;
+    saveTypeNegCache(); // persist any new negatives
   }
   if (typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
   dbgLog(`Decklist types: ${resolved} resolved, ${other} unresolved, of ${unique.length}`);
@@ -6775,6 +6808,7 @@ function wdlHideRaw(uuid) {
 }
 // Fetch missing card types for this deck, then refresh the grouped view.
 async function wdlEnsureTypes(uuid) {
+  await loadTypeNegCache(); // honor known-unresolvable names up front
   const names = wdlParseEntries(uuid).map(e => e.name);
   let missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
   if (!missing.length) return;
