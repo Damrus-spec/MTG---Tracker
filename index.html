@@ -250,6 +250,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-mgr-row:last-child{border-bottom:none}
 .deck-mgr-card .deck-mgr-row{border-bottom:none}
 .deck-mgr-decklist{padding:0 10px 4px}
+.decklist-grouped{border:.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);padding:8px 10px;max-height:280px;overflow:auto;cursor:text}
+.decklist-grouped:hover{border-color:var(--border-md)}
 .deck-mgr-art{width:150px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
 #page-rivals .deck-mgr-art{align-self:center;width:120px;aspect-ratio:1/1}
 .deck-mgr-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -1075,7 +1077,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.29';
+const APP_VERSION = '2026.07.01.30';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2562,6 +2564,52 @@ async function fetchArtBulk(names) {
     if (i + 75 < unique.length) await sleep(80);
   }
   return out;
+}
+
+// Card primary-type cache: scryfallKey(name) -> category string. Populated
+// lazily from Scryfall so the decklist panel can group cards. Display-only —
+// the stored decklist stays raw text.
+const cardTypeCache = {};
+// Map a Scryfall type_line to one primary bucket. Order matters: a card is
+// filed under the first type it matches (Moxfield-style precedence), and lands
+// are deliberately checked before everything so e.g. "Artifact Land" -> Lands.
+function primaryTypeFromLine(typeLine) {
+  const t = (typeLine || '').toLowerCase();
+  // Precedence follows Moxfield: creatures win over everything (artifact/
+  // enchantment creatures group with creatures), then lands win over the
+  // remaining permanent types (so Artifact Land / man-lands file under Lands).
+  if (t.includes('creature'))     return 'Creatures';
+  if (t.includes('planeswalker')) return 'Planeswalkers';
+  if (t.includes('land'))         return 'Lands';
+  if (t.includes('instant'))      return 'Instants';
+  if (t.includes('sorcery'))      return 'Sorceries';
+  if (t.includes('artifact'))     return 'Artifacts';
+  if (t.includes('enchantment'))  return 'Enchantments';
+  if (t.includes('battle'))       return 'Battles';
+  return 'Other';
+}
+// Resolve type_line for many names in one collection POST (75/req). Fills
+// cardTypeCache; names already cached are skipped by the caller.
+async function fetchCardTypesBulk(names) {
+  const unique = [...new Set((names||[]).filter(n => n && !cardTypeCache[scryfallKey(n)]))];
+  for (let i = 0; i < unique.length; i += 75) {
+    const chunk = unique.slice(i, i + 75);
+    try {
+      const res = await fetch('https://api.scryfall.com/cards/collection', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', Accept:'application/json'},
+        body: JSON.stringify({ identifiers: chunk.map(n => ({ name: n })) })
+      });
+      if (!res.ok) continue;
+      const j = await res.json();
+      for (const card of (j.data || [])) {
+        const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
+        cardTypeCache[scryfallKey(card.name || '')] = cat;
+        (card.card_faces || []).forEach(f => { if (f.name) cardTypeCache[scryfallKey(f.name)] = cat; });
+      }
+    } catch(e) { /* leave uncached names to fall into "Other" */ }
+    if (i + 75 < unique.length) await sleep(80);
+  }
 }
 
 // Tracks in-flight high-priority (deck) art resolution so lower-priority
@@ -5234,7 +5282,8 @@ function renderDeckMgr() { scheduleCropApply();
         </button>
         <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding-bottom:10px">
           <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
-          <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
+          <div class="decklist-grouped" id="wdl-grouped-${d.uuid}" onclick="wdlRevealRaw('${d.uuid}')" title="Tap to edit / copy the raw list">${wdlPanelOpen[d.uuid]?wdlGroupedHtml(d.uuid):''}</div>
+          <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" style="display:none" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')" onblur="wdlHideRaw('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
           <div class="decklist-meta" id="wdl-meta-${d.uuid}">${wdlPanelOpen[d.uuid]?decklistCardCount(d.uuid):''}</div>
           <div class="decklist-actions">
             <button class="decklist-save-btn" id="wdl-save-${d.uuid}" onclick="wdlSave('${d.uuid}')">Save</button>
@@ -6437,6 +6486,49 @@ function decklistCardCount(uuid) {
 function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; }
 function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '').replace(/\\n/g, '\n'); }
 
+// Parse the raw stored list into [{qty, name}] entries (skips blanks/headers).
+function wdlParseEntries(uuid) {
+  const raw = wdlGetList(uuid);
+  const out = [];
+  for (const line of raw.split('\n')) {
+    const s = line.trim();
+    if (!s) continue;
+    const m = s.match(/^(\d+)\s+(.*)$/);
+    if (m) out.push({ qty: parseInt(m[1]), name: m[2].trim() });
+    else   out.push({ qty: 1, name: s });
+  }
+  return out;
+}
+
+// Fixed display order — Lands last, Moxfield-style; "Other" catches anything
+// unresolved so nothing is ever dropped from view.
+const WDL_TYPE_ORDER = ['Creatures','Planeswalkers','Battles','Instants','Sorceries','Artifacts','Enchantments','Other','Lands'];
+
+// Build the grouped, read-only HTML view of a deck's list. Cards whose type
+// isn't resolved yet fall into "Other" until the async fetch fills the cache
+// and a re-render moves them.
+function wdlGroupedHtml(uuid) {
+  const entries = wdlParseEntries(uuid);
+  if (!entries.length) return '<div style="color:var(--text3);font-size:12px;padding:6px 2px">No decklist saved yet — tap to paste one.</div>';
+  const groups = {};
+  for (const e of entries) {
+    const cat = cardTypeCache[scryfallKey(e.name)] || 'Other';
+    (groups[cat] = groups[cat] || []).push(e);
+  }
+  const parts = [];
+  for (const cat of WDL_TYPE_ORDER) {
+    const list = groups[cat];
+    if (!list || !list.length) continue;
+    const count = list.reduce((s,e)=>s+e.qty, 0);
+    const rows = list.map(e => `<div style="font-size:12px;color:var(--text);padding:1px 0">${e.qty>1?`<span style="color:var(--text3)">${e.qty}×</span> `:''}${esc(e.name)}</div>`).join('');
+    parts.push(`<div style="margin-bottom:7px">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:2px">${cat} <span style="color:var(--text2)">${count}</span></div>
+      ${rows}
+    </div>`);
+  }
+  return parts.join('');
+}
+
 // Aggregate the deck's last-10 issue-bearing games into win/loss counts,
 // mirroring openIssuePanel — single source of truth is data.history. Reuses
 // getIssuesLast10 so this and the Score-tab issue indicator stay in step.
@@ -6473,6 +6565,39 @@ function toggleWantsIssuesPanel(uuid) {
   wIssuesPanelOpen[uuid] = isOpen;
 }
 
+// Grouped view is the default; revealing swaps to the raw textarea (focused,
+// selectable) so copy and the Moxfield push always act on the plain list.
+function wdlRevealRaw(uuid) {
+  const g = document.getElementById('wdl-grouped-'+uuid);
+  const ta = document.getElementById('wdl-ta-'+uuid);
+  if (!ta) return;
+  ta.value = wdlGetList(uuid);
+  if (g) g.style.display = 'none';
+  ta.style.display = '';
+  ta.focus();
+}
+// On blur, return to the grouped view (unless empty edits are in progress —
+// wdlChanged already tracks dirty state and the Save button persists).
+function wdlHideRaw(uuid) {
+  const g = document.getElementById('wdl-grouped-'+uuid);
+  const ta = document.getElementById('wdl-ta-'+uuid);
+  if (!ta || !g) return;
+  // Refresh grouped view from whatever is currently stored, then show it.
+  g.innerHTML = wdlGroupedHtml(uuid);
+  ta.style.display = 'none';
+  g.style.display = '';
+  wdlEnsureTypes(uuid); // fetch any newly-added cards' types
+}
+// Fetch missing card types for this deck, then refresh the grouped view.
+async function wdlEnsureTypes(uuid) {
+  const names = wdlParseEntries(uuid).map(e => e.name);
+  const missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
+  if (!missing.length) return;
+  await fetchCardTypesBulk(missing);
+  const g = document.getElementById('wdl-grouped-'+uuid);
+  if (g && g.style.display !== 'none') g.innerHTML = wdlGroupedHtml(uuid);
+}
+
 function toggleWantsDecklistPanel(uuid) {
   const panel = document.getElementById('wdl-panel-'+uuid);
   if (!panel) return;
@@ -6491,7 +6616,12 @@ function toggleWantsDecklistPanel(uuid) {
     const taEl  = document.getElementById('wdl-ta-'+uuid);
     if (urlEl) urlEl.value = entry.url  || '';
     if (taEl)  taEl.value  = entry.list || '';
+    // Grouped view is the default surface; ensure the textarea stays hidden.
+    const g = document.getElementById('wdl-grouped-'+uuid);
+    if (g)    { g.innerHTML = wdlGroupedHtml(uuid); g.style.display = ''; }
+    if (taEl) taEl.style.display = 'none';
     wdlUpdateMeta(uuid);
+    wdlEnsureTypes(uuid); // async: fill types then refresh grouping
   }
 }
 
@@ -6533,6 +6663,10 @@ function wdlSave(uuid) {
     btn.style.borderColor = 'var(--green)';
     setTimeout(() => { btn.textContent='Save'; btn.style.color=''; btn.style.borderColor=''; }, 1500);
   }
+  // Refresh grouped view from the saved list and resolve any new card types.
+  const g = document.getElementById('wdl-grouped-'+uuid);
+  if (g) g.innerHTML = wdlGroupedHtml(uuid);
+  wdlEnsureTypes(uuid);
   // Refresh wants so checkmarks update
   renderDeckWants();
 }
