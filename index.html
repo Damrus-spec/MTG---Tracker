@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.46';
+const APP_VERSION = '2026.07.01.47';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7969,15 +7969,18 @@ function quickAddRivalDeck(playerId, eid, deckKey, slot) {
   if (!rival) return;
   const body = `
     <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="font-size:13px;color:var(--text2);line-height:1.4">Add a commander for <b>${esc(rival.name)}</b>. You can add partner and art later in the Rivals tab.</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Add a deck for <b>${esc(rival.name)}</b>. Commander (and optional partner) only — art can be added later in the Rivals tab.</div>
       <input id="quick-deck-name" type="text" placeholder="Commander name" autocomplete="off"
+        style="width:100%;padding:9px 10px;font-size:14px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text)">
+      <input id="quick-deck-partner" type="text" placeholder="Partner (optional)" autocomplete="off"
         style="width:100%;padding:9px 10px;font-size:14px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text)">
     </div>`;
   showModal('Add deck', body, () => {
     const name = (document.getElementById('quick-deck-name')?.value || '').trim();
     if (!name) return;
+    const partner = (document.getElementById('quick-deck-partner')?.value || '').trim() || null;
     if (!rival.decks) rival.decks = [];
-    const deck = { id: genUUID(), name, partner: null };
+    const deck = { id: genUUID(), name, partner };
     rival.decks.push(deck);
     scheduleSync();
     // Rebuild this slot's deck dropdown and select the new deck.
@@ -7992,8 +7995,8 @@ function quickAddRivalDeck(playerId, eid, deckKey, slot) {
     }
     saveOppSlot(eid, deckKey, slot);
     // Kick off art/color resolution in the background like the full add does.
-    if (typeof fetchMissingArt === 'function') { try { fetchMissingArt([name]); } catch(e){} }
-    showToast(`Added ${name} to ${rival.name}`);
+    if (typeof fetchMissingArt === 'function') { try { fetchMissingArt(partner ? [name, partner] : [name]); } catch(e){} }
+    showToast(`Added ${partner ? name+' // '+partner : name} to ${rival.name}`);
   });
   setTimeout(()=>{ const el=document.getElementById('quick-deck-name'); if(el) el.focus(); }, 50);
 }
