@@ -1083,7 +1083,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.49';
+const APP_VERSION = '2026.07.01.50';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8037,7 +8037,13 @@ function quickAddRivalDeck(playerId, eid, deckKey, slot) {
     if (typeof fetchMissingArt === 'function') { try { fetchMissingArt(partner ? [name, partner] : [name]); } catch(e){} }
     showToast(`Added ${partner ? name+' // '+partner : name} to ${rival.name}`);
   });
-  setTimeout(()=>{ const el=document.getElementById('quick-deck-name'); if(el) el.focus(); }, 50);
+  setTimeout(()=>{
+    const el=document.getElementById('quick-deck-name'); if(el) el.focus();
+    // Commander autocomplete on both fields (same Scryfall-backed helper as the
+    // full add-deck flow).
+    initAC('quick-deck-name', null);
+    initAC('quick-deck-partner', null);
+  }, 50);
 }
 
 // Fires when a rival's DECK is chosen in the Score opponent picker. The special
