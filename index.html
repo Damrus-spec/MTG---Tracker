@@ -1083,7 +1083,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.48';
+const APP_VERSION = '2026.07.01.49';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4259,7 +4259,7 @@ function runHistImport() {
       (d.name||'').toLowerCase() === (p.name||'').toLowerCase() &&
       ((d.partner||'')||'').toLowerCase() === ((p.partner||'')||'').toLowerCase()));
   });
-  // Self-tagged rivals (your own decks, loaned to others — see toggleRivalIsSelf)
+  // Legacy self-tagged rivals (from before your decks were sourced automatically)
   // don't count as "a known rival" here: excluding them would wrongly skip the
   // real "you" if you happen to have one of these under your own name.
   const knownRival = (nm) => (data.opponents||[]).some(r => !r.isSelf && (r.name||'').toLowerCase()===nm.toLowerCase());
@@ -8378,8 +8378,7 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
         ? `<button onclick="event.stopPropagation();openRivalHistory('${r.id}')" class="rival-act" title="Game history with your decks (piloted by others)"><i class="ti ti-history"></i></button>
            <span style="font-size:10px;color:var(--text3);margin-left:6px">Managed in the Decks tab</span>`
         : (!isRetiredRival
-        ? `<button onclick="event.stopPropagation();toggleRivalIsSelf('${r.id}')" class="rival-act" title="${r.isSelf?'Marked as your own decks (loaned out to others) — click to unmark':'Mark this as your own decks, tracked separately for games where someone else pilots them'}"><i class="ti ti-toggle-${r.isSelf?'right':'left'}" style="${r.isSelf?'color:var(--green)':''}"></i></button>
-           <button onclick="event.stopPropagation();promptRenameRival('${r.id}')" class="rival-act" title="Rename rival"><i class="ti ti-pencil"></i></button>
+        ? `<button onclick="event.stopPropagation();promptRenameRival('${r.id}')" class="rival-act" title="Rename rival"><i class="ti ti-pencil"></i></button>
            <button onclick="event.stopPropagation();openRivalHistory('${r.id}')" class="rival-act" title="Game history vs this rival"><i class="ti ti-history"></i></button>
            <button onclick="event.stopPropagation();exportRivalDecks('${r.id}')" class="rival-act" title="Export this rival's decks"><i class="ti ti-upload"></i></button>
            <button onclick="event.stopPropagation();exportGamesWithRival('${r.id}')" class="rival-act" title="Export all games with this rival (to share with them)"><i class="ti ti-file-export"></i></button>
@@ -8531,17 +8530,6 @@ function addRival() {
 // friend's own self-tagged rival sharing theirs) would otherwise get silently
 // conflated with the real person's identity. Its name is kept in sync with your
 // Player name setting (single source of truth), so it always reads as "you".
-function toggleRivalIsSelf(rivalId) {
-  const r = (data.opponents||[]).find(x=>x.id===rivalId);
-  if (!r) return;
-  r.isSelf = !r.isSelf;
-  // NOTE: do NOT overwrite the rival's name here. Marking "your decks" only sets
-  // the flag; the name stays whatever you gave it. (Auto-renaming previously
-  // destroyed a real rival's name the instant this was toggled.)
-  scheduleSync(); renderRivals();
-  showToast(r.isSelf ? 'Marked as your own decks — excluded from auto-matching on import' : 'Unmarked');
-}
-
 // Save the Player name setting. We deliberately do NOT rename self-tagged
 // rivals to match — doing so previously clobbered a real rival's name if it had
 // been marked "your decks" (accidentally or otherwise). The isSelf flag alone
