@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.41';
+const APP_VERSION = '2026.07.01.42';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5502,13 +5502,13 @@ function renderDeckMgr() { scheduleCropApply();
     </div>${(d.status==='Owned'||d.status==='Building') ? `
       <div class="deck-mgr-decklist" id="wdl-wrap-${d.uuid}" style="display:${wdlPanelOpen[d.uuid]?'block':'none'}">
         <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding:8px 10px 10px">
-          <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
+          <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield or Archidekt deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
           <div class="decklist-grouped" id="wdl-grouped-${d.uuid}" onclick="wdlRevealRaw('${d.uuid}')" title="Tap to edit / copy the raw list">${wdlPanelOpen[d.uuid]?wdlGroupedHtml(d.uuid):''}</div>
           <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" style="display:none" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')" onblur="wdlHideRaw('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
           <div class="decklist-meta" id="wdl-meta-${d.uuid}">${wdlPanelOpen[d.uuid]?decklistCardCount(d.uuid):''}</div>
           <div class="decklist-actions">
             <button class="decklist-save-btn" id="wdl-save-${d.uuid}" onclick="wdlSave('${d.uuid}')">Save</button>
-            <button class="decklist-push-btn" id="wdl-push-${d.uuid}" onclick="wdlPush('${d.uuid}')" disabled>Copy &amp; open Moxfield</button>
+            <button class="decklist-push-btn" id="wdl-push-${d.uuid}" onclick="wdlPush('${d.uuid}')" disabled>${wdlPushLabel(wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):'')}</button>
           </div>
         </div>
       </div>` : ''}</div>`;
@@ -6895,7 +6895,10 @@ function wdlChanged(uuid) {
   const urlEl  = document.getElementById('wdl-url-'+uuid);
   const taEl   = document.getElementById('wdl-ta-'+uuid);
   const pushBtn = document.getElementById('wdl-push-'+uuid);
-  if (pushBtn) pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
+  if (pushBtn) {
+    pushBtn.disabled = !(urlEl&&urlEl.value.trim()) || !(taEl&&taEl.value.trim());
+    pushBtn.textContent = wdlPushLabel(urlEl ? urlEl.value : '');
+  }
 }
 
 function wdlUpdateMeta(uuid) {
@@ -6906,8 +6909,8 @@ function wdlUpdateMeta(uuid) {
     const m = l.trim().match(/^(\d+)\s+/);
     return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
   }, 0);
-  if (metaEl)  metaEl.textContent = total ? `${total} cards stored` : '';
-  if (pushBtn) pushBtn.disabled   = !entry.list || !entry.url;
+  if (metaEl)  metaEl.textContent = decklistCardCount(uuid);
+  if (pushBtn) { pushBtn.disabled = !entry.list || !entry.url; pushBtn.textContent = wdlPushLabel(entry.url||''); }
 }
 
 function wdlSave(uuid) {
@@ -6937,15 +6940,35 @@ function wdlSave(uuid) {
   renderDeckWants();
 }
 
+// Detect the deck host from a pasted URL and return how to open it. Moxfield's
+// bulk-edit lives at /edit; Archidekt's edit is just the deck page. Archidekt's
+// API is CORS-locked to their own origin, so (like Moxfield) we can only
+// copy-and-open, not import directly.
+function deckSiteInfo(url) {
+  const u = (url||'').trim();
+  const base = u.replace(/\/+$/, '');
+  if (/moxfield\.com/i.test(u)) {
+    return { name: 'Moxfield', openUrl: base.endsWith('/edit') ? base : base + '/edit' };
+  }
+  if (/archidekt\.com/i.test(u)) {
+    return { name: 'Archidekt', openUrl: base }; // deck page is the edit view
+  }
+  return { name: null, openUrl: base || null };
+}
+// Label for the push button given the current URL.
+function wdlPushLabel(url) {
+  const s = deckSiteInfo(url);
+  return s.name ? `Copy & open ${s.name}` : 'Copy & open deck';
+}
+
 function wdlPush(uuid) {
   const entry = (data.deckLists||{})[uuid];
   if (!entry || !entry.list || !entry.url) return;
   navigator.clipboard.writeText(entry.list).catch(()=>{});
-  const base = entry.url.replace(/\/+$/, '');
-  const editUrl = base.endsWith('/edit') ? base : base + '/edit';
-  window.open(editUrl, '_blank');
+  const info = deckSiteInfo(entry.url);
+  if (info.openUrl) window.open(info.openUrl, '_blank');
   const btn = document.getElementById('wdl-push-'+uuid);
-  if (btn) { btn.textContent='Copied & opened!'; setTimeout(()=>{ btn.textContent='Copy & open Moxfield'; },2000); }
+  if (btn) { btn.textContent='Copied & opened!'; setTimeout(()=>{ btn.textContent=wdlPushLabel(entry.url); },2000); }
 }
 
 // ============================================================
