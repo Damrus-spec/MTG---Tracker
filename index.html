@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.43';
+const APP_VERSION = '2026.07.01.44';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4124,9 +4124,10 @@ function confirmExportSelected() {
   );
 }
 
-function buildExportPayload() {
+function buildExportPayload(indices) {
+  const idx = indices || [...historySelected];
   const me = (cfg().playerName || data.playerName || 'Me');
-  const entries = [...historySelected].sort((a,b)=>a-b).map(i=>{
+  const entries = idx.slice().sort((a,b)=>a-b).map(i=>{
     const h = data.history[i];
     if (!h) return null;
     const mine = _ownedDeckNames(h);
@@ -4147,6 +4148,32 @@ function buildExportPayload() {
     };
   }).filter(Boolean);
   return { app:'MTG-Tracker', kind:'history-export', version:1, exported: new Date().toISOString(), entries };
+}
+
+// Export every game in history that this rival took part in — so you can hand
+// them all their relevant matches to import. Reuses the shared payload builder
+// and clipboard/fallback path; nothing about the stored data changes.
+function exportGamesWithRival(rivalId) {
+  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+  if (!rival) return;
+  const indices = [];
+  (data.history||[]).forEach((h, i) => {
+    if (!h || !h.last) return;
+    if ((h.opponents||[]).some(o => o.playerId === rivalId)) indices.push(i);
+  });
+  if (!indices.length) { showToast(`No games logged with ${rival.name}`); return; }
+  showModal(
+    `Export games with ${esc(rival.name)}`,
+    `Share all ${indices.length} game${indices.length===1?'':'s'} you've played with ${esc(rival.name)}? They can import these to add the matches to their own history.`,
+    () => {
+      const payload = buildExportPayload(indices);
+      const json = JSON.stringify(payload);
+      const n = payload.entries.length;
+      const done = () => showToast(`${n} game${n===1?'':'s'} with ${rival.name} copied — paste to share`);
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(json).then(done, ()=>showExportFallback(json, n));
+      else showExportFallback(json, n);
+    }
+  );
 }
 
 function doExportSelected() {
@@ -8208,6 +8235,7 @@ function renderRivals() { scheduleCropApply();
            <button onclick="event.stopPropagation();promptRenameRival('${r.id}')" class="rival-act" title="Rename rival"><i class="ti ti-pencil"></i></button>
            <button onclick="event.stopPropagation();openRivalHistory('${r.id}')" class="rival-act" title="Game history vs this rival"><i class="ti ti-history"></i></button>
            <button onclick="event.stopPropagation();exportRivalDecks('${r.id}')" class="rival-act" title="Export this rival's decks"><i class="ti ti-upload"></i></button>
+           <button onclick="event.stopPropagation();exportGamesWithRival('${r.id}')" class="rival-act" title="Export all games with this rival (to share with them)"><i class="ti ti-file-export"></i></button>
            <button onclick="event.stopPropagation();openImportDecks('${r.id}')" class="rival-act" title="Import decks into this rival"><i class="ti ti-download"></i></button>
            <button onclick="event.stopPropagation();retireRival('${r.id}')" class="rival-act" title="Retire rival"><i class="ti ti-archive"></i></button>
            <button onclick="event.stopPropagation();openAddRivalDeckModal('${r.id}')" class="rival-act-deck">+ deck</button>`
