@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.45';
+const APP_VERSION = '2026.07.01.46';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3221,6 +3221,7 @@ function renderScore() { scheduleCropApply();
               <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
                 <option value="">— Deck —</option>
                 ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('')}
+                <option value="__add__">+ Add deck…</option>
               </select>
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
@@ -7942,7 +7943,8 @@ function onOppPlayerChange(eid, deckKey, slot) {
     const rival = (data.opponents||[]).find(r=>r.id===playerId);
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
     deckSel.innerHTML = '<option value="">— Deck —</option>' +
-      activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('');
+      activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('') +
+      '<option value="__add__">+ Add deck…</option>';
     deckSel.style.display = '';
     // Auto-select: preferred (starred) deck first, then only-deck fallback
     const preferred = activeDecks.find(d=>d.preferred);
@@ -7956,6 +7958,58 @@ function onOppPlayerChange(eid, deckKey, slot) {
     cb.disabled = !playerId;
     if (!playerId && cb.checked) { cb.checked = false; setGameWinner({stopPropagation(){},target:cb}, deckKey, eid, slot); }
   }
+}
+
+// Quick add: a commander-only deck for a rival, straight from the Score board.
+// Simplified vs the full Rivals add-deck (no partner/art here) — you can enrich
+// it later in the Rivals tab. On save it appends the deck, re-renders the score
+// slot's dropdown, and selects the new deck.
+function quickAddRivalDeck(playerId, eid, deckKey, slot) {
+  const rival = (data.opponents||[]).find(r=>r.id===playerId);
+  if (!rival) return;
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Add a commander for <b>${esc(rival.name)}</b>. You can add partner and art later in the Rivals tab.</div>
+      <input id="quick-deck-name" type="text" placeholder="Commander name" autocomplete="off"
+        style="width:100%;padding:9px 10px;font-size:14px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text)">
+    </div>`;
+  showModal('Add deck', body, () => {
+    const name = (document.getElementById('quick-deck-name')?.value || '').trim();
+    if (!name) return;
+    if (!rival.decks) rival.decks = [];
+    const deck = { id: genUUID(), name, partner: null };
+    rival.decks.push(deck);
+    scheduleSync();
+    // Rebuild this slot's deck dropdown and select the new deck.
+    const deckSel = document.getElementById('opp-deck-'+eid+'-'+slot);
+    if (deckSel) {
+      const active = rival.decks.filter(d=>!d.retired);
+      deckSel.innerHTML = '<option value="">— Deck —</option>' +
+        active.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('') +
+        '<option value="__add__">+ Add deck…</option>';
+      deckSel.value = deck.id;
+      deckSel.style.display = '';
+    }
+    saveOppSlot(eid, deckKey, slot);
+    // Kick off art/color resolution in the background like the full add does.
+    if (typeof fetchMissingArt === 'function') { try { fetchMissingArt([name]); } catch(e){} }
+    showToast(`Added ${name} to ${rival.name}`);
+  });
+  setTimeout(()=>{ const el=document.getElementById('quick-deck-name'); if(el) el.focus(); }, 50);
+}
+
+// Fires when a rival's DECK is chosen in the Score opponent picker. The special
+// value '__add__' opens a quick add-deck flow for that rival; otherwise just
+// persist the slot. (Missing before — caused 'onOppDeckChange is not defined'.)
+function onOppDeckChange(eid, deckKey, slot) {
+  const deckSel = document.getElementById('opp-deck-'+eid+'-'+slot);
+  if (deckSel && deckSel.value === '__add__') {
+    const playerId = document.getElementById('opp-player-'+eid+'-'+slot)?.value || '';
+    deckSel.value = ''; // reset the select; the modal will repopulate on add
+    if (playerId) quickAddRivalDeck(playerId, eid, deckKey, slot);
+    return;
+  }
+  saveOppSlot(eid, deckKey, slot);
 }
 
 function saveOppSlot(eid, deckKey, slot) {
@@ -8371,25 +8425,19 @@ function toggleRivalIsSelf(rivalId) {
   const r = (data.opponents||[]).find(x=>x.id===rivalId);
   if (!r) return;
   r.isSelf = !r.isSelf;
-  if (r.isSelf) {
-    const pname = (cfg().playerName||'').trim();
-    if (pname) r.name = pname;
-  }
+  // NOTE: do NOT overwrite the rival's name here. Marking "your decks" only sets
+  // the flag; the name stays whatever you gave it. (Auto-renaming previously
+  // destroyed a real rival's name the instant this was toggled.)
   scheduleSync(); renderRivals();
   showToast(r.isSelf ? 'Marked as your own decks — excluded from auto-matching on import' : 'Unmarked');
 }
 
-// Keeps any self-tagged ("your decks") rivals renamed in step with the Player
-// name setting, so the two never drift apart — the rival record is meant to
-// always represent you, by name, for import matching purposes.
+// Save the Player name setting. We deliberately do NOT rename self-tagged
+// rivals to match — doing so previously clobbered a real rival's name if it had
+// been marked "your decks" (accidentally or otherwise). The isSelf flag alone
+// handles import matching; names are left under the user's control.
 function savePlayerName(val) {
   saveStrSetting('playerName', val);
-  if (!val) return;
-  let touched = false;
-  for (const r of (data.opponents||[])) {
-    if (r.isSelf && r.name !== val) { r.name = val; touched = true; }
-  }
-  if (touched) { scheduleSync(); renderRivals(); }
 }
 
 function updateRivalDeckField(rivalId, deckId, field, value) {
