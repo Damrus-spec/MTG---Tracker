@@ -1079,7 +1079,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.44';
+const APP_VERSION = '2026.07.01.45';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8224,12 +8224,15 @@ function renderRivals() { scheduleCropApply();
 
     // Player group header — mirrors the status group header in renderDeckMgr
     const isCollapsed = collapsedRivals.has(r.id);
-    rows += `<div data-rival-group="${r.id}" data-retired="${isRetiredRival?1:0}" role="button" aria-expanded="${isCollapsed?'false':'true'}" onclick="toggleRivalCollapse('${r.id}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:8px 12px 6px;background:var(--bg);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;flex-wrap:wrap">
-      <i class="ti ti-grip-vertical" title="Drag to reorder" onclick="event.stopPropagation()" onpointerdown="startRivalDrag(event,'${r.id}',${isRetiredRival?'true':'false'})" style="font-size:13px;color:var(--text3);flex-shrink:0;cursor:grab;touch-action:none;padding:6px 3px;margin:-6px -1px"></i>
-      <i class="ti ti-chevron-${isCollapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
-      <span style="flex:1">${esc(r.name)}${r.isSelf?'<span style="font-weight:400;color:var(--green);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">your decks</span>':''}${isRetiredRival?'<span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">retired rival</span>':''}</span>
-      <span class="deck-wr ${wrCls}" style="font-size:11px">${wr!=null?wr+'%':'—'}</span>
-      <span style="font-weight:400;color:var(--text3);font-size:10px;text-transform:none;letter-spacing:0">${st.total} game${st.total!==1?'s':''}</span>
+    rows += `<div data-rival-group="${r.id}" data-retired="${isRetiredRival?1:0}" style="background:var(--bg)">
+      <div role="button" aria-expanded="${isCollapsed?'false':'true'}" onclick="toggleRivalCollapse('${r.id}')" style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);padding:8px 12px 4px;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
+        <i class="ti ti-grip-vertical" title="Drag to reorder" onclick="event.stopPropagation()" onpointerdown="startRivalDrag(event,'${r.id}',${isRetiredRival?'true':'false'})" style="font-size:13px;color:var(--text3);flex-shrink:0;cursor:grab;touch-action:none;padding:6px 3px;margin:-6px -1px"></i>
+        <i class="ti ti-chevron-${isCollapsed?'right':'down'}" style="font-size:11px;color:var(--text3);flex-shrink:0"></i>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name)}${r.isSelf?'<span style="font-weight:400;color:var(--green);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">your decks</span>':''}${isRetiredRival?'<span style="font-weight:400;color:var(--text3);margin-left:6px;text-transform:none;letter-spacing:0;font-size:9px">retired rival</span>':''}</span>
+        <span class="deck-wr ${wrCls}" style="font-size:11px;flex-shrink:0">${wr!=null?wr+'%':'—'}</span>
+        <span style="font-weight:400;color:var(--text3);font-size:10px;text-transform:none;letter-spacing:0;flex-shrink:0">${st.total} game${st.total!==1?'s':''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:2px;padding:0 10px 8px;flex-wrap:wrap">
       ${!isRetiredRival
         ? `<button onclick="event.stopPropagation();toggleRivalIsSelf('${r.id}')" class="rival-act" title="${r.isSelf?'Marked as your own decks (loaned out to others) — click to unmark':'Mark this as your own decks, tracked separately for games where someone else pilots them'}"><i class="ti ti-toggle-${r.isSelf?'right':'left'}" style="${r.isSelf?'color:var(--green)':''}"></i></button>
            <button onclick="event.stopPropagation();promptRenameRival('${r.id}')" class="rival-act" title="Rename rival"><i class="ti ti-pencil"></i></button>
@@ -8238,10 +8241,11 @@ function renderRivals() { scheduleCropApply();
            <button onclick="event.stopPropagation();exportGamesWithRival('${r.id}')" class="rival-act" title="Export all games with this rival (to share with them)"><i class="ti ti-file-export"></i></button>
            <button onclick="event.stopPropagation();openImportDecks('${r.id}')" class="rival-act" title="Import decks into this rival"><i class="ti ti-download"></i></button>
            <button onclick="event.stopPropagation();retireRival('${r.id}')" class="rival-act" title="Retire rival"><i class="ti ti-archive"></i></button>
-           <button onclick="event.stopPropagation();openAddRivalDeckModal('${r.id}')" class="rival-act-deck">+ deck</button>`
+           <button onclick="event.stopPropagation();openAddRivalDeckModal('${r.id}')" class="rival-act-deck" style="margin-left:auto">+ deck</button>`
         : `<button onclick="event.stopPropagation();unretireRival('${r.id}')" style="padding:7px 12px;background:var(--blue);border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;min-height:34px">Restore</button>
            <button onclick="event.stopPropagation();confirmDeleteRival('${r.id}')" class="rival-act" title="Delete rival permanently"><i class="ti ti-trash"></i></button>`
       }
+      </div>
     </div>`;
 
     if (!isCollapsed) {
