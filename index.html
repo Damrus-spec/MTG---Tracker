@@ -1083,7 +1083,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.50';
+const APP_VERSION = '2026.07.01.52';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2594,12 +2594,12 @@ async function fetchArtBulk(names) {
 // name -> primaryType map, and cache that map in IndexedDB. Card typing then
 // becomes instant and offline. Refreshed weekly. Per-card GET remains as a
 // fallback for the odd brand-new card not yet in the export.
-const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV3';
+const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV4';
 const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
 // Names the API confirmed it can't resolve (tokens, non-cards, typos). Persisted
 // so we don't re-hit Scryfall for them every reload — that was the source of the
 // repeated 404/429 spam. Keyed by scryfallKey.
-const BULK_NEG_KEY = 'typeNegCacheV2';
+const BULK_NEG_KEY = 'typeNegCacheV3';
 let _typeNegLoaded = false;
 async function loadTypeNegCache() {
   if (_typeNegLoaded) return;
@@ -5268,7 +5268,7 @@ function processWantReplacement(uuid, idx) {
   let removed = false;
   lines = lines.reduce((acc, l) => {
     if (!removed) {
-      const match = l.match(/^(\d+)\s+(.+)$/);
+      const match = l.match(/^(\d+)x?\s+(.+)$/i);
       const qty  = match ? parseInt(match[1]) : 1;
       const name = match ? match[2].trim() : l.trim();
       if (name.toLowerCase() === cardOut.toLowerCase()) {
@@ -6771,7 +6771,7 @@ function wdlParseEntries(uuid) {
   for (const line of raw.split('\n')) {
     const s = line.trim();
     if (!s) continue;
-    const m = s.match(/^(\d+)\s+(.*)$/);
+    const m = s.match(/^(\d+)x?\s+(.*)$/i);
     if (m) out.push({ qty: parseInt(m[1]), name: m[2].trim() });
     else   out.push({ qty: 1, name: s });
   }
@@ -6950,7 +6950,7 @@ function wdlUpdateMeta(uuid) {
   const pushBtn = document.getElementById('wdl-push-'+uuid);
   const entry   = (data.deckLists||{})[uuid] || {};
   const total   = (entry.list||'').replace(/\\n/g,'\n').split('\n').reduce((sum, l) => {
-    const m = l.trim().match(/^(\d+)\s+/);
+    const m = l.trim().match(/^(\d+)x?\s+/i);
     return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
   }, 0);
   if (metaEl)  metaEl.textContent = decklistCardCount(uuid);
@@ -7033,7 +7033,7 @@ function scrubCardLine(raw) {
   // 2) Leading "SB:"/"MB:" prefixes
   line = line.replace(/^(?:SB|MB):\s*/i,'');
   // 3) Capture optional count + the rest
-  const m = line.match(/^(\d+)?\s*(.+)$/);
+  const m = line.match(/^(\d+)?x?\s*(.+)$/i);
   if (!m) return '';
   const count = m[1] ? m[1] : '1';
   let name = m[2].trim();
