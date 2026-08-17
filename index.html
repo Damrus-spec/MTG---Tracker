@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.53';
+const APP_VERSION = '2026.07.01.54';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5314,7 +5314,7 @@ function processWantReplacement(uuid, idx) {
   let removed = false;
   lines = lines.reduce((acc, l) => {
     if (!removed) {
-      const match = l.match(/^(\d+)x?\s+(.+)$/i);
+      const match = l.match(/^(\d+)[x×]?\s+(.+)$/i);
       const qty  = match ? parseInt(match[1]) : 1;
       const name = match ? match[2].trim() : l.trim();
       if (name.toLowerCase() === cardOut.toLowerCase()) {
@@ -6817,7 +6817,7 @@ function wdlParseEntries(uuid) {
   for (const line of raw.split('\n')) {
     const s = line.trim();
     if (!s) continue;
-    const m = s.match(/^(\d+)x?\s+(.*)$/i);
+    const m = s.match(/^(\d+)[x×]?\s+(.*)$/i);
     if (m) out.push({ qty: parseInt(m[1]), name: m[2].trim() });
     else   out.push({ qty: 1, name: s });
   }
@@ -6996,7 +6996,7 @@ function wdlUpdateMeta(uuid) {
   const pushBtn = document.getElementById('wdl-push-'+uuid);
   const entry   = (data.deckLists||{})[uuid] || {};
   const total   = (entry.list||'').replace(/\\n/g,'\n').split('\n').reduce((sum, l) => {
-    const m = l.trim().match(/^(\d+)x?\s+/i);
+    const m = l.trim().match(/^(\d+)[x×]?\s+/i);
     return sum + (m ? parseInt(m[1]) : (l.trim() ? 1 : 0));
   }, 0);
   if (metaEl)  metaEl.textContent = decklistCardCount(uuid);
@@ -7079,7 +7079,7 @@ function scrubCardLine(raw) {
   // 2) Leading "SB:"/"MB:" prefixes
   line = line.replace(/^(?:SB|MB):\s*/i,'');
   // 3) Capture optional count + the rest
-  const m = line.match(/^(\d+)?x?\s*(.+)$/i);
+  const m = line.match(/^(\d+)?[x×]?\s*(.+)$/i);
   if (!m) return '';
   const count = m[1] ? m[1] : '1';
   let name = m[2].trim();
