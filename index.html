@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.54';
+const APP_VERSION = '2026.07.01.55';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2602,7 +2602,7 @@ const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
 // Names the API confirmed it can't resolve (tokens, non-cards, typos). Persisted
 // so we don't re-hit Scryfall for them every reload — that was the source of the
 // repeated 404/429 spam. Keyed by scryfallKey.
-const BULK_NEG_KEY = 'typeNegCacheV3';
+const BULK_NEG_KEY = 'typeNegCacheV4';
 let _typeNegLoaded = false;
 async function loadTypeNegCache() {
   if (_typeNegLoaded) return;
@@ -6914,10 +6914,8 @@ function wdlHideRaw(uuid) {
 }
 // Fetch missing card types for this deck, then refresh the grouped view.
 async function wdlEnsureTypes(uuid) {
-  await loadTypeNegCache(); // honor known-unresolvable names up front
   const names = wdlParseEntries(uuid).map(e => e.name);
-  let missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
-  if (!missing.length) return;
+  if (!names.length) return;
   const repaint = () => {
     const g = document.getElementById('wdl-grouped-'+uuid);
     if (g && g.style.display !== 'none') g.innerHTML = wdlGroupedHtml(uuid);
@@ -6927,20 +6925,24 @@ async function wdlEnsureTypes(uuid) {
     if (m) m.textContent = txt;
   };
 
-  // 1) Bulk map first — one download, then instant typing for everything in it.
+  // 1) Bulk map is AUTHORITATIVE — apply it first and let it OVERRIDE any stale
+  //    'Other' (e.g. from an old negative-cache run). This is the fix for real
+  //    cards being stuck in Other: the bulk type always wins over a prior miss.
   if (bulkTypeStatus !== 'ready' && bulkTypeStatus !== 'failed') setMeta('Loading card types…');
   const bulk = await ensureBulkTypes();
   if (bulk) {
     for (const n of names) {
       const k = scryfallKey(n);
-      if (!cardTypeCache[k] && bulk[k]) cardTypeCache[k] = bulk[k].t;
+      if (bulk[k]) cardTypeCache[k] = bulk[k].t; // override, not just fill
     }
     repaint();
   }
 
-  // 2) Per-card GET fallback only for cards the bulk file didn't cover
-  //    (e.g. very fresh spoilers). Usually empty, so no rate-limit pressure.
-  missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
+  // 2) For anything the bulk map genuinely lacks, consult the negative cache
+  //    (known-unresolvable tokens/emblems) so we don't refetch them, then do a
+  //    per-card GET for the rest (fresh spoilers).
+  await loadTypeNegCache();
+  let missing = names.filter(n => !cardTypeCache[scryfallKey(n)]);
   if (missing.length) {
     _typeFetchOnProgress = repaint;
     await fetchCardTypesBulk(missing);
