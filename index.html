@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.55';
+const APP_VERSION = '2026.07.01.57';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2602,7 +2602,7 @@ const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
 // Names the API confirmed it can't resolve (tokens, non-cards, typos). Persisted
 // so we don't re-hit Scryfall for them every reload — that was the source of the
 // repeated 404/429 spam. Keyed by scryfallKey.
-const BULK_NEG_KEY = 'typeNegCacheV4';
+const BULK_NEG_KEY = 'typeNegCacheV5';
 let _typeNegLoaded = false;
 async function loadTypeNegCache() {
   if (_typeNegLoaded) return;
@@ -2610,17 +2610,24 @@ async function loadTypeNegCache() {
   try {
     const neg = await bulkIdbGet(BULK_NEG_KEY);
     if (neg && Array.isArray(neg.keys)) {
-      for (const k of neg.keys) if (!cardTypeCache[k]) cardTypeCache[k] = 'Other';
+      for (const k of neg.keys) {
+        _confirmedNeg.add(k);
+        // Only apply if the bulk map genuinely lacks it (never override a real type).
+        if (!cardTypeCache[k] && !(_bulkTypeMap && _bulkTypeMap[k])) cardTypeCache[k] = 'Other';
+      }
     }
   } catch(e) { /* non-fatal */ }
 }
 let _typeNegDirty = false;
+// Only keys we have POSITIVELY confirmed as non-cards (tokens/emblems, or a real
+// 404 from Scryfall). Never populated by scanning cardTypeCache for 'Other',
+// which used to wrongly persist real cards that were only transiently Other.
+const _confirmedNeg = new Set();
 async function saveTypeNegCache() {
   if (!_typeNegDirty) return;
   _typeNegDirty = false;
   try {
-    const keys = Object.keys(cardTypeCache).filter(k => cardTypeCache[k] === 'Other');
-    await bulkIdbSet(BULK_NEG_KEY, { keys });
+    await bulkIdbSet(BULK_NEG_KEY, { keys: [..._confirmedNeg] });
   } catch(e) { /* non-fatal */ }
 }
 
@@ -2823,7 +2830,7 @@ async function fetchCardTypesBulk(names) {
       // Token/non-card lines (e.g. "Toy token", "Rabbit Token") aren't real
       // card names and always 404 — skip the request entirely.
       if (/\btoken\b/i.test(name) || /\bemblem\b/i.test(name)) {
-        cardTypeCache[k] = 'Other'; _typeNegDirty = true; other++; continue;
+        cardTypeCache[k] = 'Other'; _confirmedNeg.add(k); _typeNegDirty = true; other++; continue;
       }
       let card = await scryGetCard(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
       if (!card) card = await scryGetCard(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
@@ -2834,8 +2841,8 @@ async function fetchCardTypesBulk(names) {
         cardTypeCache[k] = cat;
         resolved++;
       } else {
-        // Persist as unresolvable so we never re-fetch it on future loads.
-        cardTypeCache[k] = 'Other'; _typeNegDirty = true;
+        // Real 404 — persist as unresolvable so we never re-fetch it.
+        cardTypeCache[k] = 'Other'; _confirmedNeg.add(k); _typeNegDirty = true;
         other++;
       }
       if ((resolved + other) % 6 === 0 && typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
@@ -6789,6 +6796,14 @@ function closeIssuePanel() {
 // ============================================================
 // WANTS TAB DECKLIST PANEL
 // ============================================================
+// Authoritative per-card type: the bulk map always wins over cardTypeCache so a
+// stale 'Other' (from an old negative-cache run) can never mis-sort a real card.
+function typeForCard(name) {
+  const k = scryfallKey(name);
+  if (_bulkTypeMap && _bulkTypeMap[k]) return _bulkTypeMap[k].t;
+  return cardTypeCache[k] || 'Other';
+}
+
 function decklistCardCount(uuid) {
   const entries = wdlParseEntries(uuid);
   const total = entries.reduce((s,e)=>s+e.qty, 0);
@@ -6797,7 +6812,7 @@ function decklistCardCount(uuid) {
   // view. Uses cardTypeCache — unresolved cards just fall under Other.
   const byType = {};
   for (const e of entries) {
-    const cat = cardTypeCache[scryfallKey(e.name)] || 'Other';
+    const cat = typeForCard(e.name);
     byType[cat] = (byType[cat] || 0) + e.qty;
   }
   const parts = WDL_TYPE_ORDER
@@ -6836,7 +6851,7 @@ function wdlGroupedHtml(uuid) {
   if (!entries.length) return '<div style="color:var(--text3);font-size:12px;padding:6px 2px">No decklist saved yet — tap to paste one.</div>';
   const groups = {};
   for (const e of entries) {
-    const cat = cardTypeCache[scryfallKey(e.name)] || 'Other';
+    const cat = typeForCard(e.name);
     (groups[cat] = groups[cat] || []).push(e);
   }
   const parts = [];
