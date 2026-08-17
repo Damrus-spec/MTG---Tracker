@@ -185,6 +185,8 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .buy-item-deckpill{font-size:11px;padding:2px 9px;border-radius:10px;font-weight:500;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md);cursor:pointer;font-family:inherit;line-height:1.4;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .buy-item-deckpill:hover{color:var(--text);border-color:var(--accent)}
 .buy-item-qty{font-size:13px;color:var(--text2);flex-shrink:0;align-self:center}
+.buy-item-scry{flex-shrink:0;align-self:center;display:inline-flex;align-items:center;justify-content:center;opacity:.55;transition:opacity .15s;padding:2px}
+.buy-item-scry:hover{opacity:1}
 .buy-item-price{font-size:13px;font-weight:500;flex-shrink:0;min-width:56px;text-align:right;align-self:center}
 .buy-item-price.loading{color:var(--text3);font-size:11px}
 .buy-item-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 8px;font-size:16px;flex-shrink:0;align-self:center}
@@ -568,6 +570,7 @@ input.setting-input[type="number"]{width:90px}
       Edit history
     </label>
     <button onclick="openHistImport()" style="padding:6px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2);flex-shrink:0" title="Import games shared by another player"><i class="ti ti-download" style="font-size:12px"></i> Import games</button>
+    <button onclick="readableFromClipboard()" style="padding:6px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2);flex-shrink:0" title="Turn a copied games export into readable text to share with someone who doesn't have the app"><i class="ti ti-file-text" style="font-size:12px"></i> Make readable</button>
   </div>
   <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
     <div style="position:relative;flex:1;display:flex">
@@ -1083,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.52';
+const APP_VERSION = '2026.07.01.53';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4205,6 +4208,46 @@ function showExportFallback(json, n) {
 }
 
 // ── IMPORT ──
+function formatHistoryReadable(payload) {
+  const entries = Array.isArray(payload) ? payload : (payload && payload.entries);
+  if (!Array.isArray(entries) || !entries.length) return null;
+  const deckLabel = (o) => o && o.name ? (o.partner ? `${o.name} // ${o.partner}` : o.name) : '?';
+  const lines = [];
+  lines.push(`${entries.length} game${entries.length!==1?'s':''}`);
+  lines.push('');
+  entries.forEach((e, i) => {
+    const me = e.me || {};
+    lines.push(`Game ${i+1}${e.date ? ' — ' + e.date : ''}`);
+    lines.push(`  ${me.player || 'You'}: ${deckLabel(me)}`);
+    (e.opponents||[]).forEach(o => { lines.push(`  ${o.player || '?'}: ${deckLabel(o)}`); });
+    lines.push(`  Winner: ${e.winner || '(unknown)'}`);
+    lines.push('');
+  });
+  return lines.join('\n').trim();
+}
+
+async function readableFromClipboard() {
+  let raw = '';
+  try { raw = await navigator.clipboard.readText(); }
+  catch { showToast('Could not read clipboard — paste into Import games instead'); return; }
+  raw = (raw||'').trim();
+  if (!raw) { showToast('Clipboard is empty'); return; }
+  let payload;
+  try { payload = JSON.parse(raw); }
+  catch { showToast('Clipboard is not a parsable games export'); return; }
+  const text = formatHistoryReadable(payload);
+  if (!text) { showToast('Clipboard is not a parsable games export'); return; }
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:13px;color:var(--text2);line-height:1.4">Readable summary — copy and share with anyone, no app needed.</div>
+      <textarea id="readable-out" readonly style="width:100%;min-height:220px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-size:12px;font-family:monospace;resize:vertical;white-space:pre">${esc(text)}</textarea>
+      <button onclick="(()=>{const t=document.getElementById('readable-out');t.select();const done=()=>showToast('Copied!');navigator.clipboard.writeText(t.value).then(done).catch(()=>{document.execCommand('copy');done();});})()" class="submit-btn" style="width:100%;padding:10px">Copy readable text</button>
+    </div>`;
+  showModal('Readable games', body, ()=>closeModal());
+  const ok = document.getElementById('modal-ok');
+  if (ok) ok.style.display = 'none';
+}
+
 function openHistImport() {
   const body = `
     <div style="display:flex;flex-direction:column;gap:10px">
@@ -4839,6 +4882,9 @@ function renderBuyList() {
           return pills.length ? `<div class="buy-item-decks">${pills.join('')}</div>` : '';
         })()}
       </div>
+      <a class="buy-item-scry" href="https://scryfall.com/search?q=${encodeURIComponent('!"'+item.name+'"')}" target="_blank" rel="noopener" title="Open ${esc(item.name)} on Scryfall" onclick="event.stopPropagation()">
+        <img src="https://scryfall.com/favicon.ico" alt="Scryfall" width="16" height="16" style="display:block;border-radius:3px">
+      </a>
       <span class="buy-item-qty">${item.qty}x</span>
       ${priceLabel(item.name)}
       <button class="buy-item-del" onclick="removeBuyItem('${item.name.replace(/'/g,"\\'")}')"><i class="ti ti-x"></i></button>
