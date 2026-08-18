@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.60';
+const APP_VERSION = '2026.07.01.61';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5587,7 +5587,8 @@ function renderDeckMgr() { scheduleCropApply();
         ${(d.status==='Owned'||d.status==='Building') ? `
         <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="margin-top:3px;padding:5px 0;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-cards" style="font-size:12px"></i> Decklist
-          <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:auto"></i>
+          <span id="wdl-dot-${d.uuid}" style="margin-left:auto;display:inline-flex;align-items:center">${wdlStatusDot(d.uuid)}</span>
+          <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:6px"></i>
         </button>` : ''}
       </div>
       ${d.status==='Retired'?`
@@ -6827,6 +6828,19 @@ function wdlGetUrl(uuid)  { return ((data.deckLists||{})[uuid]||{}).url  || ''; 
 function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '').replace(/\\n/g, '\n'); }
 
 // Parse the raw stored list into [{qty, name}] entries (skips blanks/headers).
+// Colored completeness dot for a deck's stored list:
+//   green  = a valid 100-card list
+//   orange = something stored, but not 100 cards
+//   red    = nothing stored
+function wdlStatusDot(uuid) {
+  const total = wdlParseEntries(uuid).reduce((s,e)=>s+e.qty, 0);
+  let color, label;
+  if (total === 0)        { color = 'var(--red)';    label = 'No decklist saved'; }
+  else if (total === 100) { color = 'var(--green)';  label = '100 cards — complete'; }
+  else                    { color = '#e0902b';       label = `${total} cards — not 100`; }
+  return `<span title="${label}" style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
+}
+
 function wdlParseEntries(uuid) {
   const raw = wdlGetList(uuid);
   const out = [];
@@ -7069,7 +7083,9 @@ function wdlSave(uuid) {
     btn.style.borderColor = 'var(--green)';
     setTimeout(() => { btn.textContent='Save'; btn.style.color=''; btn.style.borderColor=''; }, 1500);
   }
-  // Refresh grouped view from the saved list and resolve any new card types.
+  // Refresh the completeness dot + grouped view from the saved list.
+  const dot = document.getElementById('wdl-dot-'+uuid);
+  if (dot) dot.innerHTML = wdlStatusDot(uuid);
   const g = document.getElementById('wdl-grouped-'+uuid);
   if (g) g.innerHTML = wdlGroupedHtml(uuid);
   wdlEnsureTypes(uuid);
