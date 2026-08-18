@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.59';
+const APP_VERSION = '2026.07.01.60';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2672,54 +2672,49 @@ async function bulkDownloadAndParse() {
   const meta = await metaRes.json();
   const url = meta.jsonl_download_uri || meta.download_uri;
   if (!url) throw new Error('no bulk download uri');
-  const isJsonl = /\.jsonl/i.test(url);
   const res = await fetch(url);
-  if (!res.ok || !res.body) throw new Error('bulk file HTTP ' + res.status);
+  if (!res.ok) throw new Error('bulk file HTTP ' + res.status);
 
-  // Decompress gzip via the platform stream, falling back to raw body if the
-  // server already decoded it (content-encoding negotiation can vary).
-  let stream = res.body;
-  try {
-    if (typeof DecompressionStream !== 'undefined' && /gz/i.test(url)) {
-      stream = res.body.pipeThrough(new DecompressionStream('gzip'));
-    }
-  } catch(e) { stream = res.body; }
+  // Read the FULL response as bytes, THEN decide whether to gunzip. Browsers
+  // often transparently decompress a gzip response (Content-Encoding: gzip), and
+  // piping that through DecompressionStream again double-decompresses and
+  // corrupts the data — which mis-typed many cards as "Other". Detect the gzip
+  // magic bytes (1f 8b) on the actual payload and only decompress if needed.
+  let bytes = new Uint8Array(await res.arrayBuffer());
+  const isGzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (isGzipped) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('gzip payload but no DecompressionStream');
+    const ds = new DecompressionStream('gzip');
+    const decompressed = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+    bytes = new Uint8Array(await decompressed.arrayBuffer());
+  }
+  const text = new TextDecoder('utf-8').decode(bytes);
 
-  const reader = stream.getReader();
-  const decoder = new TextDecoder('utf-8');
   const map = {};
-  let buf = '';
+  let parsed = 0, skipped = 0, noType = 0;
   const addCard = (card) => {
-    if (!card || !card.name) return;
-    const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
-    const rec = { t: cat, ci: card.color_identity || [] };
+    if (!card || !card.name) { skipped++; return; }
+    const tl = card.type_line || (card.card_faces||[]).map(f=>f.type_line).find(Boolean) || '';
+    if (!tl) noType++;
+    const rec = { t: primaryTypeFromLine(tl), ci: card.color_identity || [] };
     map[scryfallKey(card.name)] = rec;
     (card.card_faces || []).forEach(f => { if (f.name) map[scryfallKey(f.name)] = rec; });
+    parsed++;
   };
 
-  if (isJsonl) {
-    // JSON Lines: one card object per line.
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (line) { try { addCard(JSON.parse(line)); } catch(e){} }
-      }
-    }
-    if (buf.trim()) { try { addCard(JSON.parse(buf.trim())); } catch(e){} }
+  const trimmed = text.trimStart();
+  if (trimmed[0] === '[') {
+    try { (JSON.parse(text) || []).forEach(addCard); } catch(e) { throw new Error('bulk JSON array parse failed'); }
   } else {
-    // Legacy single JSON array — accumulate then parse once.
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
+    // JSON Lines — full text in memory, so every line is whole (no chunk splits).
+    for (const line of text.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      try { addCard(JSON.parse(s)); } catch(e) { skipped++; }
     }
-    try { (JSON.parse(buf) || []).forEach(addCard); } catch(e) { throw new Error('bulk JSON parse failed'); }
   }
+  dbgLog(`Bulk parse: ${parsed} cards, ${skipped} skipped, ${noType} without type_line`);
+  if (parsed < 20000) throw new Error('bulk parse produced too few cards ('+parsed+')');
   return { map, updatedAt: meta.updated_at || new Date().toISOString() };
 }
 
