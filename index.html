@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.57';
+const APP_VERSION = '2026.07.01.58';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5177,6 +5177,9 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
              ondragstart="wantDragStart(event,'${uuid}',${idx})"
              onclick="if(window._wantJustDragged){window._wantJustDragged=false;event.preventDefault();}">${e.in}</a>
           <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;padding-right:6px">
+            <a class="buy-item-scry" href="https://scryfall.com/search?q=${encodeURIComponent('!"'+e.in+'"')}" target="_blank" rel="noopener" title="Open ${esc(e.in)} on Scryfall" onclick="event.stopPropagation()" style="flex-shrink:0">
+              <img src="https://scryfall.com/favicon.ico" alt="Scryfall" width="15" height="15" style="display:block;border-radius:3px">
+            </a>
             <input type="text"
               id="wout-${uuid}-${idx}"
               value="${e.out||''}"
@@ -6130,6 +6133,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('art-picker-search');
   if (el) initAC('art-picker-search', null);
   checkForUpdate();
+  // Warm the card-type bulk map early (non-blocking) so decklist grouping is
+  // ready by the time a panel opens, instead of showing everything as "Other".
+  try { ensureBulkTypes(); } catch(e){}
 });
 
 
