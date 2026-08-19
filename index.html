@@ -1086,7 +1086,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.61';
+const APP_VERSION = '2026.07.01.62';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7964,6 +7964,7 @@ function initStaticAC() {
 const pendingOpponents = {};
 // rivals collapsed by the user (Set of rival IDs)
 const collapsedRivals = new Set();
+let _selfCollapsedInit = false; // self group starts collapsed on first render
 const collapsedDeckGroups = new Set();
 function toggleDeckGroup(status) {
   if (collapsedDeckGroups.has(status)) collapsedDeckGroups.delete(status);
@@ -8271,7 +8272,7 @@ function selfRivalEnabled() {
 function selfRivalGroup() {
   const name = (cfg().playerName || 'My decks').trim() || 'My decks';
   const decks = (data.colorDecks||[])
-    .filter(d => (d.status==='Owned' || d.status==='Building') && d.name)
+    .filter(d => d.status==='Owned' && d.name)
     .map(d => ({ id: d.uuid, name: d.name, partner: d.partner || null, _fromDeck: true }));
   return { id: SELF_RIVAL_ID, name, isSelf: true, synthetic: true, decks };
 }
@@ -8476,7 +8477,10 @@ function renderRivals() { scheduleCropApply();
     const st = stats[r.id]||{total:0,wins:0,losses:0,decks:{}};
     const wr = st.total>0 ? Math.round(st.wins/st.total*100) : null;
     const wrCls = wr==null?'wr-new':wrClass(wr, st.total);
-    const allDecks = r.decks||[];
+    const allDecks = [...(r.decks||[])].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+
+    // The synthetic "your decks" group defaults to collapsed on first render.
+    if (isSelfGroup && !_selfCollapsedInit) { collapsedRivals.add(SELF_RIVAL_ID); _selfCollapsedInit = true; }
 
     // Player group header — mirrors the status group header in renderDeckMgr
     const isCollapsed = collapsedRivals.has(r.id);
