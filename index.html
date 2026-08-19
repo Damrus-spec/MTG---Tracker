@@ -674,6 +674,7 @@ input.setting-input[type="number"]{width:90px}
     <button class="submit-btn" style="margin-top:8px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="openImportDecks('')" title="Paste a deck export string from the Decks tab or a rival">Import decks…</button>
   </div>
   <p style="font-size:12px;color:var(--text2);margin-bottom:4px" id="rivals-summary"></p>
+  <div id="rivals-pod-note" style="display:none;font-size:11px;margin-bottom:6px"></div>
   <p style="font-size:11px;color:var(--text3);margin-bottom:8px">Win rates shown are yours against each rival.</p>
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;font-size:12px;color:var(--text2);user-select:none">
     <input type="checkbox" id="s-showMyDecks" onchange="toggleShowMyDecks(this.checked)" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
@@ -1089,7 +1090,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.63';
+const APP_VERSION = '2026.07.01.64';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3071,6 +3072,8 @@ function podBucket(id) { return POD_BUCKETS.find(b=>b.id===(id||podFilter())) ||
 function setPodFilter(id) {
   saveStrSetting('podFilter', id);
   renderScore();
+  renderGraph();
+  renderRivals();
 }
 // Count games per bucket (for the segmented-bar labels).
 function renderPodBar() {
@@ -7572,8 +7575,11 @@ function renderGraph() {
   // If no deck is expanded, always show ALL
   const deckFilter = lastExpandedDeck || 'ALL';
 
-  // Build ALL data points from full history first (running cumulative)
-  const fullHistory = (data.history||[]).filter(h=>h.last && h.date);
+  // Build ALL data points from full history first (running cumulative).
+  // Respect the active pod-size filter; legacy snapshot entries (no opponents)
+  // count as 4p, so they naturally only appear under 4p/all.
+  const _pb = podBucket();
+  const fullHistory = (data.history||[]).filter(h=>h.last && h.date && _pb.match(h));
   let allPoints = [];
 
   if (deckFilter === 'ALL') {
@@ -8512,7 +8518,8 @@ function rivalStats() {
     stats[sg.id] = { total:0, wins:0, losses:0, decks:{} };
     sg.decks.forEach(d => { stats[sg.id].decks[d.id] = {total:0,wins:0,losses:0}; });
   }
-  (data.history||[]).filter(h=>h.opponents&&h.last).forEach(h=>{
+  const _pb = podBucket();
+  (data.history||[]).filter(h=>h.opponents&&h.last&&_pb.match(h)).forEach(h=>{
     h.opponents.forEach(o=>{
       if (!o.playerId || !stats[o.playerId]) return;
       // YOUR head-to-head result vs this rival: you won iff your deck won the game
@@ -8540,6 +8547,17 @@ function renderRivals() { scheduleCropApply();
   const totalDecks = allRivals.reduce((s,r)=>(s+(r.decks||[]).length),0);
   const sumEl = document.getElementById('rivals-summary');
   if (sumEl) sumEl.textContent = `${active} active · ${retired} retired · ${totalDecks} decks tracked`;
+  // Show a pod-filter indicator here since the filter bar lives on the Score tab.
+  const podNote = document.getElementById('rivals-pod-note');
+  if (podNote) {
+    const pf = podFilter();
+    if (pf === 'all') { podNote.style.display = 'none'; }
+    else {
+      const lbl = podBucket(pf).label;
+      podNote.style.display = '';
+      podNote.innerHTML = `<span style="color:var(--blue)">Showing ${lbl} games only.</span> <button onclick="setPodFilter('all')" style="background:none;border:none;color:var(--text3);text-decoration:underline;cursor:pointer;font-size:11px;padding:0">Show all</button>`;
+    }
+  }
 
   const container = document.getElementById('rivals-list');
   if (!container) return;
