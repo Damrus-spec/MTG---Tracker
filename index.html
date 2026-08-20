@@ -491,7 +491,7 @@ input.setting-input[type="number"]{width:90px}
 <div id="page-score" class="page active">
 
   <!-- Pod-size filter -->
-  <div id="pod-bar" style="display:flex;gap:4px;margin-bottom:10px"></div>
+  <div id="pod-bar" class="pod-bar" style="display:flex;gap:4px;margin-bottom:10px"></div>
 
   <!-- Stats — scroll away naturally -->
   <div class="stat-grid">
@@ -575,6 +575,7 @@ input.setting-input[type="number"]{width:90px}
     <button onclick="openHistImport()" style="padding:6px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2);flex-shrink:0" title="Import games shared by another player"><i class="ti ti-download" style="font-size:12px"></i> Import games</button>
     <button onclick="readableFromClipboard()" style="padding:6px 12px;background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;color:var(--text2);flex-shrink:0" title="Turn a copied games export into readable text to share with someone who doesn't have the app"><i class="ti ti-file-text" style="font-size:12px"></i> Make readable</button>
   </div>
+  <div class="pod-bar" style="display:flex;gap:4px;margin-bottom:10px"></div>
   <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
     <div style="position:relative;flex:1;display:flex">
       <input class="search-bar" type="text" id="hist-search" placeholder="Search deck..." oninput="onHistSearchInput()" style="flex:1;margin:0;padding-right:30px">
@@ -674,7 +675,7 @@ input.setting-input[type="number"]{width:90px}
     <button class="submit-btn" style="margin-top:8px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="openImportDecks('')" title="Paste a deck export string from the Decks tab or a rival">Import decks…</button>
   </div>
   <p style="font-size:12px;color:var(--text2);margin-bottom:4px" id="rivals-summary"></p>
-  <div id="rivals-pod-note" style="display:none;font-size:11px;margin-bottom:6px"></div>
+  <div class="pod-bar" style="display:flex;gap:4px;margin:4px 0 8px"></div>
   <p style="font-size:11px;color:var(--text3);margin-bottom:8px">Win rates shown are yours against each rival.</p>
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;font-size:12px;color:var(--text2);user-select:none">
     <input type="checkbox" id="s-showMyDecks" onchange="toggleShowMyDecks(this.checked)" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
@@ -1090,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.66';
+const APP_VERSION = '2026.07.01.67';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3074,14 +3075,17 @@ function setPodFilter(id) {
   renderScore();
   renderGraph();
   renderRivals();
+  renderHistory();
 }
 // Count games per bucket (for the segmented-bar labels).
 function renderPodBar() {
-  const bar = document.getElementById('pod-bar');
-  if (!bar) return;
+  const bars = document.querySelectorAll('.pod-bar');
+  if (!bars.length) return;
   const counts = podBucketCounts();
   const active = podFilter();
-  bar.innerHTML = POD_BUCKETS.map(b => {
+  // Only show buckets with games — plus 'All' always and the active bucket.
+  const shown = POD_BUCKETS.filter(b => b.id === 'all' || (counts[b.id]||0) > 0 || b.id === active);
+  const htmlOut = shown.map(b => {
     const on = b.id === active;
     const n = counts[b.id] || 0;
     return `<button onclick="setPodFilter('${b.id}')" style="flex:1;padding:6px 4px;border:.5px solid ${on?'var(--blue)':'var(--border-md)'};border-radius:var(--radius-sm);background:${on?'var(--blue)':'none'};color:${on?'#fff':'var(--text2)'};cursor:pointer;font-size:11px;line-height:1.3;text-align:center">
@@ -3089,6 +3093,7 @@ function renderPodBar() {
       <div style="font-size:9px;opacity:.8">${n}</div>
     </button>`;
   }).join('');
+  bars.forEach(bar => { bar.innerHTML = htmlOut; });
 }
 function podBucketCounts() {
   // Count GAMES (wins+losses, snapshot-aware) per bucket, not raw entries — so
@@ -3695,7 +3700,7 @@ function populateHistoryFilters() {
   if (curY) ySel.value=curY;
 }
 
-function renderHistory() { scheduleCropApply();
+function renderHistory() { scheduleCropApply(); renderPodBar();
   const q = (document.getElementById('hist-search')?.value||'').toLowerCase();
   { const clr=document.getElementById('hist-search-clear'); if(clr) clr.style.display = q ? '' : 'none'; }
   const filterYear  = document.getElementById('hist-year')?.value||'';
@@ -8577,17 +8582,7 @@ function renderRivals() { scheduleCropApply();
   const totalDecks = allRivals.reduce((s,r)=>(s+(r.decks||[]).length),0);
   const sumEl = document.getElementById('rivals-summary');
   if (sumEl) sumEl.textContent = `${active} active · ${retired} retired · ${totalDecks} decks tracked`;
-  // Show a pod-filter indicator here since the filter bar lives on the Score tab.
-  const podNote = document.getElementById('rivals-pod-note');
-  if (podNote) {
-    const pf = podFilter();
-    if (pf === 'all') { podNote.style.display = 'none'; }
-    else {
-      const lbl = podBucket(pf).label;
-      podNote.style.display = '';
-      podNote.innerHTML = `<span style="color:var(--blue)">Showing ${lbl} games only.</span> <button onclick="setPodFilter('all')" style="background:none;border:none;color:var(--text3);text-decoration:underline;cursor:pointer;font-size:11px;padding:0">Show all</button>`;
-    }
-  }
+  renderPodBar();
 
   const container = document.getElementById('rivals-list');
   if (!container) return;
