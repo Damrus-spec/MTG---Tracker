@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.67';
+const APP_VERSION = '2026.07.01.68';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3754,7 +3754,8 @@ function renderHistory() { scheduleCropApply(); renderPodBar();
       const cmdN = h.deck || '';
       return displayN.toLowerCase().includes(q) || cmdN.toLowerCase().includes(q);
     })
-    .filter(({h})=>!filterYear ||h.date.startsWith(filterYear));
+    .filter(({h})=>!filterYear ||h.date.startsWith(filterYear))
+    .filter(({h})=>podBucket().match(h)); // pod-size filter (snapshots count as 4p)
   // Sort order: newest-first by default, oldest-first when toggled.
   if (_histSortNewest) indexed.reverse(); // allWithResult is chronological → reverse = newest first
 
