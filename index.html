@@ -1090,7 +1090,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.65';
+const APP_VERSION = '2026.07.01.66';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3341,7 +3341,7 @@ function renderScore() { scheduleCropApply();
                   const isWinner = (pending[sn] && pending[sn].winnerSlot === i);
                   return `
             <div class="opp-slot" id="os-${eid}-${i}">
-              <label class="opp-win-check" title="Check if this rival won the game">
+              <label class="opp-win-check" title="Check if this player won the game (leave unchecked if you won)">
                 <input type="checkbox" ${isWinner?'checked':''} ${selPlayer?'':'disabled'}
                   onchange="setGameWinner(event,'${sn}','${eid}',${i})">
               </label>
@@ -3856,7 +3856,7 @@ function openIssuePanelFull(deckName, uuid) {
     for (const o of (h.opponents||[])) {
       if (!o.playerId) continue;
       if (!rivalAgg[o.playerId]) {
-        const riv = allRivalsKnown.find(r=>r.id===o.playerId);
+        const riv = resolveRival(o.playerId);
         rivalAgg[o.playerId] = { name: riv?.name||'Unknown', wins:0, losses:0, decks:{} };
       }
       const ra = rivalAgg[o.playerId];
@@ -3867,7 +3867,7 @@ function openIssuePanelFull(deckName, uuid) {
       if (youWon) ra.wins++; else ra.losses++;
       if (o.deckId) {
         if (!ra.decks[o.deckId]) {
-          const riv = allRivalsKnown.find(r=>r.id===o.playerId);
+          const riv = resolveRival(o.playerId);
           const dk = riv?.decks?.find(d=>d.id===o.deckId);
           const dkName = dk ? (dk.partner ? `${dk.name} // ${dk.partner}` : dk.name) : 'Unknown deck';
           ra.decks[o.deckId] = { name: dkName, wins:0, losses:0 };
