@@ -1090,7 +1090,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.64';
+const APP_VERSION = '2026.07.01.65';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3091,14 +3091,17 @@ function renderPodBar() {
   }).join('');
 }
 function podBucketCounts() {
+  // Count GAMES (wins+losses, snapshot-aware) per bucket, not raw entries — so
+  // the bar totals line up with the stat grid and your true game count.
   const counts = { all:0, '1v1':0, '3p':0, '4p':0, '5plus':0 };
-  for (const h of (data.history||[])) {
-    if (!h.last) continue;
-    counts.all++;
-    const n = podSizeOf(h);
-    if (n===2) counts['1v1']++; else if (n===3) counts['3p']++;
-    else if (n===4) counts['4p']++; else if (n>=5) counts['5plus']++;
+  const bucketId = (n)=> n===2?'1v1' : n===3?'3p' : n>=5?'5plus' : '4p';
+  for (const b of ['1v1','3p','4p','5plus']) {
+    const stats = filteredDeckStats(b);
+    let g = 0;
+    for (const k of Object.keys(stats)) g += stats[k].total;
+    counts[b] = g;
   }
+  counts.all = counts['1v1'] + counts['3p'] + counts['4p'] + counts['5plus'];
   return counts;
 }
 // Live per-deck W/L for the active filter, computed straight from history so we
@@ -3108,22 +3111,40 @@ function podBucketCounts() {
 // '4p' and 'all'; they can't be split into 3p/1v1/5+.
 function filteredDeckStats(bucketId) {
   const b = podBucket(bucketId);
-  const byKey = {}; // deckKey -> {wins,losses,total,lastDate,lastResult}
-  const bump = (key) => (byKey[key] = byKey[key] || {wins:0,losses:0,total:0,lastDate:'',lastResult:''});
+  // Group pod-matching history by deck. Snapshot entries (baked h.wins/h.losses,
+  // no opponents) count as 4p, so they only appear under 4p/all — matching how
+  // legacy catch-up totals should behave.
+  const byDeck = {};
   for (const h of (data.history||[])) {
     if (!h.last) continue;
     if (!b.match(h)) continue;
     const key = h.deckUuid || uuidForName(h.deck) || h.deck;
-    const s = bump(key);
-    if (h.last === 'Win') s.wins++; else if (h.last === 'Loss') s.losses++;
-    s.total = s.wins + s.losses;
-    if (!s.lastDate || (h.date||'') >= s.lastDate) { s.lastDate = h.date||''; s.lastResult = h.last; }
+    (byDeck[key] = byDeck[key] || []).push(h);
   }
-  for (const k of Object.keys(byKey)) {
-    const s = byKey[k];
-    s.winRate = s.total>0 ? parseFloat((s.wins/s.total*100).toFixed(1)) : 0;
+  const out = {};
+  for (const [key, entries] of Object.entries(byDeck)) {
+    const sorted = entries.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    // Same snapshot-aware method as recomputeScores: seed from the last
+    // cumulative snapshot, then count new-style entries after it.
+    let lastOldIdx = -1;
+    for (let i = sorted.length-1; i >= 0; i--) { if (sorted[i].wins !== undefined) { lastOldIdx = i; break; } }
+    let wins = 0, losses = 0;
+    if (lastOldIdx >= 0) {
+      wins   = sorted[lastOldIdx].wins   || 0;
+      losses = sorted[lastOldIdx].losses || 0;
+      for (let i = lastOldIdx+1; i < sorted.length; i++) {
+        if (sorted[i].last === 'Win') wins++; else if (sorted[i].last === 'Loss') losses++;
+      }
+    } else {
+      for (const h of sorted) { if (h.last === 'Win') wins++; else if (h.last === 'Loss') losses++; }
+    }
+    const total = wins + losses;
+    const last = sorted[sorted.length-1];
+    out[key] = { wins, losses, total,
+      winRate: total>0 ? parseFloat((wins/total*100).toFixed(1)) : 0,
+      lastDate: last.date||'', lastResult: last.last||'' };
   }
-  return byKey;
+  return out;
 }
 
 function renderScore() { scheduleCropApply();
@@ -3181,7 +3202,16 @@ function renderScore() { scheduleCropApply();
   const totalAllGames = dedupedScores.reduce((s,k)=>s+(data.scores[k].total||0),0);
   // Under a filter, totals come from the filtered list (W/L already reflect it);
   // on 'all', use the deduped stored total.
-  const shownGames = activeFilter === 'all' ? (totalAllGames||G) : G;
+  let shownGames, shownW, shownG2;
+  if (activeFilter === 'all') {
+    shownGames = totalAllGames || G;
+  } else {
+    // Sum the WHOLE filtered bucket (all decks, incl. retired/deleted), not just
+    // the owned-deck rows shown in the list.
+    shownW = 0; let allW=0, allL=0;
+    for (const k of Object.keys(fstats)) { allW += fstats[k].wins; allL += fstats[k].losses; }
+    shownGames = allW + allL;
+  }
   document.getElementById('total-games').textContent  = shownGames;
   document.getElementById('overall-wr').textContent   = G>0?(W/G*100).toFixed(1)+'%':'—';
   // Refresh the segmented filter bar.
