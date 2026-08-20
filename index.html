@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.68';
+const APP_VERSION = '2026.07.01.69';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4067,7 +4067,7 @@ function histEditPanel(h, i) {
   const slotHtml = opps.concat([{playerId:'',deckId:''}]).map((o, si)=>{
     const selPlayer = o.playerId || '';
     const selDeck = o.deckId || '';
-    const rival = selPlayer ? [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===selPlayer) : null;
+    const rival = selPlayer ? resolveRival(selPlayer) : null;
     const decks = (rival?.decks||[]);
     const isWinner = curWinnerId && curWinnerId===selPlayer;
     return `
@@ -4078,7 +4078,7 @@ function histEditPanel(h, i) {
         </label>
         <select onchange="histEditSlotPlayer(${i},${si},this.value)" style="flex:1">
           <option value="">— Player —</option>
-          ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
+          ${rivalsWithSelf().map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}${r.synthetic?' (your decks)':''}</option>`).join('')}
         </select>
         <select onchange="histEditSlotDeck(${i},${si},this.value)" style="flex:1;display:${selPlayer?'':'none'}">
           <option value="">— Deck —</option>
