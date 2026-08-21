@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.69';
+const APP_VERSION = '2026.07.01.70';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3721,13 +3721,21 @@ function renderHistory() { scheduleCropApply(); renderPodBar();
   // below) so the sequence continues from the spreadsheet numbers instead
   // of resetting to zero. Result is stored on each entry as _cumW / _cumL.
   {
+    // Running tally per deck. When a pod filter is active, count ONLY games in
+    // that bucket so the W/L reflects the filtered view (e.g. 1v1 restarts at
+    // 0-0). Snapshot seeding is skipped under non-4p/all filters because baked
+    // totals are all-games (legacy 4p) and can't be split by pod size.
+    const _pb = podBucket();
+    const podActive = _pb.id !== 'all';
     const run = {}; // key -> {w, l, seeded}
     const keyOf = h => h.deckUuid || uuidForName(h.deck) || h.deck;
     for (const h of allWithResult) {
+      if (podActive && !_pb.match(h)) continue; // per-bucket tally
       const k = keyOf(h);
       if (!run[k]) run[k] = {w:0, l:0, seeded:false};
       const r = run[k];
-      // Seed from the first old-style snapshot we encounter for this deck
+      // Seed from the first old-style snapshot — only when NOT pod-filtering to a
+      // non-4p bucket (snapshots are 4p; under 1v1/3p/5+ they're excluded above).
       if (!r.seeded && h.wins != null) {
         r.w = (h.wins||0) - (h.last==='Win'  ? 1 : 0);
         r.l = (h.losses||0) - (h.last==='Loss' ? 1 : 0);
