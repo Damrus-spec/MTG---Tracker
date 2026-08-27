@@ -1095,7 +1095,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.74';
+const APP_VERSION = '2026.07.01.76';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8572,8 +8572,8 @@ function h2hBadge(st, label, title) {
 function renderRivalHistory(rivalId, rivalDeckId) {
   const rival = resolveRival(rivalId);
   if (!rival) return;
-  const deck = rivalDeckId ? (rival.decks||[]).find(d=>d.id===rivalDeckId) : null;
-  const deckLabel = deck ? (deck.partner ? `${deck.name} // ${deck.partner}` : deck.name) : null;
+  const deckAny = rivalDeckId ? resolveDeckAnywhere(rivalDeckId) : null;
+  const deckLabel = deckAny ? deckAny.display : null;
 
   // Collect matching history entries (most recent first)
   const games = (data.history||[])
@@ -8603,6 +8603,10 @@ function renderRivalHistory(rivalId, rivalDeckId) {
       const resultText  = youWon ? 'You won' : 'You lost';
       const myKey = g.deckUuid || g.deck || null;
       const myName = (g.deck || 'Your deck');
+      // Which deck THIS rival piloted in this game (resolved globally — it may be
+      // one of yours or another rival's).
+      const thisOppRef = (g.opponents||[]).find(o => o.playerId===rivalId && (!rivalDeckId || o.deckId===rivalDeckId));
+      const thisOppDeck = thisOppRef ? resolveDeckAnywhere(thisOppRef.deckId) : null;
       // Matchup: the deck you played this game vs the rival (deck) being viewed
       const mainMatch = myKey ? h2hVs(rivalId, rivalDeckId, myKey) : {total:0};
       return `
@@ -8613,6 +8617,7 @@ function renderRivalHistory(rivalId, rivalDeckId) {
             ${h2hBadge(mainMatch, '', `${myName} vs ${title}`)}
             <span style="font-size:11px;font-weight:600;color:${resultColor};flex-shrink:0;white-space:nowrap">${resultText}</span>
           </div>
+          ${thisOppDeck?`<div style="font-size:11px;color:var(--text2);padding-left:70px"><span style="color:var(--text3)">${esc(rival.name)} played</span> ${esc(thisOppDeck.display)}</div>`:''}
           ${others.length?`<div style="padding-left:70px;display:flex;flex-direction:column;gap:5px">
             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Other rivals</div>
             ${others.map(o=>{
@@ -8746,7 +8751,19 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
     </div>`;
 
     if (!isCollapsed) {
-    if (!allDecks.length) {
+    // Decks this rival PILOTED in logged games that aren't registered to them
+    // (e.g. they borrowed one of your decks). Shown read-only so the record
+    // isn't lost just because the deck lives in another collection.
+    const ownIds = new Set((r.decks||[]).map(d=>d.id));
+    const guestIds = new Set();
+    if (!isSelfGroup) {
+      for (const h of (data.history||[])) {
+        for (const o of (h.opponents||[])) {
+          if (o.playerId === r.id && o.deckId && !ownIds.has(o.deckId)) guestIds.add(o.deckId);
+        }
+      }
+    }
+    if (!allDecks.length && !guestIds.size) {
       rows += `<div style="padding:10px 14px;font-size:12px;color:var(--text3)">No decks added yet.</div>`;
     }
 
@@ -8835,6 +8852,27 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
 
       // Queue art fetch
       fetchRivalDeckArt(d);
+    }
+
+    // Guest decks (piloted by this rival but registered elsewhere) — read-only.
+    for (const gid of guestIds) {
+      const info = resolveDeckAnywhere(gid);
+      const ds = st.decks[gid] || {total:0,wins:0,losses:0};
+      const dwr = ds.total>0 ? Math.round(ds.wins/ds.total*100) : null;
+      const dwrCls = dwr==null?'wr-new':wrClass(dwr, ds.total);
+      const label = info ? info.display : 'Unknown deck';
+      const owner = info && info.ownerName ? info.ownerName : '';
+      rows += `<div class="deck-mgr-row">
+        <div class="deck-mgr-art" style="width:150px;align-self:stretch;position:relative;cursor:default">${deckArtHtml(gid, CELL_AR_DECK)}</div>
+        <div class="deck-mgr-fields" style="justify-content:center">
+          <div style="font-size:13px;font-weight:600;margin-bottom:3px">${partnerNameHtml(label)}</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:0 4px;flex-wrap:wrap">
+            <span class="deck-wr ${dwrCls}" style="font-size:11px">${dwr!=null?dwr+'%':'—'}</span>
+            <span style="font-size:11px;color:var(--text3)">${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span>
+            ${owner?`<span style="font-size:10px;color:var(--text3)">· from ${esc(owner)}</span>`:''}
+          </div>
+        </div>
+      </div>`;
     }
     } // end if !isCollapsed
   }
