@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.71';
+const APP_VERSION = '2026.07.01.72';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4623,10 +4623,33 @@ function finalizeHistImport(meName) {
     return (data.opponents||[]).find(x=>norm0(x.name)===norm0(p.player));
   }
 
-  // Pre-scan: find my-decks I don't own, and entries that duplicate existing history.
+  // Pre-scan: find my-decks I don't own, new rivals, new rival decks, and entries
+  // that duplicate existing history — so the confirmation can list everything
+  // that will be created before we commit.
   const unowned = new Map(); // "name // partner" -> {name, partner}
+  const newRivalNames = new Set(); // rival names not yet tracked
+  const newRivalDecks = new Map(); // "rival: deck" -> label
   let dupCount = 0;
   const norm = s => (s||'').trim().toLowerCase();
+  // Resolve what a participant's rival name WOULD be (mapping-aware), without creating.
+  const wouldBeRivalName = (p) => {
+    const map = window._pendingParticipantMap;
+    const key = norm(p.player);
+    if (map && map[key]) {
+      const m = map[key];
+      if (m.type === 'existing') {
+        const r = (data.opponents||[]).find(x=>x.id===m.rivalId);
+        return r ? r.name : (m.name||p.player);
+      }
+      return m.name || p.player;
+    }
+    return p.player;
+  };
+  const rivalExists = (nm) => (data.opponents||[]).some(r=>norm(r.name)===norm(nm));
+  const rivalHasDeck = (nm, dn, dp) => {
+    const r = (data.opponents||[]).find(x=>norm(x.name)===norm(nm));
+    return r && (r.decks||[]).some(d=>norm(d.name)===norm(dn)&&norm(d.partner||'')===norm(dp||''));
+  };
   const existingSig = new Set((data.history||[]).map(h=>{
     const opps = (h.opponents||[]).map(o=>o.deckId).sort().join(',');
     return `${h.date}|${norm(h.deck)}|${opps}`;
@@ -4641,6 +4664,16 @@ function finalizeHistImport(meName) {
       const dn = myPart.partner ? `${myPart.name} // ${myPart.partner}` : myPart.name;
       unowned.set(dn.toLowerCase(), {name:myPart.name, partner:myPart.partner||''});
     }
+    // Opponents: note rivals + rival decks that don't exist yet.
+    for (const p of participants) {
+      if (p === myPart || norm(p.player) === meLc) continue;
+      const rn = wouldBeRivalName(p);
+      if (rn && !rivalExists(rn)) newRivalNames.add(rn);
+      if (p.name && rn && !rivalHasDeck(rn, p.name, p.partner)) {
+        const dlabel = p.partner ? `${p.name} // ${p.partner}` : p.name;
+        newRivalDecks.set(`${norm(rn)}|${dlabel.toLowerCase()}`, `${rn}: ${dlabel}`);
+      }
+    }
     // Duplicate check uses my deck display name + date + matched opponent deck ids.
     const myDeck = findMyDeck(myPart);
     const myDeckName = myDeck ? deckDisplayName(myDeck) : (myPart.partner?`${myPart.name} // ${myPart.partner}`:myPart.name);
@@ -4652,11 +4685,17 @@ function finalizeHistImport(meName) {
     if (existingSig.has(`${e.date}|${norm(myDeckName)}|${oppDeckIds}`)) dupCount++;
   }
 
-  if (unowned.size || dupCount) {
+  if (unowned.size || newRivalNames.size || newRivalDecks.size || dupCount) {
     const parts = [];
     if (unowned.size) {
       parts.push(`These deck${unowned.size>1?'s aren\'t':' isn\'t'} in your collection and will be added as Owned:\n  • ` +
         [...unowned.values()].map(d=>d.partner?`${d.name} // ${d.partner}`:d.name).join('\n  • '));
+    }
+    if (newRivalNames.size) {
+      parts.push(`New rival${newRivalNames.size>1?'s':''} will be added:\n  • ` + [...newRivalNames].join('\n  • '));
+    }
+    if (newRivalDecks.size) {
+      parts.push(`New rival deck${newRivalDecks.size>1?'s':''} will be added:\n  • ` + [...newRivalDecks.values()].join('\n  • '));
     }
     if (dupCount) {
       parts.push(`${dupCount} game${dupCount>1?'s'  :''} look like duplicate${dupCount>1?'s':''} of matches you already logged (same deck, opponents, and date). They may just be rematches.`);
