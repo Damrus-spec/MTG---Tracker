@@ -553,10 +553,10 @@ input.setting-input[type="number"]{width:90px}
 
 <!-- CONFIRM MODAL -->
 <div id="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin:20px;max-width:380px;width:100%">
-    <div style="font-size:15px;font-weight:500;margin-bottom:8px" id="modal-title">Confirm</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.5" id="modal-body"></div>
-    <div style="display:flex;gap:10px">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin:20px;max-width:380px;width:100%;max-height:calc(100vh - 40px);display:flex;flex-direction:column">
+    <div style="font-size:15px;font-weight:500;margin-bottom:8px;flex-shrink:0" id="modal-title">Confirm</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.5;overflow-y:auto;flex:1;min-height:0" id="modal-body"></div>
+    <div style="display:flex;gap:10px;flex-shrink:0">
       <button onclick="modalCancel()" style="flex:1;padding:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:14px;color:var(--text2)">Cancel</button>
       <button onclick="modalConfirm()" id="modal-ok" style="flex:1;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:500">Confirm</button>
     </div>
@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.70';
+const APP_VERSION = '2026.07.01.71';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
