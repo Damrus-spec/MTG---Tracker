@@ -1095,7 +1095,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.77';
+const APP_VERSION = '2026.07.01.78';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8491,20 +8491,24 @@ function deckOptionsGrouped(rivalId, selDeckId) {
     const label = d.partner ? `${d.name} // ${d.partner}` : d.name;
     return `<option value="${d.id}"${d.id===selDeckId?' selected':''}>${esc(label)}</option>`;
   };
+  // A disabled, non-selectable divider row that reads clearly as a new group on
+  // mobile (native <optgroup> labels can't be styled there, so we render our own
+  // separator inside the option list instead).
+  const divider = (name) => `<option disabled>──────  ${esc(name.toUpperCase())}  ──────</option>`;
   const azSort = (arr) => arr.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   let out = '<option value="">— Deck —</option>';
   // 1) This rival's own decks (A–Z).
   const rival = (data.opponents||[]).find(r=>r.id===rivalId) || (data.retiredOpponents||[]).find(r=>r.id===rivalId);
   const own = azSort((rival?.decks||[]).filter(d=>!d.retired));
-  if (own.length) out += `<optgroup label="${esc(rival.name)}'s decks">` + own.map(optFor).join('') + '</optgroup>';
+  if (own.length) out += divider(`${rival.name}'s decks`) + own.map(optFor).join('');
   // 2) Your decks (A–Z).
   const self = azSort(selfRivalGroup().decks);
-  if (self.length) out += `<optgroup label="Your decks">` + self.map(optFor).join('') + '</optgroup>';
+  if (self.length) out += divider('Your decks') + self.map(optFor).join('');
   // 3) Every other rival's decks (A–Z within each).
   for (const r of (data.opponents||[])) {
     if (r.id === rivalId) continue;
     const ds = azSort((r.decks||[]).filter(d=>!d.retired));
-    if (ds.length) out += `<optgroup label="${esc(r.name)}'s decks">` + ds.map(optFor).join('') + '</optgroup>';
+    if (ds.length) out += divider(`${r.name}'s decks`) + ds.map(optFor).join('');
   }
   out += '<option value="__add__">+ Add deck…</option>';
   return out;
