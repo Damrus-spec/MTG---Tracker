@@ -1091,7 +1091,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.72';
+const APP_VERSION = '2026.07.01.73';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3352,12 +3352,10 @@ function renderScore() { scheduleCropApply();
               </label>
               <select id="opp-player-${eid}-${i}" onchange="onOppPlayerChange('${eid}','${sn}',${i})" style="flex:1">
                 <option value="">— Player —</option>
-                ${rivalsWithSelf().map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}${r.synthetic?' (your decks)':''}</option>`).join('')}
+                ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
               </select>
               <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
-                <option value="">— Deck —</option>
-                ${activeDecks.map(d=>`<option value="${d.id}"${d.id===selDeck?' selected':''}>${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('')}
-                <option value="__add__">+ Add deck…</option>
+                ${deckOptionsGrouped(selPlayer, selDeck)}
               </select>
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
@@ -3881,10 +3879,9 @@ function openIssuePanelFull(deckName, uuid) {
       if (youWon) ra.wins++; else ra.losses++;
       if (o.deckId) {
         if (!ra.decks[o.deckId]) {
-          const riv = resolveRival(o.playerId);
-          const dk = riv?.decks?.find(d=>d.id===o.deckId);
-          const dkName = dk ? (dk.partner ? `${dk.name} // ${dk.partner}` : dk.name) : 'Unknown deck';
-          ra.decks[o.deckId] = { name: dkName, wins:0, losses:0 };
+          // Deck may belong to this rival, to you, or to another rival.
+          const anywhere = resolveDeckAnywhere(o.deckId);
+          ra.decks[o.deckId] = { name: anywhere ? anywhere.display : 'Unknown deck', wins:0, losses:0 };
         }
         if (youWon) ra.decks[o.deckId].wins++; else ra.decks[o.deckId].losses++;
       }
@@ -4086,11 +4083,10 @@ function histEditPanel(h, i) {
         </label>
         <select onchange="histEditSlotPlayer(${i},${si},this.value)" style="flex:1">
           <option value="">— Player —</option>
-          ${rivalsWithSelf().map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}${r.synthetic?' (your decks)':''}</option>`).join('')}
+          ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
         </select>
         <select onchange="histEditSlotDeck(${i},${si},this.value)" style="flex:1;display:${selPlayer?'':'none'}">
-          <option value="">— Deck —</option>
-          ${decks.map(dk=>`<option value="${dk.id}"${dk.id===selDeck?' selected':''}>${esc(dk.partner?dk.name+' // '+dk.partner:dk.name)}</option>`).join('')}
+          ${deckOptionsGrouped(selPlayer, selDeck)}
         </select>
         ${selPlayer?`<button class="opp-clear" onclick="histEditSlotClear(${i},${si})" title="Remove">×</button>`:''}
       </div>`;
@@ -4251,8 +4247,10 @@ function _ownedDeckNames(h) {
 }
 // Resolve a rival opponent ref to {player, name, partner}.
 function _rivalOppNames(o) {
-  const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===o.playerId);
-  const deck  = rival?.decks?.find(d=>d.id===o.deckId);
+  const rival = resolveRival(o.playerId);
+  // Deck may be cross-owned (yours or another rival's) — resolve globally so
+  // exports carry the correct deck name regardless of who owns it.
+  const deck = resolveDeckAnywhere(o.deckId);
   return {
     player: rival?.name || 'Unknown',
     name:   deck?.name || null,
@@ -8234,12 +8232,9 @@ function autofillPreferredRivals(eid) {
     const ds = document.getElementById(`opp-deck-${eid}-${slot}`);
     if (!ps || ps.value) return; // skip if already set
     ps.value = playerId;
-    // Populate deck dropdown
-    const rival = (data.opponents||[]).find(r=>r.id===playerId);
-    const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
+    // Populate deck dropdown (grouped: their decks / yours / other rivals).
     if (ds) {
-      ds.innerHTML = '<option value="">— Deck —</option>' +
-        activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('');
+      ds.innerHTML = deckOptionsGrouped(playerId, deckId);
       ds.value = deckId;
       ds.style.display = '';
     }
@@ -8268,11 +8263,9 @@ function onOppPlayerChange(eid, deckKey, slot) {
   else {
     const rival = resolveRival(playerId);
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
-    deckSel.innerHTML = '<option value="">— Deck —</option>' +
-      activeDecks.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('') +
-      (rival?.synthetic ? '' : '<option value="__add__">+ Add deck…</option>');
+    deckSel.innerHTML = deckOptionsGrouped(playerId, '');
     deckSel.style.display = '';
-    // Auto-select: preferred (starred) deck first, then only-deck fallback
+    // Auto-select this rival's preferred (starred) deck, or their only deck.
     const preferred = activeDecks.find(d=>d.preferred);
     if (preferred) deckSel.value = preferred.id;
     else if (activeDecks.length === 1) deckSel.value = activeDecks[0].id;
@@ -8465,12 +8458,57 @@ function resolveRival(id) {
   return [...(data.opponents||[]), ...(data.retiredOpponents||[])].find(r=>r.id===id) || null;
 }
 
+// Build grouped <option>s for the deck an opponent piloted. Starts with THIS
+// rival's own decks, then Your decks (from the Decks tab), then every OTHER
+// rival's decks — so you can attribute any deck to any player, including one of
+// yours someone borrowed, without leaving the dropdown.
+function deckOptionsGrouped(rivalId, selDeckId) {
+  const optFor = (d) => {
+    const label = d.partner ? `${d.name} // ${d.partner}` : d.name;
+    return `<option value="${d.id}"${d.id===selDeckId?' selected':''}>${esc(label)}</option>`;
+  };
+  let out = '<option value="">— Deck —</option>';
+  // 1) This rival's own decks.
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId) || (data.retiredOpponents||[]).find(r=>r.id===rivalId);
+  const own = (rival?.decks||[]).filter(d=>!d.retired);
+  if (own.length) out += `<optgroup label="${esc(rival.name)}'s decks">` + own.map(optFor).join('') + '</optgroup>';
+  // 2) Your decks (synthetic self group, from the Decks tab).
+  const self = selfRivalGroup().decks;
+  if (self.length) out += `<optgroup label="Your decks">` + self.map(optFor).join('') + '</optgroup>';
+  // 3) Every other rival's decks.
+  for (const r of (data.opponents||[])) {
+    if (r.id === rivalId) continue;
+    const ds = (r.decks||[]).filter(d=>!d.retired);
+    if (ds.length) out += `<optgroup label="${esc(r.name)}'s decks">` + ds.map(optFor).join('') + '</optgroup>';
+  }
+  out += '<option value="__add__">+ Add deck…</option>';
+  return out;
+}
+
+// Resolve a deckId across ALL collections (your decks + every rival, retired
+// included). Returns {name, partner, display, ownerName} or null. Used so a game
+// where someone piloted a deck registered elsewhere still names correctly.
+function resolveDeckAnywhere(deckId) {
+  if (!deckId) return null;
+  const mk = (d, ownerName) => ({ name:d.name, partner:d.partner||'', ownerName,
+    display: d.partner ? `${d.name} // ${d.partner}` : d.name });
+  const sg = selfRivalGroup();
+  const sd = sg.decks.find(d=>d.id===deckId);
+  if (sd) return mk(sd, sg.name);
+  for (const r of [...(data.opponents||[]), ...(data.retiredOpponents||[])]) {
+    const d = (r.decks||[]).find(x=>x.id===deckId);
+    if (d) return mk(d, r.name);
+  }
+  return null;
+}
+
 function resolveOppName(opp) {
   const rival = resolveRival(opp.playerId);
-  if (!rival) return 'Unknown';
-  const deck = (rival.decks||[]).find(d=>d.id===opp.deckId);
-  const deckName = deck ? (deck.partner ? `${deck.name} // ${deck.partner}` : deck.name) : '?';
-  return `${rival.name} — ${deckName}`;
+  const rivalName = rival ? rival.name : 'Unknown';
+  // Deck may belong to this rival, to you, or to another rival — resolve globally.
+  const anywhere = resolveDeckAnywhere(opp.deckId);
+  const deckName = anywhere ? anywhere.display : '?';
+  return `${rivalName} — ${deckName}`;
 }
 
 // Show a history overlay for a rival (all decks) or a specific rival deck.
@@ -8610,10 +8648,13 @@ function rivalStats() {
       const youWon = (h.winnerId !== undefined) ? !h.winnerId : (h.last === 'Win');
       stats[o.playerId].total++;
       if (youWon) stats[o.playerId].wins++; else stats[o.playerId].losses++;
-      if (o.deckId && stats[o.playerId].decks[o.deckId]) {
-        stats[o.playerId].decks[o.deckId].total++;
-        if (youWon) stats[o.playerId].decks[o.deckId].wins++;
-        else stats[o.playerId].decks[o.deckId].losses++;
+      // Deck sub-record: credit the player (as chosen), but the deck may be
+      // cross-owned (yours, or another rival's) — lazily create its bucket so
+      // the record is still captured under this player.
+      if (o.deckId) {
+        const db = (stats[o.playerId].decks[o.deckId] = stats[o.playerId].decks[o.deckId] || {total:0,wins:0,losses:0});
+        db.total++;
+        if (youWon) db.wins++; else db.losses++;
       }
     });
   });
