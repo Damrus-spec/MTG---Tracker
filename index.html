@@ -1095,7 +1095,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.76';
+const APP_VERSION = '2026.07.01.77';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -4140,6 +4140,15 @@ function _histDraftOpps(i) {
 function histEditSlotPlayer(i, si, playerId) {
   const opps = _histDraftOpps(i);
   if (si >= opps.length) opps.push({playerId:'', deckId:''});
+  const prev = opps[si] || {};
+  // If this slot was the winner, move the win to the new player (same seat) so
+  // the checkmark stays — only the user should uncheck it.
+  const d = _histEditDraft[i] || (_histEditDraft[i] = {});
+  const curWinnerId = d.winnerId !== undefined ? d.winnerId : null;
+  if (prev.playerId && curWinnerId === prev.playerId) {
+    d.winnerId = playerId || null;
+    d.last = playerId ? 'Loss' : 'Win';
+  }
   opps[si] = { playerId, deckId:'' }; // reset deck when player changes
   renderHistory();
 }
@@ -8482,18 +8491,19 @@ function deckOptionsGrouped(rivalId, selDeckId) {
     const label = d.partner ? `${d.name} // ${d.partner}` : d.name;
     return `<option value="${d.id}"${d.id===selDeckId?' selected':''}>${esc(label)}</option>`;
   };
+  const azSort = (arr) => arr.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   let out = '<option value="">— Deck —</option>';
-  // 1) This rival's own decks.
+  // 1) This rival's own decks (A–Z).
   const rival = (data.opponents||[]).find(r=>r.id===rivalId) || (data.retiredOpponents||[]).find(r=>r.id===rivalId);
-  const own = (rival?.decks||[]).filter(d=>!d.retired);
+  const own = azSort((rival?.decks||[]).filter(d=>!d.retired));
   if (own.length) out += `<optgroup label="${esc(rival.name)}'s decks">` + own.map(optFor).join('') + '</optgroup>';
-  // 2) Your decks (synthetic self group, from the Decks tab).
-  const self = selfRivalGroup().decks;
+  // 2) Your decks (A–Z).
+  const self = azSort(selfRivalGroup().decks);
   if (self.length) out += `<optgroup label="Your decks">` + self.map(optFor).join('') + '</optgroup>';
-  // 3) Every other rival's decks.
+  // 3) Every other rival's decks (A–Z within each).
   for (const r of (data.opponents||[])) {
     if (r.id === rivalId) continue;
-    const ds = (r.decks||[]).filter(d=>!d.retired);
+    const ds = azSort((r.decks||[]).filter(d=>!d.retired));
     if (ds.length) out += `<optgroup label="${esc(r.name)}'s decks">` + ds.map(optFor).join('') + '</optgroup>';
   }
   out += '<option value="__add__">+ Add deck…</option>';
