@@ -454,6 +454,17 @@ input.setting-input[type="number"]{width:90px}
 .opp-slot{display:flex;gap:6px;margin-bottom:6px;align-items:center}
 .opp-slot select{flex:1;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:4px 6px}
 .opp-slot button.opp-clear{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1}
+.dd-wrap{position:relative;flex:1;min-width:0}
+.dd-trigger{width:100%;text-align:left;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);padding:8px 26px 8px 10px;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+.dd-trigger::after{content:'';position:absolute;right:10px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--text3);border-bottom:1.5px solid var(--text3);transform:translateY(-70%) rotate(45deg)}
+.dd-trigger.placeholder{color:var(--text3)}
+.dd-panel{position:fixed;z-index:9998;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);box-shadow:0 6px 24px rgba(0,0,0,.5);max-height:60vh;overflow-y:auto;display:none}
+.dd-panel.open{display:block}
+.dd-head{padding:8px 12px 5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);background:var(--bg);border-top:.5px solid var(--border);position:sticky;top:0}
+.dd-head:first-child{border-top:none}
+.dd-item{padding:10px 12px;font-size:14px;color:var(--text);cursor:pointer;white-space:normal;line-height:1.3}
+.dd-item:hover,.dd-item.sel{background:rgba(66,133,244,.15)}
+.dd-item.add{color:var(--blue);border-top:.5px solid var(--border)}
 
 </style>
 </head>
@@ -1095,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.78';
+const APP_VERSION = '2026.07.01.80';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3358,9 +3369,7 @@ function renderScore() { scheduleCropApply();
                 <option value="">— Player —</option>
                 ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
               </select>
-              <select id="opp-deck-${eid}-${i}" onchange="onOppDeckChange('${eid}','${sn}',${i})" style="flex:1;display:${selPlayer?'':'none'}">
-                ${deckOptionsGrouped(selPlayer, selDeck)}
-              </select>
+              ${selPlayer ? deckDropdown(`opp-deck-${eid}-${i}`, `<select id="opp-deck-${eid}-${i}" data-rival="${selPlayer}" onchange="onOppDeckChange('${eid}','${sn}',${i})">${deckOptionsGrouped(selPlayer, selDeck)}</select>`, selDeck) : ''}
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
                 }).join('');
@@ -4089,9 +4098,7 @@ function histEditPanel(h, i) {
           <option value="">— Player —</option>
           ${(data.opponents||[]).map(r=>`<option value="${r.id}"${r.id===selPlayer?' selected':''}>${esc(r.name)}</option>`).join('')}
         </select>
-        <select onchange="histEditSlotDeck(${i},${si},this.value)" style="flex:1;display:${selPlayer?'':'none'}">
-          ${deckOptionsGrouped(selPlayer, selDeck)}
-        </select>
+        ${selPlayer ? deckDropdown(`hist-deck-${i}-${si}`, `<select id="hist-deck-${i}-${si}" data-rival="${selPlayer}" onchange="histEditSlotDeck(${i},${si},this.value)">${deckOptionsGrouped(selPlayer, selDeck)}</select>`, selDeck) : ''}
         ${selPlayer?`<button class="opp-clear" onclick="histEditSlotClear(${i},${si})" title="Remove">×</button>`:''}
       </div>`;
   }).join('');
@@ -8281,26 +8288,23 @@ function autofillPreferredRivals(eid) {
 
 function onOppPlayerChange(eid, deckKey, slot) {
   const playerId = document.getElementById('opp-player-'+eid+'-'+slot)?.value || '';
-  const deckSel = document.getElementById('opp-deck-'+eid+'-'+slot);
-  if (!deckSel) return;
-  if (!playerId) { deckSel.style.display='none'; deckSel.innerHTML='<option value="">— Deck —</option>'; }
-  else {
+  // Auto-pick this rival's preferred (starred) deck, or their only deck.
+  let deckId = '';
+  if (playerId) {
     const rival = resolveRival(playerId);
     const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
-    deckSel.innerHTML = deckOptionsGrouped(playerId, '');
-    deckSel.style.display = '';
-    // Auto-select this rival's preferred (starred) deck, or their only deck.
     const preferred = activeDecks.find(d=>d.preferred);
-    if (preferred) deckSel.value = preferred.id;
-    else if (activeDecks.length === 1) deckSel.value = activeDecks[0].id;
+    if (preferred) deckId = preferred.id;
+    else if (activeDecks.length === 1) deckId = activeDecks[0].id;
   }
-  saveOppSlot(eid, deckKey, slot);
-  // Enable the winner checkbox once a player is chosen (disable if cleared).
-  const cb = document.querySelector(`#os-${eid}-${slot} input[type=checkbox]`);
-  if (cb) {
-    cb.disabled = !playerId;
-    if (!playerId && cb.checked) { cb.checked = false; setGameWinner({stopPropagation(){},target:cb}, deckKey, eid, slot); }
+  if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
+  pendingOpponents[deckKey][slot] = playerId ? { playerId, deckId } : {};
+  // If the player was cleared and this slot was the winner, reset to 'you won'.
+  if (!playerId && pending[deckKey] && pending[deckKey].winnerSlot === slot) {
+    pending[deckKey].winnerSlot = null;
+    pending[deckKey].wins = 1; pending[deckKey].losses = 0;
   }
+  renderScore();
 }
 
 // Quick add: a commander-only deck for a rival, straight from the Score board.
@@ -8326,17 +8330,11 @@ function quickAddRivalDeck(playerId, eid, deckKey, slot) {
     const deck = { id: genUUID(), name, partner };
     rival.decks.push(deck);
     scheduleSync();
-    // Rebuild this slot's deck dropdown and select the new deck.
-    const deckSel = document.getElementById('opp-deck-'+eid+'-'+slot);
-    if (deckSel) {
-      const active = rival.decks.filter(d=>!d.retired);
-      deckSel.innerHTML = '<option value="">— Deck —</option>' +
-        active.map(d=>`<option value="${d.id}">${esc(d.partner?d.name+' // '+d.partner:d.name)}</option>`).join('') +
-        '<option value="__add__">+ Add deck…</option>';
-      deckSel.value = deck.id;
-      deckSel.style.display = '';
-    }
-    saveOppSlot(eid, deckKey, slot);
+    // Save the new deck into the slot, then re-render so the custom dropdown
+    // trigger shows it selected.
+    if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
+    pendingOpponents[deckKey][slot] = { playerId, deckId: deck.id };
+    renderScore();
     // Kick off art/color resolution in the background like the full add does.
     if (typeof fetchMissingArt === 'function') { try { fetchMissingArt(partner ? [name, partner] : [name]); } catch(e){} }
     showToast(`Added ${partner ? name+' // '+partner : name} to ${rival.name}`);
@@ -8486,6 +8484,102 @@ function resolveRival(id) {
 // rival's own decks, then Your decks (from the Decks tab), then every OTHER
 // rival's decks — so you can attribute any deck to any player, including one of
 // yours someone borrowed, without leaving the dropdown.
+// ── Custom deck dropdown ─────────────────────────────────────────────────────
+// Renders a styled trigger backed by a hidden native <select> (so existing
+// onchange handlers and .value reads keep working). The open panel shows real
+// dark group headers that scale on any screen, unlike native <optgroup> labels.
+// `selectHtml` is the full <select ...>…</select> string the caller already
+// builds; we wrap it hidden and add the visible trigger.
+function deckDropdown(selectId, selectHtml, selDeckId) {
+  const info = selDeckId ? resolveDeckAnywhere(selDeckId) : null;
+  const label = info ? info.display : '— Deck —';
+  const ph = info ? '' : ' placeholder';
+  return `<div class="dd-wrap">
+    <span style="position:absolute;width:0;height:0;overflow:hidden">${selectHtml}</span>
+    <button type="button" class="dd-trigger${ph}" id="${selectId}-trig" onclick="openDeckDropdown('${selectId}')">${esc(label)}</button>
+  </div>`;
+}
+
+// Build the grouped model (shared with the hidden select's option list).
+function deckGroupsModel(rivalId, selDeckId) {
+  const azSort = (arr) => arr.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const groups = [];
+  const rival = (data.opponents||[]).find(r=>r.id===rivalId) || (data.retiredOpponents||[]).find(r=>r.id===rivalId);
+  const own = azSort((rival?.decks||[]).filter(d=>!d.retired));
+  if (own.length) groups.push({ label:`${rival.name}'s decks`, decks:own });
+  const self = azSort(selfRivalGroup().decks);
+  if (self.length) groups.push({ label:'Your decks', decks:self });
+  for (const r of (data.opponents||[])) {
+    if (r.id === rivalId) continue;
+    const ds = azSort((r.decks||[]).filter(d=>!d.retired));
+    if (ds.length) groups.push({ label:`${r.name}'s decks`, decks:ds });
+  }
+  return groups;
+}
+
+let _openDeckDD = null;
+function closeDeckDropdown() {
+  if (_openDeckDD) { const p = document.getElementById(_openDeckDD); if (p) p.remove(); _openDeckDD = null; }
+  document.removeEventListener('click', _deckDDOutside, true);
+}
+function _deckDDOutside(e) {
+  const p = _openDeckDD && document.getElementById(_openDeckDD);
+  if (p && !p.contains(e.target) && !e.target.classList.contains('dd-trigger')) closeDeckDropdown();
+}
+function openDeckDropdown(selectId) {
+  closeDeckDropdown();
+  const sel = document.getElementById(selectId);
+  const trig = document.getElementById(selectId+'-trig');
+  if (!sel || !trig) return;
+  const rivalId = sel.getAttribute('data-rival') || '';
+  const selDeckId = sel.value;
+  const groups = deckGroupsModel(rivalId, selDeckId);
+  const panel = document.createElement('div');
+  panel.className = 'dd-panel open';
+  panel.id = selectId + '-panel';
+  let h = `<div class="dd-item${!selDeckId?' sel':''}" onclick="pickDeckDropdown('${selectId}','')">— Deck —</div>`;
+  for (const g of groups) {
+    h += `<div class="dd-head">${esc(g.label)}</div>`;
+    for (const d of g.decks) {
+      const dl = d.partner ? `${d.name} // ${d.partner}` : d.name;
+      h += `<div class="dd-item${d.id===selDeckId?' sel':''}" onclick="pickDeckDropdown('${selectId}','${d.id}')">${esc(dl)}</div>`;
+    }
+  }
+  h += `<div class="dd-item add" onclick="pickDeckDropdown('${selectId}','__add__')">+ Add deck…</div>`;
+  panel.innerHTML = h;
+  document.body.appendChild(panel);
+  // Position under the trigger.
+  const r = trig.getBoundingClientRect();
+  panel.style.left = r.left + 'px';
+  panel.style.top = (r.bottom + 4) + 'px';
+  panel.style.width = r.width + 'px';
+  // Flip up if not enough room below.
+  const ph = panel.getBoundingClientRect().height;
+  if (r.bottom + 4 + ph > window.innerHeight && r.top - 4 - ph > 0) {
+    panel.style.top = (r.top - 4 - ph) + 'px';
+  }
+  _openDeckDD = panel.id;
+  setTimeout(()=>document.addEventListener('click', _deckDDOutside, true), 0);
+}
+function pickDeckDropdown(selectId, deckId) {
+  const sel = document.getElementById(selectId);
+  closeDeckDropdown();
+  if (!sel) return;
+  sel.value = deckId;
+  // Update the visible trigger label immediately (unless it's the add action,
+  // which opens a modal and re-renders anyway).
+  if (deckId !== '__add__') {
+    const trig = document.getElementById(selectId+'-trig');
+    if (trig) {
+      const info = deckId ? resolveDeckAnywhere(deckId) : null;
+      trig.textContent = info ? info.display : '— Deck —';
+      trig.classList.toggle('placeholder', !info);
+    }
+  }
+  // Fire the select's change handler (onOppDeckChange / histEditSlotDeck).
+  sel.dispatchEvent(new Event('change', {bubbles:true}));
+}
+
 function deckOptionsGrouped(rivalId, selDeckId) {
   const optFor = (d) => {
     const label = d.partner ? `${d.name} // ${d.partner}` : d.name;
