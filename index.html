@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.88';
+const APP_VERSION = '2026.07.01.90';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2306,20 +2306,26 @@ function recreateOrphanDeck(rivalId, deckId) {
   const nGames = (data.history||[]).filter(h => (h.opponents||[]).some(o=>o.playerId===rivalId && o.deckId===deckId)).length;
   const body = `<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Recreate the deleted deck under <b>${esc(rival.name)}</b>. This restores its link to ${nGames} game${nGames!==1?'s':''}. Enter the commander (and partner, if any).</div>
     <input id="reo-name" placeholder="Commander" style="width:100%;margin-bottom:8px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:14px">
-    <input id="reo-partner" placeholder="Partner (optional)" style="width:100%;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:14px">`;
+    <input id="reo-partner" placeholder="Partner (optional)" style="width:100%;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:14px">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text2);cursor:pointer">
+      <input type="checkbox" id="reo-retired" checked style="accent-color:var(--blue);width:15px;height:15px;cursor:pointer">
+      Bring it back as a retired deck (keeps history, hidden from active pickers)
+    </label>`;
   showModal('Recreate deck', body, () => {
     const name = (document.getElementById('reo-name')?.value||'').trim();
     const partner = (document.getElementById('reo-partner')?.value||'').trim();
     if (!name) { showToast('Commander name required'); return; }
     if (!rival.decks) rival.decks = [];
     if (rival.decks.some(d=>d.id===deckId)) { showToast('Deck already exists'); return; }
+    const retired = !!document.getElementById('reo-retired')?.checked;
     const deck = { id: deckId, name };
     if (partner) deck.partner = partner;
+    if (retired) deck.retired = true;
     rival.decks.push(deck);
     fetchMissingArt(partner ? [name, partner] : [name]);
     scheduleSync();
     renderRivals();
-    showToast(`Recreated ${partner?name+' // '+partner:name} under ${rival.name} — ${nGames} game${nGames!==1?'s':''} reconnected`);
+    showToast(`Recreated ${partner?name+' // '+partner:name}${retired?' (retired)':''} under ${rival.name} — ${nGames} game${nGames!==1?'s':''} reconnected`);
     setTimeout(()=>findSuspiciousPairings(), 100); // refresh the diagnostic
   });
 }
@@ -9173,7 +9179,18 @@ function confirmDeleteRivalDeck(rivalId, deckId) {
   const rival = [...(data.opponents||[]),...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
   const deck  = (rival?.decks||[]).find(d=>d.id===deckId);
   if (!deck) return;
-  showModal('Delete deck', `Permanently delete "${deck.name}"? History data is preserved.`, ()=>{
+  // Count games that reference this deck — deleting it orphans them.
+  const nGames = (data.history||[]).filter(h => (h.opponents||[]).some(o=>o.playerId===rivalId && o.deckId===deckId)).length;
+  if (nGames > 0) {
+    // Deck has history: deleting would ORPHAN those games. Steer toward retiring.
+    const label = deck.partner ? `${deck.name} // ${deck.partner}` : deck.name;
+    showModal('This deck has history',
+      `"${label}" appears in ${nGames} logged game${nGames!==1?'s':''}. Deleting it would leave those games pointing at a deck that no longer exists (they'd show as "Unknown deck").\n\nRetire it instead — it stays linked to its games but is hidden from active pickers. You can still delete it permanently from the retired state if you really want to.`,
+      ()=>{ deck.retired = true; scheduleSync(); renderRivals(); showToast(`Retired "${label}" (kept its ${nGames} game${nGames!==1?'s':''})`); });
+    return;
+  }
+  // No history — safe to delete outright.
+  showModal('Delete deck', `Permanently delete "${deck.name}"? It has no logged games.`, ()=>{
     rival.decks = (rival.decks||[]).filter(d=>d.id!==deckId);
     scheduleSync(); renderRivals();
   });
