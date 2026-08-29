@@ -846,6 +846,12 @@ input.setting-input[type="number"]{width:90px}
           <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;width:fit-content" onclick="runInvariantChecks(false)"><i class="ti ti-checkup-list"></i> Run self-check</button>
         </div>
         <div class="setting-block">
+          <div class="setting-name">Find suspicious deck attributions</div>
+          <div class="setting-desc">Scans your game history for opponents tagged with a deck that belongs to a different person (a likely mis-attribution). Lists each one so you can open and fix it.</div>
+          <button class="submit-btn" style="margin-top:8px;padding:9px 16px;font-size:13px;width:fit-content" onclick="findSuspiciousPairings()"><i class="ti ti-alert-triangle"></i> Scan attributions</button>
+          <div id="suspicious-results" style="margin-top:10px"></div>
+        </div>
+        <div class="setting-block">
           <div class="setting-name">Debug log</div>
           <div class="setting-desc">Recent sync/auth errors, uncaught errors and self-check results (newest first). Copy and share this when reporting an issue.</div>
           <div style="display:flex;gap:8px;margin:8px 0">
@@ -1106,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.85';
+const APP_VERSION = '2026.07.01.86';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2285,6 +2291,57 @@ function runInvariantChecks(silent) {
     if (!silent) showToast('Self-check passed');
   }
   return problems;
+}
+
+// Scan history for opponent tags where the deck belongs to a DIFFERENT person
+// than the tagged player — a strong signal of mis-attribution. Also flags decks
+// that don't resolve at all (orphaned references). Renders a list with buttons
+// to open each game's rival history for fixing.
+function findSuspiciousPairings() {
+  const out = document.getElementById('suspicious-results');
+  const rivalById = {};
+  [...(data.opponents||[]), ...(data.retiredOpponents||[])].forEach(r => rivalById[r.id] = r);
+  const rows = [];
+  (data.history||[]).forEach((h, idx) => {
+    if (!h.last) return;
+    (h.opponents||[]).forEach(o => {
+      if (!o.playerId || o.playerId === SELF_RIVAL_ID) return;
+      const player = rivalById[o.playerId];
+      if (!o.deckId) return;
+      // Is the deck registered to THIS player?
+      const ownsIt = player && (player.decks||[]).some(d => d.id === o.deckId);
+      if (ownsIt) return; // correctly attributed
+      const info = resolveDeckAnywhere(o.deckId);
+      rows.push({
+        idx, date: h.date, playerId: o.playerId, deckId: o.deckId,
+        playerName: player ? player.name : '(unknown player)',
+        deckLabel: info ? info.display : '(unresolved deck)',
+        owner: info ? info.ownerName : null,
+        unresolved: !info
+      });
+    });
+  });
+  if (!rows.length) {
+    out.innerHTML = '<div style="font-size:12px;color:var(--text2)">No suspicious attributions found — every opponent deck belongs to the tagged player.</div>';
+    showToast('No suspicious attributions found');
+    return;
+  }
+  // Group identical (player, deck, owner) combos with a count + a sample opener.
+  const groups = {};
+  for (const r of rows) {
+    const k = `${r.playerId}|${r.deckLabel}|${r.owner||''}`;
+    (groups[k] = groups[k] || { ...r, count:0 }).count++;
+  }
+  const list = Object.values(groups).sort((a,b)=>b.count-a.count);
+  out.innerHTML = `<div style="font-size:12px;color:var(--warn,#e0a030);margin-bottom:8px">${rows.length} suspicious tag${rows.length!==1?'s':''} across ${list.length} pairing${list.length!==1?'s':''}:</div>` +
+    list.map(g => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px solid var(--border);font-size:12px">
+      <div style="flex:1;min-width:0">
+        <div><b>${esc(g.playerName)}</b> tagged with <b>${esc(g.deckLabel)}</b>${g.owner?` <span style="color:var(--text3)">(owned by ${esc(g.owner)})</span>`:''}</div>
+        <div style="color:var(--text3);font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists':''}</div>
+      </div>
+      <button onclick="showPage('rivals');setTimeout(()=>openRivalHistory('${g.playerId}','${g.deckId||''}'),80)" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:11px">Open</button>
+    </div>`).join('');
+  showToast(`Found ${rows.length} suspicious tag${rows.length!==1?'s':''}`);
 }
 
 async function syncDrive(silent) {
