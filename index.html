@@ -1106,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.82';
+const APP_VERSION = '2026.07.01.83';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8923,7 +8923,7 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
 
       rows += `<div class="deck-mgr-row${d.retired?' rival-retired':''}">
         <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;align-self:stretch;position:relative">
-          <div class="deck-mgr-art${hasArt?'':d.name?' loading':''}" id="rdart-${r.id}-${d.id}" data-art="${scryfallKey(d.name||'')}"
+          <div class="deck-mgr-art${hasArt?'':d.name?' loading':''}" id="rdart-${r.id}-${d.id}" data-art="${scryfallKey(d.name||'')}"${hasArt?'':' data-rerender="rivals"'}
                onclick="openRivalDeckArtPicker('${r.id}','${d.id}')" title="Click to change art" style="cursor:pointer;flex:1;width:150px">
             ${artHtml}
             ${d.partner&&!hasPartnerArt?`<span style="display:none" data-art="${scryfallKey(d.partner)}" data-rerender="rivals"></span>`:''}
