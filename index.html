@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.93';
+const APP_VERSION = '2026.07.01.94';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3461,8 +3461,12 @@ function renderScore() { scheduleCropApply();
                 // Honor explicitly-added empty slots (addOppSlot grows pend.length).
                 const slotCount = Math.min(MAX_OPP, Math.max(3, filled + 1, pend.length));
                 return Array.from({length:slotCount},(_,i)=>i).map(i=>{
-                  // Prefer an explicit pending selection; else the preferred-rival default
-                  const sel = (pend[i] && pend[i].playerId) ? pend[i] : (pref[i] || null);
+                  // Prefer an explicit pending selection. Only fall back to the
+                  // preferred-rival default if the slot was NOT explicitly cleared
+                  // (a cleared slot carries _cleared so the preferred deck can't
+                  // re-populate it after the user x'd the player).
+                  const wasCleared = pend[i] && pend[i]._cleared;
+                  const sel = (pend[i] && pend[i].playerId) ? pend[i] : (wasCleared ? null : (pref[i] || null));
                   let selPlayer = sel?.playerId || '';
                   // Guard: only treat the player as set if it resolves to a REAL rival
                   // currently in the list. A stale/deleted id would otherwise leave the
@@ -8501,16 +8505,14 @@ function clearOppSlot(eid, deckKey, slot) {
   const ds = document.getElementById('opp-deck-'+eid+'-'+slot);
   if (ps) ps.value = '';
   if (ds) { ds.innerHTML='<option value="">— Deck —</option>'; ds.style.display='none'; }
-  if (pendingOpponents[deckKey]) pendingOpponents[deckKey][slot] = {};
+  if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
+  pendingOpponents[deckKey][slot] = { _cleared: true };
   // If this slot was marked as the winner, revert the result to a win.
   if (pending[deckKey] && pending[deckKey].winnerSlot === slot) {
     pending[deckKey].winnerSlot = null;
     if (pending[deckKey].wins>0 || pending[deckKey].losses>0) { pending[deckKey].wins=1; pending[deckKey].losses=0; }
-    renderScoreLogButtons(deckKey);
-    renderPendingBar();
   }
-  const cb = document.querySelector(`#os-${eid}-${slot} input[type=checkbox]`);
-  if (cb) { cb.checked = false; cb.disabled = true; }
+  renderScore();
 }
 
 function toggleRivalDeckPreferred(rivalId, deckId) {
