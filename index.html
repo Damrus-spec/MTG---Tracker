@@ -215,13 +215,13 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .w-card-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top}
 .w-card-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
 .w-buy{background:var(--blue)}.w-considering{background:var(--amber)}.w-owned{background:var(--green)}
-.w-card-name{flex:1;font-size:13px;align-self:center;padding:0 0 0 10px}
+.w-card-name{flex:1 1 auto;min-width:0;font-size:13px;align-self:center;padding:0 0 0 10px;overflow-wrap:anywhere}
 .want-card-row.want-dragging{opacity:.4}
 .want-card-row.want-drop-target{border-top:2px solid var(--blue)}
 .want-card-row.want-drop-below{border-bottom:2px solid var(--blue)}
 .w-card-out{font-size:11px;color:var(--red);max-width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-no-out{font-size:10px;color:var(--text3);font-style:italic}
-.w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:15px;padding:2px 4px}
+.w-del{background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:4px 6px;flex-shrink:0}
 .w-edit-status{font-size:10px;padding:1px 6px;border-radius:8px;border:.5px solid var(--border-md);background:none;cursor:pointer;color:var(--text3)}
 .w-edit-status.active-buy{background:var(--info-bg);color:var(--info);border-color:transparent}
 .w-edit-status.active-considering{background:var(--amber-bg);color:var(--amber);border-color:transparent}
@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.91';
+const APP_VERSION = '2026.07.01.93';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3451,7 +3451,16 @@ function renderScore() { scheduleCropApply();
                 const openByDefault = (cfg().rivalsOpenByDefault===true||cfg().rivalsOpenByDefault==='true');
                 const pref = openByDefault ? getPreferredRivals() : [];
                 const pend = pendingOpponents[sn] || [];
-                return [0,1,2].map(i=>{
+                // Dynamic slot count: at least 3, grow to fit filled slots + one
+                // spare, capped at 8 opponents (up to a 9-player pod).
+                const MAX_OPP = 8;
+                let filled = 0;
+                for (let k=0;k<Math.max(pend.length, pref.length);k++){
+                  if ((pend[k]&&pend[k].playerId) || (pref[k]&&pref[k].playerId)) filled = k+1;
+                }
+                // Honor explicitly-added empty slots (addOppSlot grows pend.length).
+                const slotCount = Math.min(MAX_OPP, Math.max(3, filled + 1, pend.length));
+                return Array.from({length:slotCount},(_,i)=>i).map(i=>{
                   // Prefer an explicit pending selection; else the preferred-rival default
                   const sel = (pend[i] && pend[i].playerId) ? pend[i] : (pref[i] || null);
                   let selPlayer = sel?.playerId || '';
@@ -3486,7 +3495,8 @@ function renderScore() { scheduleCropApply();
               ${selPlayer ? deckDropdown(`opp-deck-${eid}-${i}`, `<select id="opp-deck-${eid}-${i}" data-rival="${selPlayer}" onchange="onOppDeckChange('${eid}','${sn}',${i})">${deckOptionsGrouped(selPlayer, selDeck)}</select>`, selDeck) : ''}
               <button class="opp-clear" onclick="clearOppSlot('${eid}','${sn}',${i})" title="Clear">×</button>
             </div>`;
-                }).join('');
+                }).join('')
+                + (slotCount < MAX_OPP ? `<button onclick="addOppSlot('${eid}','${sn}')" style="margin-top:6px;padding:7px 12px;background:none;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer;font-size:12px;width:100%"><i class="ti ti-plus" style="font-size:12px"></i> Add player</button>` : '');
               })()}
           </div>
         </div>
@@ -5489,7 +5499,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
               data-idx="${idx}"
               oninput="debouncedWantOut(this)"
               onblur="(e=>{const el=e;setTimeout(()=>{if(document.getElementById(el.id))commitWantOut(el.dataset.deck,parseInt(el.dataset.idx),el.value);},200);})(this)"
-              style="font-size:11px;width:100px;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0;flex-shrink:0">
+              style="font-size:11px;width:100px;min-width:44px;flex-shrink:1;padding:2px 6px;border:.5px solid var(--border-md);border-radius:4px;background:var(--surface);color:${e.out?'var(--red)':'var(--text3)'};margin:0">
             <button class="w-edit-status active-${e.inStatus}" data-deck="${uuid}" data-idx="${idx}" onclick="cycleWantStatus(this.dataset.deck,parseInt(this.dataset.idx))" style="width:52px;text-align:center;flex-shrink:0">${statusLabel}</button>
             <button class="w-del" data-deck="${uuid}" data-idx="${idx}" onclick="deleteWantEntry(this.dataset.deck,parseInt(this.dataset.idx))" style="flex-shrink:0"><i class="ti ti-x"></i></button>
           </div>
@@ -8476,6 +8486,14 @@ function saveOppSlot(eid, deckKey, slot) {
   const deckId   = document.getElementById('opp-deck-'+eid+'-'+slot)?.value   || '';
   if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
   pendingOpponents[deckKey][slot] = { playerId, deckId };
+}
+
+// Append an empty opponent slot (for 5+ player pods), then re-render.
+function addOppSlot(eid, deckKey) {
+  if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
+  // Ensure there's an explicit empty slot so the dynamic count grows by one.
+  pendingOpponents[deckKey].push({});
+  renderScore();
 }
 
 function clearOppSlot(eid, deckKey, slot) {
