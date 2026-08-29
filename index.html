@@ -1106,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.80';
+const APP_VERSION = '2026.07.01.81';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8683,9 +8683,11 @@ function renderRivalHistory(rivalId, rivalDeckId) {
   const deckAny = rivalDeckId ? resolveDeckAnywhere(rivalDeckId) : null;
   const deckLabel = deckAny ? deckAny.display : null;
 
-  // Collect matching history entries (most recent first)
+  // Collect matching history entries (most recent first), honoring the active
+  // pod-size filter so e.g. a 1v1 view only shows 1v1 games.
+  const _pb = podBucket();
   const games = (data.history||[])
-    .filter(h => h.last && Array.isArray(h.opponents) && h.opponents.some(o =>
+    .filter(h => h.last && _pb.match(h) && Array.isArray(h.opponents) && h.opponents.some(o =>
       o.playerId === rivalId && (!rivalDeckId || o.deckId === rivalDeckId)))
     .slice().reverse();
 
@@ -8865,7 +8867,9 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
     const ownIds = new Set((r.decks||[]).map(d=>d.id));
     const guestIds = new Set();
     if (!isSelfGroup) {
+      const _pbg = podBucket();
       for (const h of (data.history||[])) {
+        if (!_pbg.match(h)) continue; // respect the pod filter
         for (const o of (h.opponents||[])) {
           if (o.playerId === r.id && o.deckId && !ownIds.has(o.deckId)) guestIds.add(o.deckId);
         }
