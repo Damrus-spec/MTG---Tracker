@@ -1106,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.83';
+const APP_VERSION = '2026.07.01.84';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8289,17 +8289,11 @@ function autofillPreferredRivals(eid) {
 
 function onOppPlayerChange(eid, deckKey, slot) {
   const playerId = document.getElementById('opp-player-'+eid+'-'+slot)?.value || '';
-  // Auto-pick this rival's preferred (starred) deck, or their only deck.
-  let deckId = '';
-  if (playerId) {
-    const rival = resolveRival(playerId);
-    const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
-    const preferred = activeDecks.find(d=>d.preferred);
-    if (preferred) deckId = preferred.id;
-    else if (activeDecks.length === 1) deckId = activeDecks[0].id;
-  }
   if (!pendingOpponents[deckKey]) pendingOpponents[deckKey] = [{},{},{}];
-  pendingOpponents[deckKey][slot] = playerId ? { playerId, deckId } : {};
+  // Changing OR clearing the player always resets the deck to empty — no
+  // auto-selecting a preferred deck; you pick it yourself. Clearing the player
+  // empties the slot entirely.
+  pendingOpponents[deckKey][slot] = playerId ? { playerId, deckId: '' } : {};
   // If the player was cleared and this slot was the winner, reset to 'you won'.
   if (!playerId && pending[deckKey] && pending[deckKey].winnerSlot === slot) {
     pending[deckKey].winnerSlot = null;
