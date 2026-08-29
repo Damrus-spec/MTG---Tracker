@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.87';
+const APP_VERSION = '2026.07.01.88';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2297,6 +2297,33 @@ function runInvariantChecks(silent) {
 // than the tagged player — a strong signal of mis-attribution. Also flags decks
 // that don't resolve at all (orphaned references). Renders a list with buttons
 // to open each game's rival history for fixing.
+// Recreate a deleted deck (that history still references) under its rival, using
+// the ORIGINAL deckId so all orphaned games resolve again. The user supplies the
+// commander name (+ optional partner) since that data was lost with the deck.
+function recreateOrphanDeck(rivalId, deckId) {
+  const rival = [...(data.opponents||[]), ...(data.retiredOpponents||[])].find(r=>r.id===rivalId);
+  if (!rival) { showToast('Rival not found'); return; }
+  const nGames = (data.history||[]).filter(h => (h.opponents||[]).some(o=>o.playerId===rivalId && o.deckId===deckId)).length;
+  const body = `<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Recreate the deleted deck under <b>${esc(rival.name)}</b>. This restores its link to ${nGames} game${nGames!==1?'s':''}. Enter the commander (and partner, if any).</div>
+    <input id="reo-name" placeholder="Commander" style="width:100%;margin-bottom:8px;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:14px">
+    <input id="reo-partner" placeholder="Partner (optional)" style="width:100%;padding:9px 10px;background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:14px">`;
+  showModal('Recreate deck', body, () => {
+    const name = (document.getElementById('reo-name')?.value||'').trim();
+    const partner = (document.getElementById('reo-partner')?.value||'').trim();
+    if (!name) { showToast('Commander name required'); return; }
+    if (!rival.decks) rival.decks = [];
+    if (rival.decks.some(d=>d.id===deckId)) { showToast('Deck already exists'); return; }
+    const deck = { id: deckId, name };
+    if (partner) deck.partner = partner;
+    rival.decks.push(deck);
+    fetchMissingArt(partner ? [name, partner] : [name]);
+    scheduleSync();
+    renderRivals();
+    showToast(`Recreated ${partner?name+' // '+partner:name} under ${rival.name} — ${nGames} game${nGames!==1?'s':''} reconnected`);
+    setTimeout(()=>findSuspiciousPairings(), 100); // refresh the diagnostic
+  });
+}
+
 function findSuspiciousPairings() {
   const out = document.getElementById('suspicious-results');
   const rivalById = {};
@@ -2340,8 +2367,9 @@ function findSuspiciousPairings() {
   const rowHtml = (g, alarm) => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px solid var(--border);font-size:12px">
       <div style="flex:1;min-width:0">
         <div><b>${esc(g.playerName)}</b> → <b>${esc(g.deckLabel)}</b>${g.owner?` <span style="color:var(--text3)">(${esc(g.owner)}'s deck)</span>`:''}</div>
-        <div style="color:${alarm?'var(--warn,#e0a030)':'var(--text3)'};font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists — needs fixing':' · cross-owned (ok if intentional)'}</div>
+        <div style="color:${alarm?'var(--warn,#e0a030)':'var(--text3)'};font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists — recreate it or open to reassign':' · cross-owned (ok if intentional)'}</div>
       </div>
+      ${g.unresolved?`<button onclick="recreateOrphanDeck('${g.playerId}','${g.deckId}')" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--warn,#e0a030);cursor:pointer;font-size:11px">Recreate deck</button>`:''}
       <button onclick="showPage('rivals');setTimeout(()=>openRivalHistory('${g.playerId}','${g.deckId||''}'),80)" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:11px">Open</button>
     </div>`;
   let outHtml = '';
