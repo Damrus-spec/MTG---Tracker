@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.86';
+const APP_VERSION = '2026.07.01.87';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2322,26 +2322,40 @@ function findSuspiciousPairings() {
     });
   });
   if (!rows.length) {
-    out.innerHTML = '<div style="font-size:12px;color:var(--text2)">No suspicious attributions found — every opponent deck belongs to the tagged player.</div>';
-    showToast('No suspicious attributions found');
+    out.innerHTML = '<div style="font-size:12px;color:var(--text2)">All clear — every opponent deck belongs to the tagged player, no broken references.</div>';
+    showToast('All clear');
     return;
   }
-  // Group identical (player, deck, owner) combos with a count + a sample opener.
-  const groups = {};
-  for (const r of rows) {
-    const k = `${r.playerId}|${r.deckLabel}|${r.owner||''}`;
-    (groups[k] = groups[k] || { ...r, count:0 }).count++;
-  }
-  const list = Object.values(groups).sort((a,b)=>b.count-a.count);
-  out.innerHTML = `<div style="font-size:12px;color:var(--warn,#e0a030);margin-bottom:8px">${rows.length} suspicious tag${rows.length!==1?'s':''} across ${list.length} pairing${list.length!==1?'s':''}:</div>` +
-    list.map(g => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px solid var(--border);font-size:12px">
+  // Split into ORPHANED (deck no longer exists — a real broken reference) and
+  // CROSS-OWNED (deck exists but belongs to someone else — usually intentional,
+  // e.g. a rival piloting your deck in a 1v1).
+  const orphanRows = rows.filter(r => r.unresolved);
+  const crossRows  = rows.filter(r => !r.unresolved);
+  const groupBy = (arr) => {
+    const g = {};
+    for (const r of arr) { const k = `${r.playerId}|${r.deckId}`; (g[k] = g[k] || { ...r, count:0 }).count++; }
+    return Object.values(g).sort((a,b)=>b.count-a.count);
+  };
+  const oList = groupBy(orphanRows), cList = groupBy(crossRows);
+  const rowHtml = (g, alarm) => `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px solid var(--border);font-size:12px">
       <div style="flex:1;min-width:0">
-        <div><b>${esc(g.playerName)}</b> tagged with <b>${esc(g.deckLabel)}</b>${g.owner?` <span style="color:var(--text3)">(owned by ${esc(g.owner)})</span>`:''}</div>
-        <div style="color:var(--text3);font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists':''}</div>
+        <div><b>${esc(g.playerName)}</b> → <b>${esc(g.deckLabel)}</b>${g.owner?` <span style="color:var(--text3)">(${esc(g.owner)}'s deck)</span>`:''}</div>
+        <div style="color:${alarm?'var(--warn,#e0a030)':'var(--text3)'};font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists — needs fixing':' · cross-owned (ok if intentional)'}</div>
       </div>
       <button onclick="showPage('rivals');setTimeout(()=>openRivalHistory('${g.playerId}','${g.deckId||''}'),80)" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:11px">Open</button>
-    </div>`).join('');
-  showToast(`Found ${rows.length} suspicious tag${rows.length!==1?'s':''}`);
+    </div>`;
+  let outHtml = '';
+  if (oList.length) {
+    outHtml += `<div style="font-size:12px;color:var(--warn,#e0a030);font-weight:600;margin-bottom:6px">⚠ ${orphanRows.length} broken reference${orphanRows.length!==1?'s':''} (deck no longer exists):</div>` +
+      oList.map(g=>rowHtml(g,true)).join('');
+  }
+  if (cList.length) {
+    outHtml += `<div style="font-size:12px;color:var(--text2);margin:12px 0 6px">${crossRows.length} cross-owned tag${crossRows.length!==1?'s':''} — a rival playing someone else's deck. Fine if you meant it (e.g. they borrowed your deck in a 1v1); listed so you can double-check:</div>` +
+      cList.map(g=>rowHtml(g,false)).join('');
+  }
+  out.innerHTML = outHtml;
+  if (orphanRows.length) showToast(`${orphanRows.length} broken reference${orphanRows.length!==1?'s':''} need fixing`);
+  else showToast('No broken references — cross-owned games listed for review');
 }
 
 async function syncDrive(silent) {
