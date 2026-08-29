@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.90';
+const APP_VERSION = '2026.07.01.91';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -3454,14 +3454,23 @@ function renderScore() { scheduleCropApply();
                 return [0,1,2].map(i=>{
                   // Prefer an explicit pending selection; else the preferred-rival default
                   const sel = (pend[i] && pend[i].playerId) ? pend[i] : (pref[i] || null);
-                  const selPlayer = sel?.playerId || '';
-                  const selDeck   = sel?.deckId || '';
+                  let selPlayer = sel?.playerId || '';
+                  // Guard: only treat the player as set if it resolves to a REAL rival
+                  // currently in the list. A stale/deleted id would otherwise leave the
+                  // player select on "— Player —" while the deck still shows (the bug).
                   const rival = selPlayer ? resolveRival(selPlayer) : null;
+                  if (!rival || !(data.opponents||[]).some(r=>r.id===selPlayer)) selPlayer = '';
+                  // Deck can never show without a valid player.
+                  const selDeck = selPlayer ? (sel?.deckId || '') : '';
                   const activeDecks = (rival?.decks||[]).filter(d=>!d.retired);
                   // Seed pendingOpponents so submit captures the default selection
-                  if (sel && selPlayer) {
+                  if (selPlayer) {
                     if (!pendingOpponents[sn]) pendingOpponents[sn] = [{},{},{}];
                     pendingOpponents[sn][i] = { playerId: selPlayer, deckId: selDeck };
+                  } else if (pend[i] && (pend[i].playerId || pend[i].deckId)) {
+                    // Normalize away a stale/half-filled slot so it doesn't linger.
+                    if (!pendingOpponents[sn]) pendingOpponents[sn] = [{},{},{}];
+                    pendingOpponents[sn][i] = {};
                   }
                   const isWinner = (pending[sn] && pending[sn].winnerSlot === i);
                   return `
