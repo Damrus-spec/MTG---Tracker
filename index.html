@@ -1106,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.81';
+const APP_VERSION = '2026.07.01.82';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8160,6 +8160,7 @@ const pendingOpponents = {};
 // rivals collapsed by the user (Set of rival IDs)
 const collapsedRivals = new Set();
 let _selfCollapsedInit = false; // self group starts collapsed on first render
+let _rivalsCollapsedInit = false; // ALL rival groups start collapsed on first render
 const collapsedDeckGroups = new Set();
 function toggleDeckGroup(status) {
   if (collapsedDeckGroups.has(status)) collapsedDeckGroups.delete(status);
@@ -8793,6 +8794,13 @@ function rivalStats() {
 
 function renderRivals() { scheduleCropApply();
   const allRivals   = [...(data.opponents||[]), ...(data.retiredOpponents||[])];
+  // Default: everything collapsed on first render of the session.
+  if (!_rivalsCollapsedInit) {
+    for (const r of allRivals) collapsedRivals.add(r.id);
+    if (selfRivalEnabled()) collapsedRivals.add(SELF_RIVAL_ID);
+    _rivalsCollapsedInit = true;
+    _selfCollapsedInit = true; // self group is covered above; skip its separate seed
+  }
   const stats = rivalStats();
 
   // Summary
