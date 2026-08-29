@@ -8982,7 +8982,7 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
           <div style="font-size:13px;font-weight:600;margin-bottom:3px">${partnerNameHtml(label)}</div>
           <div style="display:flex;align-items:center;gap:8px;padding:0 4px;flex-wrap:wrap">
             <span class="deck-wr ${dwrCls}" style="font-size:11px">${dwr!=null?dwr+'%':'—'}</span>
-            <span style="font-size:11px;color:var(--text3)">${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span>
+            <button onclick="openRivalHistory('${r.id}','${gid}')" title="See these games (open to view or fix them)" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;display:inline-flex;align-items:center;gap:4px"><span>${ds.total} game${ds.total!==1?'s':''} · ${ds.wins}W ${ds.losses}L</span><i class="ti ti-history" style="font-size:12px"></i></button>
             ${owner?`<span style="font-size:10px;color:var(--text3)">· from ${esc(owner)}</span>`:''}
           </div>
         </div>
