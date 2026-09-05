@@ -635,9 +635,9 @@ input.setting-input[type="number"]{width:90px}
   <div id="wants-deck" style="display:none">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:9px;flex-wrap:wrap">
       <div style="display:flex;gap:12px;font-size:11px;color:var(--text2);flex:1;flex-wrap:wrap">
-        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:3px;vertical-align:middle"></span>Buy</span>
-        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block;margin-right:3px;vertical-align:middle"></span>Considering</span>
-        <span><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:3px;vertical-align:middle"></span>Owned, not in</span>
+        <label title="Make Buy the default for the Add button" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer"><span><span style="width:7px;height:7px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:3px;vertical-align:middle"></span>Buy</span><input type="radio" name="wants-add-default" value="buy" onchange="setWantsAddDefault('buy')" style="accent-color:var(--blue);margin:0;cursor:pointer"></label>
+        <label title="Make Considering the default for the Add button" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer"><span><span style="width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block;margin-right:3px;vertical-align:middle"></span>Considering</span><input type="radio" name="wants-add-default" value="considering" onchange="setWantsAddDefault('considering')" style="accent-color:var(--amber);margin:0;cursor:pointer"></label>
+        <label title="Make Owned the default for the Add button" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer"><span><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:3px;vertical-align:middle"></span>Owned, not in</span><input type="radio" name="wants-add-default" value="owned" onchange="setWantsAddDefault('owned')" style="accent-color:var(--green);margin:0;cursor:pointer"></label>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button title="Expand all decks" onclick="setAllDeckSections(true)" style="padding:4px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;font-size:11px;cursor:pointer;color:var(--text2);white-space:nowrap"><i class="ti ti-chevrons-down"></i> All</button>
@@ -1112,7 +1112,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.95';
+const APP_VERSION = '2026.07.01.96';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5311,6 +5311,9 @@ function copyBuyList() {
 function renderDeckWants() {
   // Sync exclusion set from persisted data
   deckBuylistExcluded = new Set(data.buylistExcluded || []);
+  // Reflect the saved default-status choice in the legend radios.
+  const _wd = wantsAddDefault();
+  document.querySelectorAll('input[name="wants-add-default"]').forEach(r => { r.checked = (r.value === _wd); });
   const dw = data.deckWants||{};
   const cd = data.colorDecks||[];
   // Sort by display name within each group
@@ -5517,10 +5520,10 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
             <input type="text" placeholder="Replaces (OUT)" id="aout-${key}" style="margin:0">
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-            <div class="add-status-row" id="astatus-${key}">
-              <button class="add-mini-pill active" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
-              <button class="add-mini-pill" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Maybe</button>
-              <button class="add-mini-pill" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Owned</button>
+            <div class="add-status-row" id="astatus-${key}" data-status="${wantsAddDefault()}">
+              <button class="add-mini-pill${wantsAddDefault()==='buy'?' active':''}" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
+              <button class="add-mini-pill${wantsAddDefault()==='considering'?' active':''}" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Maybe</button>
+              <button class="add-mini-pill${wantsAddDefault()==='owned'?' active':''}" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Owned</button>
             </div>
             <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
             <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">bulk import</button>
@@ -5682,12 +5685,26 @@ function showDeckUpdatedToast(uuid) {
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 }
+// Global default status for the 'Add' button in the By-deck wants view. Persisted
+// so it sticks across sessions. Checkmarks under the legend set it.
+function wantsAddDefault() { return cfg().wantsAddDefault || 'buy'; }
+function setWantsAddDefault(status) {
+  saveStrSetting('wantsAddDefault', status);
+  // Re-point any open add-rows that are still on their default (not manually set).
+  document.querySelectorAll('.add-status-row').forEach(row => {
+    if (row.dataset.userSet) return; // respect a manual per-row choice
+    row.dataset.status = status;
+    row.querySelectorAll('.add-mini-pill').forEach(b => b.classList.toggle('active', b.dataset.s === status));
+  });
+  showToast(`New cards default to "${status==='considering'?'Maybe':status.charAt(0).toUpperCase()+status.slice(1)}"`);
+}
 function setAddStatus(key, status, btn) {
   const row=document.getElementById('astatus-'+key);
   if(!row) return;
   row.querySelectorAll('.add-mini-pill').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   row.dataset.status=status;
+  row.dataset.userSet='1'; // manual choice — don't let the global default override
 }
 function toggleBulkImport(key) {
   const single = document.getElementById('single-form-'+key);
@@ -5775,7 +5792,7 @@ function addWantCard(deck, key) {
   const inCard=(inEl?.value||'').trim();
   const outCard=(outEl?.value||'').trim();
   // Read status from dataset (set by setAddStatus) or from active pill text
-  let status = statusRow?.dataset?.status || 'buy';
+  let status = statusRow?.dataset?.status || wantsAddDefault();
   if (!statusRow?.dataset?.status) {
     const activePill = statusRow?.querySelector('.add-mini-pill.active');
     const t = (activePill?.textContent||'').trim().toLowerCase();
