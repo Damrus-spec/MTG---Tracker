@@ -1085,7 +1085,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.100';
+const APP_VERSION = '2026.07.01.101';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -9307,6 +9307,12 @@ window.onerror = function(msg, src, line) {
 loadLocal();
 renderAll();
 updateSignInBtn();
+// Offline support: the service worker serves the cached app when there's no signal
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => dbgLog('Service worker failed', e));
+// Back online: re-check Drive (the stamp check decides merge vs upload) so offline games go up
+window.addEventListener('online', () => {
+  if (accessToken && !authFailed) { lastFetchTime = 0; loadFromDrive(); }
+});
 // First, capture a token if we just came back from a redirect sign-in.
 if (captureRedirectToken()) {
   // Token captured + loadFromDrive already kicked off inside captureRedirectToken
