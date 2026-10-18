@@ -1085,7 +1085,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.101';
+const APP_VERSION = '2026.07.01.102';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1980,7 +1980,7 @@ function doSignOut() {
   hasFetchedFromDrive = false;
   // Local data is wiped below; a stale unsynced flag/stamp would otherwise treat the
   // empty state as "edits" and push it over the next account's Drive.
-  clearTimeout(syncTimer); setDirty(false); setSyncedStamp(null);
+  clearTimeout(syncTimer); setDirty(false); setSyncedStamp(null); saveSyncBase(null);
   try {
     localStorage.removeItem('mtg_token');
     localStorage.removeItem('mtg_token_exp');
@@ -2464,6 +2464,7 @@ async function syncDrive(silent) {
     await resolveFileIds(folderId);
 
     const stamp = genUUID(); // identifies exactly this write; other devices compare it to detect change
+    const written = syncSnapshot(data); // becomes the merge base once all three files are saved
     const decksPayload = {
       _v: localVersion,
       _sid: stamp,
@@ -2492,6 +2493,7 @@ async function syncDrive(silent) {
 
     if (!newDecksId || !newWantsId || !newListsId) throw new Error('write failed');
     ok = true;
+    saveSyncBase(written);
     if (!dirty) setDirty(false); // no edits arrived mid-sync: Drive matches local
     setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
   } catch(e){ dirty = true; dbgLog('Drive save failed', e); setSyncStatus('red','Not saved to Drive — kept locally, will retry'); }
@@ -2501,29 +2503,99 @@ async function syncDrive(silent) {
   if (ok && dirty) { clearTimeout(syncTimer); syncTimer = setTimeout(()=>syncDrive(true), 2000); }
 }
 
+// ── Three-way merge for when this device and Drive both changed ──
+// "Base" is the Drive state this device last loaded or wrote (kept in IndexedDB).
+// Per item: whichever side changed it since base wins; if both changed it, this
+// device wins. Deletions propagate only when the other side left the item untouched.
+// Without a base (first conflict after upgrading) it degrades to a union where
+// nothing is deleted and local wins clashes.
+const SYNC_BASE_KEY = 'syncBaseV1';
+const SYNC_FIELDS = ['settings','colorDecks','history','buylistExcluded','opponents','retiredOpponents','deckWants','deckLists'];
+function syncSnapshot(src) {
+  const o = {}; SYNC_FIELDS.forEach(k => o[k] = src[k]);
+  return JSON.parse(JSON.stringify(o, persistReplacer));
+}
+function saveSyncBase(snap) { bulkIdbSet(SYNC_BASE_KEY, snap); }
+function jeq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function pick3(b, l, r) { return jeq(l, r) ? l : jeq(b, l) ? r : l; }
+// Item present on one side only: keep it unless it is an unchanged base item the other side deleted.
+function keepOneSided(b, x) { return b === undefined || !jeq(b, x); }
+// Arrays of records with an id field (history, decks, rivals). Local order first, then remote additions.
+function mergeById(bArr, lArr, rArr, key, mergeItem = pick3) {
+  const idx = a => new Map((a||[]).filter(x => x && x[key] != null).map(x => [x[key], x]));
+  const B = idx(bArr), R = idx(rArr), out = [], seen = new Set();
+  for (const l of (lArr||[])) {
+    if (!l || l[key] == null) { out.push(l); continue; } // legacy record without id: keep local's
+    const k = l[key]; seen.add(k);
+    const b = B.get(k), r = R.get(k);
+    if (r !== undefined) out.push(mergeItem(b, l, r));
+    else if (keepOneSided(b, l)) out.push(l);
+  }
+  for (const [k, r] of R) if (!seen.has(k) && keepOneSided(B.get(k), r)) out.push(r);
+  return out;
+}
+// Plain objects keyed by id/name (settings, deckWants, deckLists)
+function mergeObj(b, l, r, mergeVal = pick3) {
+  b = b || {}; l = l || {}; r = r || {};
+  const out = {};
+  for (const k of new Set([...Object.keys(l), ...Object.keys(r)])) {
+    const bv = b[k], lv = l[k], rv = r[k];
+    if (lv !== undefined && rv !== undefined) out[k] = mergeVal(bv, lv, rv);
+    else if (lv !== undefined) { if (keepOneSided(bv, lv)) out[k] = lv; }
+    else if (keepOneSided(bv, rv)) out[k] = rv;
+  }
+  return out;
+}
+// A rival: fields merged one by one, its decks merged by deck id
+function mergeRival(b, l, r) {
+  const o = mergeObj(b, l, r);
+  o.decks = mergeById(b?.decks, l.decks, r.decks, 'id');
+  return o;
+}
+function mergeSynced(base, local, remote) {
+  const asSet = a => Object.fromEntries((a||[]).map(x => [x, true]));
+  return {
+    settings:         mergeObj(base.settings, local.settings, remote.settings),
+    colorDecks:       mergeById(base.colorDecks, local.colorDecks, remote.colorDecks, 'uuid'),
+    history:          mergeById(base.history, local.history, remote.history, 'id'),
+    opponents:        mergeById(base.opponents, local.opponents, remote.opponents, 'id', mergeRival),
+    retiredOpponents: mergeById(base.retiredOpponents, local.retiredOpponents, remote.retiredOpponents, 'id', mergeRival),
+    deckWants:        mergeObj(base.deckWants, local.deckWants, remote.deckWants),
+    deckLists:        mergeObj(base.deckLists, local.deckLists, remote.deckLists),
+    buylistExcluded:  Object.keys(mergeObj(asSet(base.buylistExcluded), asSet(local.buylistExcluded), asSet(remote.buylistExcluded))),
+  };
+}
+function remoteSynced(decks, wants, lists) {
+  return {
+    settings: decks.settings || {}, colorDecks: decks.colorDecks || [], history: decks.history || [],
+    buylistExcluded: decks.buylistExcluded || [], opponents: decks.opponents || [],
+    retiredOpponents: decks.retiredOpponents || [],
+    deckWants: (wants && wants.deckWants) || {}, deckLists: (lists && lists.deckLists) || {},
+  };
+}
+
 // Decide what a fresh Drive read means for local data. Drive changed iff its stamp
 // differs from the one this device last loaded/wrote; local changed iff dirty.
-// Returns 'took' (Drive replaced local), 'kept' (local kept, needs upload) or 'none'.
-function applyDriveFiles(decks, wants, lists) {
+// Returns 'took' (Drive replaced local), 'kept' (local kept/merged, needs upload) or 'none'.
+async function applyDriveFiles(decks, wants, lists) {
   const driveStamp = decks._sid || ('v' + (decks._v || 0)); // files written by older app versions have no _sid
   if (driveStamp === syncedStamp) return dirty ? 'kept' : 'none';
   if (dirty) {
-    // Both sides changed. Keep local edits, but pull in games logged elsewhere so they aren't lost.
-    // shortcut: only history is merged (by entry id); other-device deck/rival/wants edits lose to local. Upgrade to a per-collection merge if that bites.
-    const have = new Set((data.history||[]).map(h => h.id).filter(Boolean));
-    const extra = (decks.history||[]).filter(h => h.id && !have.has(h.id));
-    if (extra.length) {
-      data.history = (data.history||[]).concat(extra);
-      rebuildAllScoresFromHistory();
-      saveLocal(); renderAll();
-    }
-    dbgLog(`Sync conflict: Drive and this device both changed — kept local edits, merged ${extra.length} game(s) from Drive`);
-    showToast(extra.length ? `Merged ${extra.length} game${extra.length!==1?'s':''} from another device` : 'Kept your unsynced changes');
+    // Both sides changed: three-way merge against the last synced state, then upload the result.
+    const base = (await bulkIdbGet(SYNC_BASE_KEY)) || {};
+    const before = (data.history||[]).length;
+    Object.assign(data, mergeSynced(base, syncSnapshot(data), remoteSynced(decks, wants, lists)));
+    rebuildAllScoresFromHistory();
+    saveLocal(); renderAll();
+    const gained = (data.history||[]).length - before;
+    dbgLog(`Sync merge: combined changes from Drive and this device (${base.history ? '3-way' : 'no base: union'}; games ${gained>=0?'+':''}${gained})`);
+    showToast('Merged changes from another device');
     return 'kept';
   }
   mergeFilesIntoData(decks, wants, lists);
   localVersion = data._v || 0;
   setSyncedStamp(driveStamp);
+  saveSyncBase(syncSnapshot(data));
   return 'took';
 }
 
@@ -2589,7 +2661,7 @@ async function loadFromDrive(force) {
       if (!driveReadsOk(decks, wants, lists)) return;
       if (userIsEditing) return;
       // 'none' skips the re-render to avoid art flicker
-      finishDriveLoad(applyDriveFiles(decks, wants, lists), '');
+      finishDriveLoad(await applyDriveFiles(decks, wants, lists), '');
     } catch(e) { dbgLog('Background Drive fetch failed', e); }
     return;
   }
@@ -2621,6 +2693,7 @@ async function loadFromDrive(force) {
       );
       localVersion = data._v || 0;
       setSyncedStamp('v' + localVersion);
+      saveSyncBase(syncSnapshot(data));
       result = 'took';
     } else {
       await resolveFileIds(folderId);
@@ -2637,7 +2710,7 @@ async function loadFromDrive(force) {
         driveListsId ? driveReadFile(driveListsId) : null
       ]);
       if (!driveReadsOk(decks, wants, lists)) { setSyncStatus('red','Load error — using local data'); return; }
-      result = applyDriveFiles(decks, wants, lists);
+      result = await applyDriveFiles(decks, wants, lists);
     }
     finishDriveLoad(result, legacy ? 'Migrated & loaded ' : 'Loaded ');
   } catch(e){ dbgLog('Drive load failed', e); setSyncStatus('red','Offline — using local'); }
