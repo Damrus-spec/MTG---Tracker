@@ -954,13 +954,13 @@ input.setting-input[type="number"]{width:90px}
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="-150" max="250" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-25" max="125" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
         </div>
-        <input id="ap-y" type="range" min="-150" max="250" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-y" type="range" min="-25" max="125" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -1150,7 +1150,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.115';
+const APP_VERSION = '2026.07.01.116';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1632,16 +1632,18 @@ function posToObjectPos(pos) {
   return [isNaN(ox)?50:ox, isNaN(oy)?0:oy];
 }
 
-// Render/editor crop clamp bounds. Single source of truth so the reposition
-// preview frame and the actual render clamp identically (WYSIWYG). The wide
-// [-2,2] range lets art be pushed well past the cell edge; the old "cover always
-// stays filled" [0,1] guarantee is intentionally gone (pushing far exposes bg).
-const CROP_CLAMP_MIN = -2, CROP_CLAMP_MAX = 2;
+// Render/editor crop clamp. Single source of truth so the reposition preview
+// frame and the actual render clamp identically (WYSIWYG). Every cell may push
+// past the art edge by the SAME amount, CROP_OVERSHOOT of the art's size (the
+// old fixed object-position clamp [-2,2] let narrow cells travel much further
+// than wide ones: 2*(1-win) of the art).
+const CROP_OVERSHOOT = 0.25;
 // P and returned value are 0..1 fractions; win is the visible-window fraction.
 function clampObjectPos(P, win) {
   if (win >= 1) return 0.5;
   const op = (P - win/2) / (1 - win);
-  return Math.max(CROP_CLAMP_MIN, Math.min(CROP_CLAMP_MAX, op));
+  const m = CROP_OVERSHOOT / (1 - win); // object-position units for the shared overshoot
+  return Math.max(-m, Math.min(1 + m, op));
 }
 
 // Centered-crop model: stored (px,py) = the art point to CENTER in the cell.
@@ -6604,12 +6606,16 @@ function artPickerUpdatePos() {
   // their labels have room; the frames show what each cover-cropped cell displays.
   if (img && bg && img.complete && img.naturalWidth && img.clientWidth) {
     const fw = bg.clientWidth, fh = bg.clientHeight;
-    const iw = img.clientWidth, ih = img.clientHeight;
+    // Shrink the art so a frame pushed the full CROP_OVERSHOOT past any edge stays
+    // inside the box (visible, not clipped), with 16px left for the labels.
+    const shrink = 1 + 2 * CROP_OVERSHOOT;
+    const iw = (fw - 32) / shrink, ih = (fh - 32) / shrink;
+    Object.assign(img.style, { width: iw + 'px', height: ih + 'px', left: (fw - iw) / 2 + 'px', top: (fh - ih) / 2 + 'px' });
     const artAR = img.naturalWidth / img.naturalHeight;
     let dispW, dispH;
     if (artAR > iw / ih) { dispW = iw; dispH = iw / artAR; }
     else                 { dispH = ih; dispW = ih * artAR; }
-    const dispL = img.offsetLeft + (iw - dispW) / 2, dispT = img.offsetTop + (ih - dispH) / 2;
+    const dispL = (fw - dispW) / 2, dispT = (fh - dispH) / 2; // art is centred in the box
     _apDispW = dispW; _apDispH = dispH;
 
     const FRAMES = [['deck', (_artPickerDeckUuid && _deckCellAR[_artPickerDeckUuid]) || CELL_AR_DECK, 'tl'], ['score', CELL_AR_SCORE, 'tr'], ['sq', CELL_AR_SQ, 'br']]
@@ -6622,9 +6628,9 @@ function artPickerUpdatePos() {
       const wins = FRAMES.map(f => f.win[i]).filter(w => w < 1);
       if (sl) { sl.disabled = !wins.length; sl.style.opacity = wins.length ? '' : '.4'; sl.title = wins.length ? '' : 'Zoom in to move the art this way'; }
       if (!wins.length) return v;
-      // inverse of clampObjectPos: centre P where object-position hits the clamp
-      const lo = Math.min(...wins.map(w => (CROP_CLAMP_MIN * (1 - w) + w / 2) * 100));
-      const hi = Math.max(...wins.map(w => (CROP_CLAMP_MAX * (1 - w) + w / 2) * 100));
+      // inverse of clampObjectPos: centre P where a frame edge is CROP_OVERSHOOT past the art edge
+      const lo = Math.min(...wins.map(w => (w / 2 - CROP_OVERSHOOT) * 100));
+      const hi = Math.max(...wins.map(w => (1 + CROP_OVERSHOOT - w / 2) * 100));
       v = Math.max(lo, Math.min(hi, v));
       // Snap the main frame flush to an art edge, or centred, when close.
       if (snap && primary.win[i] < 1) {
