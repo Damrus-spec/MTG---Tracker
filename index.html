@@ -6192,7 +6192,7 @@ function populateColorDropdown(selectId, selectedValue) {
     COLOR_OPTIONS.map(c=>`<option value="${c}"${c===selectedValue?' selected':''}>${c}</option>`).join('');
 }
 
-// "24 owned · 3 building · 23/32 color combos covered · €1234.56 trend total".
+// "24 owned · 3 building · 23/32 color combos covered", then "Total value €1234.56 trend".
 // The total adds up the stored decklists of Owned decks; "+" when a card has no
 // price or an owned deck has no list.
 function renderDeckMgrSummary() {
@@ -6207,8 +6207,9 @@ function renderDeckMgrSummary() {
   let total = 0, missing = 0, noList = 0;
   for (const d of ownedDecks) { const t = deckListTotal(d.uuid); total += t.total; missing += t.missing; if (!t.hasList) noList++; }
   const priced = ownedDecks.length > noList;
-  el.textContent = `${ownedDecks.length} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`
-    + (priced ? ` · ${priceSym()}${total.toFixed(2)}${(missing || noList) ? '+' : ''} ${priceTypeLabel()} total` : '');
+  // All values are numbers or fixed labels, so innerHTML is safe here.
+  el.innerHTML = `${ownedDecks.length} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`
+    + (priced ? `<div style="margin-top:2px">Total value <b style="color:var(--text)">${priceSym()}${total.toFixed(2)}${(missing || noList) ? '+' : ''}</b> <span style="color:var(--text3)">${priceTypeLabel()}</span></div>` : '');
   el.title = priced ? [noList ? `${noList} owned deck${noList!==1?'s':''} without a decklist` : '', missing ? `${missing} card${missing!==1?'s':''} without a price` : ''].filter(Boolean).join(' · ') || 'Every owned deck priced' : '';
 }
 
