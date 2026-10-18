@@ -1131,7 +1131,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.107';
+const APP_VERSION = '2026.07.01.108';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7262,6 +7262,15 @@ function setDlView(key, val) {
 function bulkReady() { return !!(_bulkTypeMap && Object.keys(_bulkTypeMap).length); }
 function cardRec(name) { return (_bulkTypeMap && _bulkTypeMap[scryfallKey(name)]) || null; }
 function cardImg(name) { return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`; }
+// Pop-up image from the SAME printing the app shows as art: the commander/partner uses the deck's
+// art (override or cached), other cards the cached art. An art_crop URL becomes that printing's full card.
+function cardImgFor(name, uuid) {
+  const d = deckByUuid(uuid), k = scryfallKey(name);
+  let art = artCache[k];
+  if (d && scryfallKey(d.name || '') === k) art = d.artOverride || art;
+  else if (d && d.partner && scryfallKey(d.partner) === k) art = d.partnerArtOverride || art;
+  return (/^https:\/\/cards\.scryfall\.io\/art_crop\//.test(art || '') && art.replace('/art_crop/', '/normal/')) || cardImg(name);
+}
 // "{2}{W}{W}" -> Scryfall mana symbol images ({W/U} -> WU.svg)
 function manaCostHtml(cost) {
   return ((cost || '').match(/\{[^}]+\}/g) || []).map(sym =>
@@ -7327,7 +7336,7 @@ function openCardPopup(key, i) {
     <div class="cp-nav"><button onclick="openCardPopup('${k}',${i-1})" aria-label="Previous card">‹</button>
       <span style="font-size:12px;color:var(--text3)">${i+1} / ${order.length}</span>
       <button onclick="openCardPopup('${k}',${i+1})" aria-label="Next card">›</button></div>
-    ${it.img || !isToken ? `<img class="cp-img" src="${esc(it.img || cardImg(it.name))}" alt="${esc(it.name)}">` : ''}
+    ${it.img || !isToken ? `<img class="cp-img" src="${esc(it.img || cardImgFor(it.name, key))}" alt="${esc(it.name)}">` : ''}
     ${priceLine}
     <div style="text-align:center;font-size:12px;color:var(--text2)">${rec && rec.mc ? manaCostHtml(rec.mc) + ' · ' : ''}${esc(it.sub || '')}</div>
   </div>`;
