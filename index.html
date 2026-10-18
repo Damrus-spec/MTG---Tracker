@@ -608,7 +608,9 @@ input.setting-input[type="number"]{width:90px}
   <!-- BUY LIST -->
   <div id="wants-buy">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button class="buy-copy-btn" title="Copy all buy list items to clipboard" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy full list</button>
+      <button class="buy-copy-btn" title="Copy the buy list items shown to clipboard" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy list</button>
+      <input id="buy-max" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Max price" title="Only show cards up to this price (empty = all)" oninput="setBuyMax(this.value)"
+        style="width:92px;flex-shrink:0;padding:10px 8px;font-size:13px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
       <div id="buy-total-price" style="font-size:14px;font-weight:600;color:var(--text);flex-shrink:0;padding:10px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm)">€—</div>
     </div>
     <div class="card"><div id="buy-list"></div></div>
@@ -1101,7 +1103,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.103';
+const APP_VERSION = '2026.07.01.104';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5350,8 +5352,40 @@ function priceLabel(name) {
   return `<span class="buy-item-price">${sym}${parseFloat(val).toFixed(2)}</span>`;
 }
 
+// Price of one copy for the chosen seller: number, null (Scryfall has no price) or undefined (not fetched yet)
+function cardPrice(name) {
+  const p = priceCache[(name||'').toLowerCase()];
+  if (!p) return undefined;
+  const v = parseFloat(cfg().cardSeller === 'tcgplayer' ? p.usd : p.eur);
+  return isNaN(v) ? null : v;
+}
+function priceSym() { return cfg().cardSeller === 'tcgplayer' ? '$' : '€'; }
+
+// Buy-list max-price filter: a per-device view preference, so plain localStorage
+let buyMax = NaN;
+try { buyMax = parseFloat(localStorage.getItem('mtg_buy_max')); } catch(e) {}
+function setBuyMax(v) {
+  buyMax = parseFloat(v);
+  try { if (isNaN(buyMax)) localStorage.removeItem('mtg_buy_max'); else localStorage.setItem('mtg_buy_max', String(buyMax)); } catch(e) {}
+  applyBuyFilter();
+}
+// Cards without a known price stay visible: hiding them would hide unknowns, not cheap cards
+function buyItemShown(name) {
+  if (isNaN(buyMax)) return true;
+  const v = cardPrice(name);
+  return v == null || v <= buyMax;
+}
+function applyBuyFilter() {
+  document.querySelectorAll('.buy-item-row').forEach(row => {
+    row.style.display = buyItemShown(row.dataset.name) ? '' : 'none';
+  });
+  updateBuyTotal();
+}
+
 function renderBuyList() {
   const items=buildBuyList();
+  const maxEl = document.getElementById('buy-max');
+  if (maxEl && document.activeElement !== maxEl) maxEl.value = isNaN(buyMax) ? '' : buyMax;
   if(!items.length){
     document.getElementById('buy-list').innerHTML='<div class="empty">No cards to buy — add cards with Buy status in the By deck tab.</div>';
     return;
@@ -5388,6 +5422,7 @@ function renderBuyList() {
     </div>`;
   }).join('');
   fetchMissingArt(artNames);
+  applyBuyFilter();
   fetchMissingPrices(items.map(i=>i.name));
   updateBuyTotal();
 }
@@ -5431,23 +5466,25 @@ function renderBuyPrices() {
     const priceEl = row.querySelector('.buy-item-price');
     if (priceEl && row.dataset.name) priceEl.outerHTML = priceLabel(row.dataset.name);
   });
-  updateBuyTotal();
+  applyBuyFilter(); // newly known prices can move cards past the max
 }
 
 function updateBuyTotal() {
-  const items = buildBuyList();
-  const seller = cfg().cardSeller||'cardmarket';
-  const sym = seller==='tcgplayer'?'$':'€';
+  const all = buildBuyList();
+  const items = all.filter(i => buyItemShown(i.name));
+  const sym = priceSym();
   let total = 0;
   let allLoaded = true;
   for (const item of items) {
-    const p = priceCache[item.name.toLowerCase()];
-    if (!p) { allLoaded=false; continue; }
-    const val = parseFloat(seller==='tcgplayer'?p.usd:p.eur)||0;
-    total += val * item.qty;
+    const v = cardPrice(item.name);
+    if (v === undefined) { allLoaded=false; continue; }
+    total += (v||0) * item.qty;
   }
   const el = document.getElementById('buy-total-price');
-  if (el) el.textContent = allLoaded ? `${sym}${total.toFixed(2)}` : `${sym}${total.toFixed(2)}+`;
+  if (el) {
+    el.textContent = allLoaded ? `${sym}${total.toFixed(2)}` : `${sym}${total.toFixed(2)}+`;
+    el.title = items.length < all.length ? `${items.length} of ${all.length} cards (max ${sym}${buyMax})` : '';
+  }
 }
 
 function removeBuyItem(name) {
@@ -5475,7 +5512,7 @@ function removeBuyItem(name) {
 }
 
 function copyBuyList() {
-  const items=buildBuyList();
+  const items=buildBuyList().filter(i => buyItemShown(i.name)); // copy what the filter shows
   if(!items.length){showToast('Nothing to copy');return;}
   const text=items.map(i=>`${i.qty}x ${i.name}`).join('\n');
   navigator.clipboard.writeText(text).then(()=>showToast('Copied!')).catch(()=>{
@@ -7070,6 +7107,33 @@ const WDL_TYPE_ORDER = ['Creatures','Planeswalkers','Battles','Instants','Sorcer
 // Build the grouped, read-only HTML view of a deck's list. Cards whose type
 // isn't resolved yet fall into "Other" until the async fetch fills the cache
 // and a re-render moves them.
+// Deck value from the stored decklist, plus what this deck's Buy wants still cost
+function deckValueHtml(uuid, entries) {
+  const sym = priceSym();
+  let value = 0, unknown = 0, noPrice = 0; // unknown = not fetched yet; noPrice = Scryfall has none
+  for (const e of entries) {
+    const v = cardPrice(e.name);
+    if (v === undefined) unknown += e.qty; else if (v === null) noPrice += e.qty; else value += v * e.qty;
+  }
+  let toBuy = 0, toBuyN = 0;
+  for (const w of ((data.deckWants||{})[uuid] || [])) {
+    if (w.inStatus !== 'buy' || !w.in) continue;
+    toBuyN++; toBuy += cardPrice(w.in) || 0;
+  }
+  const parts = [`Value <b style="color:var(--text)">${sym}${value.toFixed(2)}${unknown?'+':''}</b>`];
+  if (noPrice) parts.push(`${noPrice} without a price`);
+  if (toBuyN) parts.push(`still to buy ${sym}${toBuy.toFixed(2)} (${toBuyN})`);
+  const btn = unknown ? ` <button onclick="event.stopPropagation();wdlLoadPrices('${escJs(uuid)}',this)" style="background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--blue);cursor:pointer;font-size:11px;padding:2px 7px">Get prices (${unknown})</button>` : '';
+  return `<div style="font-size:12px;color:var(--text2);margin:0 0 8px">${parts.join(' · ')}${btn}</div>`;
+}
+async function wdlLoadPrices(uuid, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+  const names = wdlParseEntries(uuid).map(e => e.name).concat(((data.deckWants||{})[uuid]||[]).map(w => w.in).filter(Boolean));
+  await fetchMissingPrices(names);
+  const g = document.getElementById('wdl-grouped-'+uuid);
+  if (g) g.innerHTML = wdlGroupedHtml(uuid);
+}
+
 function wdlGroupedHtml(uuid) {
   const entries = wdlParseEntries(uuid);
   if (!entries.length) return '<div style="color:var(--text3);font-size:12px;padding:6px 2px">No decklist saved yet — tap to paste one.</div>';
@@ -7089,7 +7153,7 @@ function wdlGroupedHtml(uuid) {
       ${rows}
     </div>`);
   }
-  return parts.join('');
+  return deckValueHtml(uuid, entries) + parts.join('');
 }
 
 // Aggregate the deck's last-10 issue-bearing games into win/loss counts,
