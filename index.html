@@ -25,6 +25,7 @@
   --blue:#2d6bcb;--green:#3b6d11;--green-bg:#eaf3de;--purple:#7d3c98;--purple-bg:#f3e5f5;
   --red:#a32d2d;--red-bg:#fcebeb;--amber:#ba7517;--amber-bg:#faeeda;
   --info:#185fa5;--info-bg:#e6f1fb;--radius:10px;--radius-sm:7px;
+  --accent:var(--blue); /* used by buttons but was never defined (invisible in light mode) */
 }
 @media(prefers-color-scheme:dark){:root{
   --bg:#1a1a1a;--surface:#252525;--border:rgba(255,255,255,.10);--border-md:rgba(255,255,255,.18);
@@ -1113,7 +1114,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.98';
+const APP_VERSION = '2026.07.01.99';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1174,10 +1175,10 @@ function applyShareFields(target, src) {
   target.partnerSingleArt = !!src.si;
   // Resolve exact art from print IDs (if any); fall back to name resolution otherwise.
   if (src.i1) resolveArtById(src.i1).then(url => {
-    if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } renderRivals(); }
+    if (url) { target.artOverride = url; if (target.name) { artCache[scryfallKey(target.name)] = url; saveArtCache(); } scheduleSync(); renderRivals(); }
   });
   if (src.i2) resolveArtById(src.i2).then(url => {
-    if (url) { target.partnerArtOverride = url; if (target.partner) { artCache[scryfallKey(target.partner)] = url; saveArtCache(); } renderRivals(); }
+    if (url) { target.partnerArtOverride = url; if (target.partner) { artCache[scryfallKey(target.partner)] = url; saveArtCache(); } scheduleSync(); renderRivals(); }
   });
 }
 
@@ -1213,7 +1214,11 @@ function decodeDeckShare(str) {
   try {
     const json = decodeURIComponent(escape(atob(body)));
     const obj = JSON.parse(json);
-    if (!obj || !Array.isArray(obj.decks)) return null;
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.decks)) return null;
+    // Pasted data: keep only decks with a real name, and only string names, so later .toLowerCase() etc. can't throw
+    obj.decks = obj.decks.filter(d => d && typeof d === 'object' && typeof d.name === 'string' && d.name.trim());
+    obj.decks.forEach(d => { if (typeof d.partner !== 'string') delete d.partner; });
+    if (typeof obj.rival !== 'string' || !obj.rival.trim()) delete obj.rival;
     return obj;
   } catch(e) { return null; }
 }
@@ -1266,7 +1271,7 @@ function processImportDecks(targetRivalId) {
   // Resolve target rival: explicit target > named rival in string (existing or new) > ask
   if (targetRivalId) { importDecksIntoRival(targetRivalId, payload.decks); return; }
   if (payload.rival) {
-    const existing = (data.opponents||[]).find(r=>r.name.toLowerCase()===payload.rival.toLowerCase());
+    const existing = (data.opponents||[]).find(r=>(r.name||'').toLowerCase()===payload.rival.toLowerCase());
     if (existing) { importDecksIntoRival(existing.id, payload.decks); return; }
     // Create the named rival
     const nr = { id: genUUID(), name: payload.rival, decks: [] };
@@ -1419,6 +1424,11 @@ function fmtDate(iso) {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return `${parseInt(d)} ${months[parseInt(m)-1]} ${y}`;
 }
+// Today as YYYY-MM-DD in the user's timezone (toISOString is UTC: wrong day after midnight in UTC+)
+function localToday() {
+  const d = new Date(), z = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`;
+}
 
 // ============================================================
 // LOCAL STORAGE
@@ -1441,6 +1451,10 @@ function freshData() { return JSON.parse(JSON.stringify(INITIAL_DATA)); } // nev
 function loadLocal() {
   // Always load auth tokens first
   try { accessToken    = localStorage.getItem('mtg_token')||null; } catch(e) {}
+  try { // restore the stored token's age so a fresh token isn't treated as expired after a reload
+    const exp = Number(localStorage.getItem('mtg_token_exp'));
+    if (accessToken && exp > Date.now()) { _tokenLifetimeMs = 3600000; _tokenIssuedAt = exp - _tokenLifetimeMs; }
+  } catch(e) {}
   try { syncedStamp   = localStorage.getItem('mtg_synced_stamp')||null; } catch(e) {}
   try { dirty         = localStorage.getItem('mtg_dirty')==='1'; } catch(e) {}
   try { driveFileId   = localStorage.getItem('mtg_file_id')||null; } catch(e) {}   // legacy
@@ -1747,6 +1761,7 @@ function initGSI() {
         scheduleTokenRefresh(resp.expires_in);
         _tokenIssuedAt = Date.now();
         _tokenLifetimeMs = (Number(resp.expires_in)||3600) * 1000;
+        try { localStorage.setItem('mtg_token_exp', String(_tokenIssuedAt + _tokenLifetimeMs)); } catch(e) {}
         updateSignInBtn();
         // Resolve any awaiting token-refresh callers with the fresh token
         if (_tokenWaiters.length) {
@@ -1962,6 +1977,9 @@ function captureRedirectToken() {
   // Note expiry so we can prompt before silent calls fail
   const expiresIn = parseInt(h.get('expires_in') || '3600', 10);
   try { localStorage.setItem('mtg_token_exp', String(Date.now() + expiresIn*1000)); } catch(e){}
+  // Without this tokenNearExpiry() is always true: every focus fires a prompt:none refresh,
+  // which fails exactly where the redirect flow is needed and latches authFailed.
+  _tokenIssuedAt = Date.now(); _tokenLifetimeMs = expiresIn * 1000;
   // Clean the token out of the URL so it isn't left in history/address bar
   history.replaceState(null, '', location.origin + location.pathname);
   updateSignInBtn();
@@ -1969,7 +1987,18 @@ function captureRedirectToken() {
   return true;
 }
 function signOut() {
+  if (dirty) {
+    // Sign-out wipes local data; unsynced games would be lost for good
+    showModal('Unsynced changes', 'Some changes are not saved to Google Drive yet and will be lost if you sign out now. Sign out anyway?', doSignOut);
+    const ok = document.getElementById('modal-ok'); if (ok) ok.textContent = 'Sign out';
+    return;
+  }
+  doSignOut();
+}
+function doSignOut() {
   if (accessToken && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(accessToken, ()=>{});
+  // Native app keeps a refresh token; without this the next sign-in silently reuses the same account
+  if (window.__nativeSignOut) window.__nativeSignOut();
   accessToken = null; driveFileId = null; driveFolderId = null;
   driveDecksId = null; driveWantsId = null; driveListsId = null;
   hasFetchedFromDrive = false;
@@ -1978,6 +2007,7 @@ function signOut() {
   clearTimeout(syncTimer); setDirty(false); setSyncedStamp(null);
   try {
     localStorage.removeItem('mtg_token');
+    localStorage.removeItem('mtg_token_exp');
     localStorage.removeItem('mtg_file_id');
     localStorage.removeItem('mtg_folder_id');
     localStorage.removeItem('mtg_decks_id');
@@ -2005,7 +2035,7 @@ function updateSignInBtn() {
   else { btn.textContent='Sign in with Google'; btn.onclick=signIn; }
 }
 function setSyncStatus(state, msg) {
-  document.getElementById('sync-dot').className='sync-dot '+(state==='ok'?'green':state==='busy'?'amber':'red');
+  document.getElementById('sync-dot').className='sync-dot '+(state==='ok'?'green':(state==='busy'||state==='amber')?'amber':'red');
   document.getElementById('sync-status').textContent=msg;
 }
 
@@ -2308,7 +2338,7 @@ function runInvariantChecks(silent) {
       (h.opponents||[]).forEach(o => {
         if (o.playerId === SELF_RIVAL_ID) return; // synthetic self group is valid
         const r = rivalById[o.playerId];
-        if (!r || !(r.decks||[]).some(d => d.id === o.deckId)) badOpp++;
+        if (!r || (o.deckId && !(r.decks||[]).some(d => d.id === o.deckId))) badOpp++; // deck pick is optional
       });
     });
     if (orphanHist) problems.push(`${orphanHist} history entr${orphanHist===1?'y':'ies'} not linked to any deck or score entry`);
@@ -2564,6 +2594,9 @@ async function loadFromDrive(force) {
   if (!accessToken) { setSyncStatus('red','Not signed in'); return; }
   if (!force && hasFetchedFromDrive && (Date.now() - lastFetchTime) < FETCH_COOLDOWN) return;
   if (!force && userIsEditing) return;
+  // History selection/edit drafts are keyed by data.history index; replacing data
+  // mid-edit would make save/delete hit the wrong games. Load after they finish.
+  if (historySelected.size || Object.keys(_histEditDraft).length) return;
 
   if (!force) {
     try {
@@ -3012,7 +3045,7 @@ async function scryGetCard(url) {
       await sleep(400 * (attempt + 1));
     }
   }
-  return null; // exhausted retries
+  return undefined; // exhausted retries (429/5xx/offline) — NOT a miss; callers must not cache it
 }
 
 // Resolve card types via sequential GET /cards/named. Paced conservatively and
@@ -3038,17 +3071,19 @@ async function fetchCardTypesBulk(names) {
         cardTypeCache[k] = 'Other'; _confirmedNeg.add(k); _typeNegDirty = true; other++; continue;
       }
       let card = await scryGetCard(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`);
-      if (!card) card = await scryGetCard(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+      if (card === null) card = await scryGetCard(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
       if (card) {
         const cat = primaryTypeFromLine(card.type_line || (card.card_faces||[])[0]?.type_line || '');
         cardTypeCache[scryfallKey(card.name || name)] = cat;
         (card.card_faces || []).forEach(f => { if (f.name) cardTypeCache[scryfallKey(f.name)] = cat; });
         cardTypeCache[k] = cat;
         resolved++;
-      } else {
+      } else if (card === null) {
         // Real 404 — persist as unresolvable so we never re-fetch it.
         cardTypeCache[k] = 'Other'; _confirmedNeg.add(k); _typeNegDirty = true;
         other++;
+      } else {
+        other++; // transient failure: leave uncached so a later pass retries it
       }
       if ((resolved + other) % 6 === 0 && typeof _typeFetchOnProgress === 'function') _typeFetchOnProgress();
       await sleep(120); // ~8 req/s ceiling, under Scryfall's ~10/s
@@ -3140,10 +3175,11 @@ async function _doFetchMissingArt(missing) {
         if (printRes.ok) {
           const prints = await printRes.json();
           const url = artUrlFromCard(prints.data?.[0]);
-          if (url && url !== artCache[key]) {
+          const old = artCache[key];
+          if (url && url !== old) {
             artCache[key] = url; saveArtCache();
-            // Replace any already-injected default img with the preferred print
-            document.querySelectorAll(`[data-art="${key}"] img`).forEach(img=>{ img.src = url; });
+            // Replace only imgs still showing the default print — not a deck's custom art override
+            document.querySelectorAll(`[data-art="${key}"] img`).forEach(img=>{ if (img.src === old) img.src = url; });
           }
         }
       } catch(e) { /* leave default art in place */ }
@@ -3452,7 +3488,7 @@ function renderScore() { scheduleCropApply();
     const art  = artCache[key];
     const prtKey = d._deck?.partner ? scryfallKey(d._deck.partner) : null;
     const prtArt = prtKey ? artCache[prtKey] : null;
-    const eid  = 'exp-'+key;
+    const eid  = 'exp-'+(d._uuid||key); // uuid: two decks can share a commander (and so a key)
     const pid  = 'prev-'+(d._uuid||key);
     // Use UUID as pending key — stable even when label or commander name changes
     const sn   = d._uuid || d.name.replace(/'/g,"\\'");
@@ -3645,11 +3681,10 @@ function toggleDeckExpand(eid) {
   el.classList.toggle('open');
   if (!wasOpen) {
     openScoreDecks.add(eid);
-    // Extract deck name from eid = 'exp-' + scryfallKey
-    // Find it from the deck list
+    // eid = 'exp-' + deck uuid (or scryfallKey for decks without one)
     const key = eid.replace(/^exp-/,'');
     const owned = ownedDecks();
-    const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
+    const deck = owned.find(d=>d.uuid===key||scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
     if (deck) {
       lastExpandedDeck = deck.uuid || deckDisplayName(deck);
       populateGraphSelect();
@@ -3660,7 +3695,7 @@ function toggleDeckExpand(eid) {
     // Collapsed — if it was the selected graph deck, reset to ALL
     const key = eid.replace(/^exp-/,'');
     const owned = ownedDecks();
-    const deck = owned.find(d=>scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
+    const deck = owned.find(d=>d.uuid===key||scryfallKey(deckDisplayName(d))===key||scryfallKey(d.name)===key);
     if (deck && (lastExpandedDeck===(deck.uuid||deckDisplayName(deck)))) {
       lastExpandedDeck = null;
       populateGraphSelect();
@@ -3675,7 +3710,8 @@ function toggleDeckExpand(eid) {
 function toggleLogGame(evt, name) {
   evt.stopPropagation();
   if (pending[name] && (pending[name].wins>0 || pending[name].losses>0)) {
-    delete pending[name]; // un-log
+    // Un-log, but remember the checked winner: its checkbox stays checked, so re-logging must be a Loss
+    pending[name] = {wins:0, losses:0, winnerSlot: pending[name].winnerSlot ?? null};
   } else {
     // Log it; result derives from whether a winner slot is set (none yet → win)
     const winnerSlot = (pending[name] && pending[name].winnerSlot != null) ? pending[name].winnerSlot : null;
@@ -3700,10 +3736,10 @@ function setGameWinner(evt, name, eid, slot) {
     cur.winnerSlot = null;
     cur.wins = 1; cur.losses = 0; // no winner → you won
   }
-  // Uncheck the other slots' checkboxes in the DOM (radio behaviour)
-  [0,1,2].forEach(i => {
-    if (i === slot) return;
-    const cb = document.querySelector(`#os-${eid}-${i} input[type=checkbox]`);
+  // Uncheck the other slots' checkboxes in the DOM (radio behaviour; up to 8 slots)
+  document.querySelectorAll(`#og-${eid} .opp-slot`).forEach(el => {
+    if (el.id === `os-${eid}-${slot}`) return;
+    const cb = el.querySelector('input[type=checkbox]');
     if (cb) cb.checked = false;
   });
   renderPendingBar();
@@ -3795,17 +3831,20 @@ function submitPending() {
 }
 
 function commitPending() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = localToday();
   if (!data.undoStack) data.undoStack=[];
   let totalLogged = 0;
   for (const [name, p] of Object.entries(pending)) {
+    if (!(p.wins>0 || p.losses>0)) continue; // un-logged deck that only remembers a winner pick
     const deck = ownedDecks().find(d => d.uuid === name || deckDisplayName(d) === name);
     const deckUuid = deck?.uuid || null;
     const deckName = deck ? deckDisplayName(deck) : name;
     const ci = pendingIssues[name] || {};
     const issArr = Object.entries(ci).map(([issue,result])=>({issue,result}));
 
-    const oppArr = (pendingOpponents[name] || []).filter(o=>o.playerId&&o.deckId);
+    // Keep a player even without a deck pick: pod size counts opponents
+    const oppArr = (pendingOpponents[name] || []).filter(o=>o.playerId)
+      .map(o => o.deckId ? {playerId:o.playerId, deckId:o.deckId} : {playerId:o.playerId});
     // New model: at most one game per submit. winnerSlot identifies the rival who
     // won (=> you lost). If none, you won. Record winnerId so rival stats are exact.
     const winnerSlot = (p.winnerSlot != null) ? p.winnerSlot : null;
@@ -3915,7 +3954,7 @@ function toggleHistEdit(on) {
 
 function populateHistoryFilters() {
   const withResult = (data.history||[]).filter(h=>h.last&&h.deck);
-  const years  = [...new Set(withResult.map(h=>h.date.slice(0,4)))].sort().reverse();
+  const years  = [...new Set(withResult.map(h=>(h.date||'').slice(0,4)).filter(Boolean))].sort().reverse();
   const ySel = document.getElementById('hist-year');
   if (!ySel) return;
   const curY=ySel.value;
@@ -4436,7 +4475,7 @@ function histEditSave() {
     if (d.last != null) h.last = d.last;
     if (d.winnerId !== undefined) { if (d.winnerId) h.winnerId = d.winnerId; else delete h.winnerId; }
     if (d.opponents !== undefined) {
-      const clean = d.opponents.filter(o=>o.playerId && o.deckId);
+      const clean = d.opponents.filter(o=>o.playerId); // player without a deck still counts for pod size
       if (clean.length) h.opponents = clean; else delete h.opponents;
     }
     if (d.issues !== undefined) { if (d.issues.length) h.issues = d.issues; else delete h.issues; }
@@ -4461,10 +4500,9 @@ function confirmDeleteSelected() {
 
 Scores will be recalculated for affected decks.`,
     ()=>{
-      const affected = [...new Set(indices.map(i=>data.history[i]?.deck).filter(Boolean))];
       indices.forEach(i=>{ if(data.history[i]) data.history.splice(i,1); });
       historySelected.clear();
-      affected.forEach(d=>rebuildScoreForDeck(d));
+      rebuildAllScoresFromHistory(); // uuid-keyed; per-name rebuild left junk name-keyed scores
       renderHistory(); renderScore(); scheduleSync();
       showToast(`${n} entr${n===1?'y':'ies'} deleted`);
     }
@@ -4547,8 +4585,8 @@ function exportGamesWithRival(rivalId) {
   });
   if (!indices.length) { showToast(`No games logged with ${rival.name}`); return; }
   showModal(
-    `Export games with ${esc(rival.name)}`,
-    `Share all ${indices.length} game${indices.length===1?'':'s'} you've played with ${esc(rival.name)}? They can import these to add the matches to their own history.`,
+    `Export games with ${rival.name}`,
+    `Share all ${indices.length} game${indices.length===1?'':'s'} you've played with ${rival.name}? They can import these to add the matches to their own history.`,
     () => {
       const payload = buildExportPayload(indices);
       const json = JSON.stringify(payload);
@@ -4643,8 +4681,18 @@ function runHistImport() {
   let payload;
   try { payload = JSON.parse(raw); }
   catch { showToast('Could not read that — invalid format'); return; }
-  const entries = Array.isArray(payload) ? payload : payload.entries;
-  if (!Array.isArray(entries) || !entries.length) { showToast('No games found in import'); return; }
+  const raw2 = Array.isArray(payload) ? payload : payload?.entries;
+  if (!Array.isArray(raw2)) { showToast('No games found in import'); return; }
+  // Pasted data: coerce every field to the shape the import expects so a stray null/number can't throw
+  const str = v => (typeof v === 'string' ? v : (v == null ? '' : String(v)));
+  const normP = p => (p && typeof p === 'object') ? { player: str(p.player), name: str(p.name), partner: str(p.partner) } : null;
+  const entries = raw2.filter(e => e && typeof e === 'object').map(e => ({
+    date: str(e.date), me: normP(e.me),
+    opponents: Array.isArray(e.opponents) ? e.opponents.map(normP).filter(Boolean) : [],
+    winner: str(e.winner)
+  }));
+  if (!entries.length) { showToast('No games found in import'); return; }
+  window._pendingParticipantMap = null; // a cancelled earlier import must not leak its mapping into this one
   _pendingImport = { entries };
   // Collect distinct participant names across all games, and every distinct
   // deck (name+partner) each of them is seen piloting.
@@ -4952,7 +5000,7 @@ function commitHistImport(meName, addUnownedDecks) {
   const meLc = (meName||'').toLowerCase();
   const norm = s => (s||'').trim().toLowerCase();
   let logged = 0, newRivals = 0, newDecks = 0, newMyDecks = 0, skipped = 0;
-  const today = new Date().toISOString().slice(0,10);
+  const today = localToday();
 
   const findOrCreateRival = (name) => {
     if (!data.opponents) data.opponents = [];
@@ -5140,52 +5188,6 @@ function rebuildAllScoresFromHistory() {
   }
 }
 
-function rebuildScoreForDeck(deckNameOrUuid) {
-  if (!data.scores) data.scores = {};
-  const entries = (data.history||[])
-    .filter(h => {
-      if (!h.last) return false;
-      const key = h.deckUuid || uuidForName(h.deck) || h.deck;
-      return key === deckNameOrUuid || h.deck === deckNameOrUuid;
-    })
-    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
-
-  if (!entries.length) {
-    const existing = data.scores[deckNameOrUuid] || {};
-    data.scores[deckNameOrUuid] = {wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:'',_name:existing._name||''};
-    return;
-  }
-
-  // Same hybrid logic as rebuildAllScoresFromHistory
-  let lastOldIdx = -1;
-  for (let i = entries.length-1; i >= 0; i--) {
-    if (entries[i].wins !== undefined) { lastOldIdx = i; break; }
-  }
-  let wins = 0, losses = 0;
-  if (lastOldIdx >= 0) {
-    wins   = entries[lastOldIdx].wins   || 0;
-    losses = entries[lastOldIdx].losses || 0;
-    for (let i = lastOldIdx+1; i < entries.length; i++) {
-      if (entries[i].last === 'Win') wins++;
-      else if (entries[i].last === 'Loss') losses++;
-    }
-  } else {
-    for (const h of entries) {
-      if (h.last === 'Win') wins++;
-      else if (h.last === 'Loss') losses++;
-    }
-  }
-  const last = entries[entries.length-1];
-  const total = wins + losses;
-  const existing = data.scores[deckNameOrUuid] || {};
-  data.scores[deckNameOrUuid] = {
-    ...existing, wins, losses, total,
-    winRate:    total > 0 ? parseFloat((wins/total*100).toFixed(1)) : 0,
-    lastDate:   last.date   || '',
-    lastResult: last.last   || '',
-  };
-}
-
 // ============================================================
 // WANTS
 // ============================================================
@@ -5277,7 +5279,7 @@ function renderBuyList() {
   document.getElementById('buy-list').innerHTML=items.map(item=>{
     const key=scryfallKey(item.name);
     const art=artCache[key];
-    return `<div class="buy-item-row">
+    return `<div class="buy-item-row" data-name="${esc(item.name)}">
       <div class="buy-item-art${art?'':' loading'}" data-art="${key}">
         ${art?`<img src="${art}" alt="${esc(item.name)}" loading="lazy">`:''}
       </div>
@@ -5333,16 +5335,10 @@ async function fetchMissingPrices(names) {
 }
 
 function renderBuyPrices() {
-  const items = buildBuyList();
-  items.forEach(item => {
-    const rows = document.querySelectorAll('.buy-item-row');
-    rows.forEach(row => {
-      const nameEl = row.querySelector('.buy-item-name');
-      if (nameEl && nameEl.textContent.trim().startsWith(item.name)) {
-        const priceEl = row.querySelector('.buy-item-price');
-        if (priceEl) priceEl.outerHTML = priceLabel(item.name);
-      }
-    });
+  // Exact name per row: prefix matching put "Island"'s price on "Island Sanctuary"
+  document.querySelectorAll('.buy-item-row').forEach(row => {
+    const priceEl = row.querySelector('.buy-item-price');
+    if (priceEl && row.dataset.name) priceEl.outerHTML = priceLabel(row.dataset.name);
   });
   updateBuyTotal();
 }
@@ -5533,6 +5529,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   const isOpen = deckSectionOpen[uuid]===true;
   const cmdName = deck.split(' // ')[0];
   const key = scryfallKey(cmdName);
+  const fid = uuid; // add-form element ids: per deck, since two decks can share a commander key
   const art = artCache[key];
   // Break the count down by status so it's readable at a glance:
   //   to buy     = still need to acquire (inStatus 'buy')
@@ -5606,28 +5603,28 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
       } return rows.join(''); })()}
       <div class="add-card-form">
         <!-- Single card row -->
-        <div id="single-form-${key}">
+        <div id="single-form-${fid}">
           <div class="add-card-row">
-            <input type="text" placeholder="Card to add (IN)" id="ain-${key}">
-            <input type="text" placeholder="Replaces (OUT)" id="aout-${key}" style="margin:0">
+            <input type="text" placeholder="Card to add (IN)" id="ain-${fid}">
+            <input type="text" placeholder="Replaces (OUT)" id="aout-${fid}" style="margin:0">
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-            <div class="add-status-row" id="astatus-${key}" data-status="${wantsAddDefault()}">
-              <button class="add-mini-pill${wantsAddDefault()==='buy'?' active':''}" data-s="buy" onclick="setAddStatus('${key}','buy',this)">Buy</button>
-              <button class="add-mini-pill${wantsAddDefault()==='considering'?' active':''}" data-s="considering" onclick="setAddStatus('${key}','considering',this)">Maybe</button>
-              <button class="add-mini-pill${wantsAddDefault()==='owned'?' active':''}" data-s="owned" onclick="setAddStatus('${key}','owned',this)">Owned</button>
+            <div class="add-status-row" id="astatus-${fid}" data-status="${wantsAddDefault()}">
+              <button class="add-mini-pill${wantsAddDefault()==='buy'?' active':''}" data-s="buy" onclick="setAddStatus('${fid}','buy',this)">Buy</button>
+              <button class="add-mini-pill${wantsAddDefault()==='considering'?' active':''}" data-s="considering" onclick="setAddStatus('${fid}','considering',this)">Maybe</button>
+              <button class="add-mini-pill${wantsAddDefault()==='owned'?' active':''}" data-s="owned" onclick="setAddStatus('${fid}','owned',this)">Owned</button>
             </div>
-            <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
-            <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">bulk import</button>
+            <button class="add-submit" data-deck="${uuid}" data-key="${fid}" onclick="addWantCard(this.dataset.deck,this.dataset.key)">Add</button>
+            <button class="bulk-toggle" onclick="toggleBulkImport('${fid}')">bulk import</button>
           </div>
         </div>
         <!-- Bulk import area (hidden by default) -->
-        <div id="bulk-form-${key}" style="display:none">
+        <div id="bulk-form-${fid}" style="display:none">
           <div style="font-size:11px;color:var(--text3);margin-bottom:5px">Paste a card list — one per line, optional quantity prefix. Everything from SIDEBOARD onward is ignored.</div>
-          <textarea class="bulk-area" id="bulk-text-${key}" placeholder="1 Lightning Greaves&#10;1 Sol Ring&#10;2 Mountain"></textarea>
+          <textarea class="bulk-area" id="bulk-text-${fid}" placeholder="1 Lightning Greaves&#10;1 Sol Ring&#10;2 Mountain"></textarea>
           <div class="bulk-import-row">
-            <button class="add-submit" data-deck="${uuid}" data-key="${key}" onclick="submitBulkImport(this.dataset.deck,this.dataset.key)" style="flex:1">Import cards</button>
-            <button class="bulk-toggle" onclick="toggleBulkImport('${key}')">cancel</button>
+            <button class="add-submit" data-deck="${uuid}" data-key="${fid}" onclick="submitBulkImport(this.dataset.deck,this.dataset.key)" style="flex:1">Import cards</button>
+            <button class="bulk-toggle" onclick="toggleBulkImport('${fid}')">cancel</button>
           </div>
         </div>
       </div>
@@ -6166,7 +6163,13 @@ function deleteDeck(idx) {
   renderDeckMgr(); renderScore(); scheduleSync();
 }
 
+let _addingDeck = false; // the Scryfall await below left a window for double-click duplicates
 async function addDeck() {
+  if (_addingDeck) return;
+  _addingDeck = true;
+  try { await _addDeck(); } finally { _addingDeck = false; }
+}
+async function _addDeck() {
   const name=(document.getElementById('new-deck-name').value||'').trim();
   const partner=(document.getElementById('new-deck-partner').value||'').trim();
   const label=(document.getElementById('new-deck-label')?.value||'').trim();
@@ -6177,8 +6180,8 @@ async function addDeck() {
   // Auto-detect color identity from Scryfall
   const color = (await fetchColorIdentity(name, partner||null)) || '?';
   const deckName = partner ? `${name} // ${partner}` : name;
-  if(!data.scores[deckName]) data.scores[deckName]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''};
   const uuid = genUUID();
+  data.scores[uuid]={wins:0,losses:0,total:0,winRate:0,lastDate:'',lastResult:''}; // uuid key, like rebuilds
   data.colorDecks.push({uuid, color, name, partner:partner||'', label:label||'', status});
   document.getElementById('new-deck-name').value='';
   document.getElementById('new-deck-partner').value='';
@@ -6686,8 +6689,10 @@ function closeModal() {
 // SETTINGS
 // ============================================================
 function saveSetting(key, val) {
+  const n = parseFloat(val);
+  if (isNaN(n)) return; // field mid-edit (empty or "-"): keep the last valid value instead of saving NaN
   if(!data.settings) data.settings=Object.assign({},INITIAL_DATA.settings);
-  data.settings[key]=parseFloat(val);
+  data.settings[key]=n;
   renderSettingsLegend();
   renderScore();
   renderGraph();
@@ -8212,6 +8217,8 @@ async function acOnInput(inputId, onSelect) {
         const json = await res.json();
         names = json.data || [];
       }
+      // A slower reply for an older query must not overwrite the current one
+      if (input.value.trim() !== q) return;
       if (!names.length) { acMarkInvalid(inputId); return; }
       const exact = names.some(n => n.toLowerCase() === q.toLowerCase());
       if (exact) { input.classList.add('ac-valid'); }
@@ -8445,7 +8452,8 @@ function startRivalDrag(ev, rivalId, isRetired) {
     else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 12);
     // Recompute rects every move (cheap: a handful of headers) — stays
     // correct while the page auto-scrolls under the pointer.
-    const headers = [...container.querySelectorAll(headerSel)];
+    // The synthetic "your decks" group isn't in data.opponents, so it can't count toward the index
+    const headers = [...container.querySelectorAll(headerSel)].filter(el => el.dataset.rivalGroup !== SELF_RIVAL_ID);
     if (!headers.length) return;
     const rects = headers.map(el => el.getBoundingClientRect());
     let idx = headers.length;
@@ -8973,7 +8981,7 @@ function renderRivalHistory(rivalId, rivalDeckId) {
               const overall = h2hVs(o.playerId, o.deckId, null);
               const matchup = myKey ? h2hVs(o.playerId, o.deckId, myKey) : {total:0};
               return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <button onclick="showRivalHistory('${o.playerId}','${o.deckId}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline;flex:1;min-width:140px">${esc(resolveOppName(o))}</button>
+                <button onclick="showRivalHistory('${escJs(o.playerId)}','${escJs(o.deckId||'')}')" style="background:none;border:none;padding:0;margin:0;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;text-align:left;text-decoration:underline;flex:1;min-width:140px">${esc(resolveOppName(o))}</button>
                 ${h2hBadge(overall, 'overall', 'Your overall record vs this deck (all your decks)')}
                 ${h2hBadge(matchup, 'matchup', `${myName} vs this deck`)}
               </div>`;
