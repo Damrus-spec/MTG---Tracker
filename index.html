@@ -1131,7 +1131,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.108';
+const APP_VERSION = '2026.07.01.109';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -7250,7 +7250,7 @@ async function wdlLoadPrices(uuid, btn) {
 
 // ── Decklist view (Moxfield-style): qty | name | mana cost rows; tap a row for the card pop-up ──
 const _dlOrder = {};                         // panel key -> [{name, sub, img}] in on-screen order (pop-up prev/next)
-let dlView = { group: 'type', sort: 'name' }; // per-device view preference
+let dlView = { group: 'type', sort: 'name', groupDir: 'asc', sortDir: 'asc' }; // per-device view preference
 try { Object.assign(dlView, JSON.parse(localStorage.getItem('mtg_dl_view') || '{}')); } catch(e) {}
 function setDlView(key, val) {
   dlView[key] = val;
@@ -7296,6 +7296,10 @@ function dlGroupOf(e) {
   return typeForCard(e.name);
 }
 function dlGroupOrder() {
+  const order = dlGroupOrderAsc();
+  return dlView.groupDir === 'desc' ? order.slice().reverse() : order;
+}
+function dlGroupOrderAsc() {
   if (dlView.group === 'mv') return ['Mana value 0','Mana value 1','Mana value 2','Mana value 3','Mana value 4','Mana value 5','Mana value 6','Mana value 7+','Unknown','Lands'];
   if (dlView.group === 'color') return ['White','Blue','Black','Red','Green','Multicolour','Colourless','Unknown','Lands'];
   if (dlView.group === 'none') return ['Cards'];
@@ -7304,15 +7308,21 @@ function dlGroupOrder() {
 function dlSort(list) {
   const mv = e => { const r = cardRec(e.name); return r && typeof r.mv === 'number' ? r.mv : 99; };
   const by = dlView.sort === 'mv' ? (a,b) => mv(a) - mv(b) || a.name.localeCompare(b.name)
-           : dlView.sort === 'price' ? (a,b) => (cardPrice(b.name)||0) - (cardPrice(a.name)||0) || a.name.localeCompare(b.name)
+           : dlView.sort === 'price' ? (a,b) => (cardPrice(a.name)||0) - (cardPrice(b.name)||0) || a.name.localeCompare(b.name)
            : (a,b) => a.name.localeCompare(b.name);
-  return list.slice().sort(by);
+  const sorted = list.slice().sort(by);
+  return dlView.sortDir === 'desc' ? sorted.reverse() : sorted;
+}
+// ⇈ ascending / ⇊ descending toggle for group order and card order
+function dirBtn(key) {
+  const desc = dlView[key] === 'desc';
+  return `<button onclick="setDlView('${key}','${desc ? 'asc' : 'desc'}')" title="${desc ? 'Descending — tap for ascending' : 'Ascending — tap for descending'}" aria-label="${desc ? 'Descending' : 'Ascending'}" style="font-size:13px;padding:1px 7px;color:var(--text)">${desc ? '⇊' : '⇈'}</button>`;
 }
 function dlControlsHtml(uuid) {
   const opt = (k, v, label) => `<option value="${v}"${dlView[k]===v?' selected':''}>${label}</option>`;
   return `<div class="dl-ctl" onclick="event.stopPropagation()">
-    Group <select onchange="setDlView('group',this.value)">${opt('group','type','Type')}${opt('group','mv','Mana value')}${opt('group','color','Colour')}${opt('group','none','None')}</select>
-    Sort <select onchange="setDlView('sort',this.value)">${opt('sort','name','Name')}${opt('sort','mv','Mana value')}${opt('sort','price','Price')}</select>
+    Group <select onchange="setDlView('group',this.value)">${opt('group','type','Type')}${opt('group','mv','Mana value')}${opt('group','color','Colour')}${opt('group','none','None')}</select>${dirBtn('groupDir')}
+    Sort <select onchange="setDlView('sort',this.value)">${opt('sort','name','Name')}${opt('sort','mv','Mana value')}${opt('sort','price','Price')}</select>${dirBtn('sortDir')}
     <button onclick="wdlRevealRaw('${escJs(uuid)}')" style="margin-left:auto">Edit list</button>
   </div>`;
 }
