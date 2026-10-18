@@ -15,9 +15,9 @@
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
 <title>MTG Tracker</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-<script src="https://accounts.google.com/gsi/client" onload="initGSI()" async defer></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" integrity="sha384-PwEnNZvp50/uDLtKrd1s2D4Xe/y+fCVtEigigjik/PgHlDXUF1uJ32m7guk/XWYV" crossorigin="anonymous">
+<script src="https://accounts.google.com/gsi/client" onload="window.initGSI&&initGSI()" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <style>
 :root{
   --bg:#f5f5f0;--surface:#fff;--border:rgba(0,0,0,.10);--border-md:rgba(0,0,0,.18);
@@ -1011,7 +1011,7 @@ const COLOR_TO_MANA = {
 
 function colorManaHtml(colorLabel) {
   const symbols = COLOR_TO_MANA[colorLabel];
-  if (!symbols) return `<span style="font-size:11px;color:var(--text3)">${colorLabel||'?'}</span>`;
+  if (!symbols) return `<span style="font-size:11px;color:var(--text3)">${esc(colorLabel||'?')}</span>`;
   return symbols.map(s =>
     `<img src="https://svgs.scryfall.io/card-symbols/${s}.svg" alt="${s}"
       style="width:16px;height:16px;border-radius:50%;vertical-align:middle"
@@ -1113,7 +1113,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.97';
+const APP_VERSION = '2026.07.01.98';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1284,7 +1284,7 @@ function askImportTargetRival(decks) {
   window._pendingImportDecks = decks;
   const html = `
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-      ${rivals.map(r=>`<button onclick="closeModal();importDecksIntoRival('${r.id}',window._pendingImportDecks)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${esc(r.name)}</button>`).join('')}
+      ${rivals.map(r=>`<button onclick="closeModal();importDecksIntoRival('${escJs(r.id)}',window._pendingImportDecks)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${esc(r.name)}</button>`).join('')}
       <button onclick="(()=>{const n=prompt('New rival name:');if(n&&n.trim()){const nr={id:genUUID(),name:n.trim(),decks:[]};if(!data.opponents)data.opponents=[];data.opponents.push(nr);closeModal();importDecksIntoRival(nr.id,window._pendingImportDecks);}})()" style="padding:10px 14px;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:13px;text-align:left">+ New rival…</button>
     </div>`;
   showModal('Import into which rival?', html, null);
@@ -1532,7 +1532,7 @@ function deckArtHtml(deckUuidOrName, cellAR) {
     // Fallback: just use artCache by name
     const art = artCache[scryfallKey(deckUuidOrName)];
     if (!art) return '';
-    return `<img src="${art}" alt="${deckUuidOrName}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
+    return `<img src="${esc(art)}" alt="${esc(deckUuidOrName)}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top">`;
   }
   const art1raw = d.artOverride || artCache[scryfallKey(d.name||'')] || null;
   const art2raw = d.partner ? (d.partnerArtOverride || artCache[scryfallKey(d.partner||'')] || null) : null;
@@ -1647,16 +1647,17 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR
   const b = (flipped && art2) ? art1 : art2;
   const pa = (flipped && art2) ? pos2 : pos1;
   const pb = (flipped && art2) ? pos1 : pos2;
-  const sa = sc1 || 1;
-  const sb = sc2 || 1;
+  const sa = Number(sc1) || 1; // scales can arrive from pasted share codes: force numeric
+  const sb = Number(sc2) || 1;
+  altText = esc(altText);
   // If a cell aspect is supplied, use the centered-crop model (data attrs + applier
   // set object-position on load). Otherwise fall back to direct object-position.
   const imgTag = (src, pos, sc, extra) => {
     const [px, py] = posToObjectPos(pos);
     if (cellAR) {
-      return `<img src="${src}" alt="${altText}" loading="lazy" onload="applyCenterCrop(this)" data-cellar="${cellAR}" data-cx="${px}" data-cy="${py}" data-sc="${sc}" data-extra="${extra||0}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;transform:scale(${sc});transform-origin:50% 50%">`;
+      return `<img src="${esc(src)}" alt="${altText}" loading="lazy" onload="applyCenterCrop(this)" data-cellar="${cellAR}" data-cx="${px}" data-cy="${py}" data-sc="${sc}" data-extra="${extra||0}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;transform:scale(${sc});transform-origin:50% 50%">`;
     }
-    return `<img src="${src}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${sc});transform-origin:${px}% ${py}%">`;
+    return `<img src="${esc(src)}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${sc});transform-origin:${px}% ${py}%">`;
   };
   if (a && b) {
     // Split/partner art: diagonal wedges, centered on 50% (57.5% top → 42.5%
@@ -1925,6 +1926,10 @@ function signIn() {
 function redirectSignIn() {
   authFailed = false;
   const redirectUri = location.origin + location.pathname;
+  // Random per-attempt state, checked on return so a crafted #access_token link
+  // can't sign this app into someone else's Drive.
+  const state = 'mtg_' + genUUID();
+  try { sessionStorage.setItem('mtg_oauth_state', state); } catch(e) {}
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: redirectUri,
@@ -1932,7 +1937,7 @@ function redirectSignIn() {
     scope: SCOPES,
     include_granted_scopes: 'true',
     prompt: 'select_account',
-    state: 'mtg_' + Date.now()
+    state
   });
   location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
 }
@@ -1943,6 +1948,14 @@ function captureRedirectToken() {
   const h = new URLSearchParams(location.hash.slice(1));
   const tok = h.get('access_token');
   if (!tok) return false;
+  let expected = null;
+  try { expected = sessionStorage.getItem('mtg_oauth_state'); sessionStorage.removeItem('mtg_oauth_state'); } catch(e) {}
+  if (!expected || h.get('state') !== expected) {
+    // Not a sign-in this tab started: drop the token and scrub it from the URL
+    history.replaceState(null, '', location.origin + location.pathname);
+    dbgLog('Ignored redirect token with unknown state');
+    return false;
+  }
   accessToken = tok;
   authFailed = false;
   try { localStorage.setItem('mtg_token', tok); } catch(e){}
@@ -2405,8 +2418,8 @@ function findSuspiciousPairings() {
         <div><b>${esc(g.playerName)}</b> → <b>${esc(g.deckLabel)}</b>${g.owner?` <span style="color:var(--text3)">(${esc(g.owner)}'s deck)</span>`:''}</div>
         <div style="color:${alarm?'var(--warn,#e0a030)':'var(--text3)'};font-size:11px">${g.count} game${g.count!==1?'s':''}${g.unresolved?' · deck no longer exists — recreate it or open to reassign':' · cross-owned (ok if intentional)'}</div>
       </div>
-      ${g.unresolved?`<button onclick="recreateOrphanDeck('${g.playerId}','${g.deckId}')" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--warn,#e0a030);cursor:pointer;font-size:11px">Recreate deck</button>`:''}
-      <button onclick="showPage('rivals');setTimeout(()=>openRivalHistory('${g.playerId}','${g.deckId||''}'),80)" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:11px">Open</button>
+      ${g.unresolved?`<button onclick="recreateOrphanDeck('${escJs(g.playerId)}','${escJs(g.deckId)}')" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--warn,#e0a030);cursor:pointer;font-size:11px">Recreate deck</button>`:''}
+      <button onclick="showPage('rivals');setTimeout(()=>openRivalHistory('${escJs(g.playerId)}','${escJs(g.deckId||'')}'),80)" style="flex-shrink:0;padding:5px 10px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:11px">Open</button>
     </div>`;
   let outHtml = '';
   if (oList.length) {
@@ -3740,7 +3753,7 @@ function renderPendingBar() {
     if(v.wins>0)   parts.push(`<span style="color:var(--green)">+${v.wins}W</span>`);
     if(v.losses>0) parts.push(`<span style="color:var(--red)">+${v.losses}L</span>`);
     return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:.5px solid var(--border)">
-      <span style="font-size:13px">${(()=>{const d=(data.colorDecks||[]).find(d=>d.uuid===name);return d?deckDisplayName(d):name.split(',')[0];})()}</span>
+      <span style="font-size:13px">${(()=>{const d=(data.colorDecks||[]).find(d=>d.uuid===name);return esc(d?deckDisplayName(d):name.split(',')[0]);})()}</span>
       <span style="font-size:13px;display:flex;gap:8px">${parts.join('')}</span>
     </div>`;
   }).join('');
@@ -4003,7 +4016,7 @@ function renderHistory() { scheduleCropApply(); renderPodBar();
     const draftLast = d.last != null ? d.last : h.last;
     const isDeleted = !!d._deleted;
     const issueHtml = (h.issues && h.issues.length)
-      ? `<div class="h-issues">${h.issues.map(iss=>`<span class="h-issue-tag">${iss.issue}</span>`).join('')}</div>`
+      ? `<div class="h-issues">${h.issues.map(iss=>`<span class="h-issue-tag">${esc(iss.issue)}</span>`).join('')}</div>`
       : '';
 
     if (_histEditMode) {
@@ -4147,7 +4160,7 @@ function openIssuePanelFull(deckName, uuid) {
             </div>`).join('')}
         </div>`;
       const entriesHtml = entries.map(h => {
-        const tags = (h.issues||[]).map(iss=>`<span class="issue-hist-tag">${iss.issue}</span>`).join('');
+        const tags = (h.issues||[]).map(iss=>`<span class="issue-hist-tag">${esc(iss.issue)}</span>`).join('');
         return `<div class="issue-hist-entry">
           <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
           <div class="issue-hist-tags">${tags}</div>
@@ -4705,16 +4718,16 @@ function runHistImport() {
         return `
         <div id="import-card-${i}" style="display:flex;flex-direction:column;gap:6px;padding:9px 10px;background:${isMe?'var(--green-bg)':'var(--surface)'};border:.5px solid ${isMe?'var(--green)':'var(--border-md)'};border-radius:var(--radius-sm)">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:${isMe?'var(--green)':'var(--text)'}">
-            <input type="radio" name="import-me" value="${nm.replace(/"/g,'&quot;')}" ${isMe?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--green)">
-            ${nm}${isMe?' <span style="font-size:11px;opacity:.8">— this is you</span>':''}
+            <input type="radio" name="import-me" value="${esc(nm)}" ${isMe?'checked':''} onchange="onImportMeChange()" style="accent-color:var(--green)">
+            ${esc(nm)}${isMe?' <span style="font-size:11px;opacity:.8">— this is you</span>':''}
           </label>
           <div style="padding-left:24px">
             <div id="pmap-rival-${i}" style="display:${isMe?'none':'flex'};flex-direction:column;gap:5px">
               <select id="pmap-sel-${i}" onchange="onParticipantMapChange(${i})" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px">
                 <option value="new" ${!match?'selected':''}>+ New rival</option>
-                ${rivals.map(r=>`<option value="${r.id}" ${match&&match.id===r.id?'selected':''}>${(r.name||'').replace(/</g,'&lt;')}${r.isSelf?' (your decks)':''}</option>`).join('')}
+                ${rivals.map(r=>`<option value="${esc(r.id)}" ${match&&match.id===r.id?'selected':''}>${esc(r.name||'')}${r.isSelf?' (your decks)':''}</option>`).join('')}
               </select>
-              <input id="pmap-name-${i}" type="text" value="${nm.replace(/"/g,'&quot;')}" placeholder="Rival name" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${match?'display:none':''}">
+              <input id="pmap-name-${i}" type="text" value="${esc(nm)}" placeholder="Rival name" style="width:100%;padding:6px;background:var(--bg);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm);font-size:12px;${match?'display:none':''}">
             </div>
             <div id="pmap-self-${i}" style="display:${isMe?'block':'none'};font-size:11px;color:var(--text3);line-height:1.4">
               ${selfMatches.length
@@ -5288,7 +5301,7 @@ function renderBuyList() {
       </a>
       <span class="buy-item-qty">${item.qty}x</span>
       ${priceLabel(item.name)}
-      <button class="buy-item-del" onclick="removeBuyItem('${item.name.replace(/'/g,"\\'")}')"><i class="ti ti-x"></i></button>
+      <button class="buy-item-del" onclick="removeBuyItem('${escJs(item.name)}')"><i class="ti ti-x"></i></button>
     </div>`;
   }).join('');
   fetchMissingArt(artNames);
@@ -5557,29 +5570,29 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
         let confirmBtn = `<div style="width:28px;flex-shrink:0"></div>`;
         if (hasList && e.out && e.in) {
           if (outInDeck) {
-            confirmBtn = `<button class="w-confirm" data-deck="${uuid}" data-idx="${idx}" onclick="processWantReplacement('${uuid}',${idx})" title="Apply: remove ${e.out} → add ${e.in}" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center"><i class="ti ti-check"></i></button>`;
+            confirmBtn = `<button class="w-confirm" data-deck="${uuid}" data-idx="${idx}" onclick="processWantReplacement('${uuid}',${idx})" title="Apply: remove ${esc(e.out)} → add ${esc(e.in)}" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center"><i class="ti ti-check"></i></button>`;
           } else {
-            confirmBtn = `<button class="w-confirm" disabled title="${e.out} not found in stored decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--red);border-radius:4px;color:var(--red);cursor:not-allowed;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center;opacity:.6"><i class="ti ti-check"></i></button>`;
+            confirmBtn = `<button class="w-confirm" disabled title="${esc(e.out)} not found in stored decklist" style="flex-shrink:0;align-self:center;background:none;border:.5px solid var(--red);border-radius:4px;color:var(--red);cursor:not-allowed;padding:2px 5px;font-size:13px;line-height:1;width:26px;text-align:center;opacity:.6"><i class="ti ti-check"></i></button>`;
           }
         }
         rows.push(`<div class="want-card-row" draggable="false" data-wdeck="${uuid}" data-widx="${idx}"
             ondragover="wantDragOver(event)" ondrop="wantDrop(event)" ondragend="wantDragEnd(event)">
           ${confirmBtn}
           <div class="w-card-art${artUrl?'':' loading'}" data-art="${scryfallKey(e.in)}">
-            ${artUrl?`<img src="${artUrl}" alt="${e.in}" loading="lazy">`:''}
+            ${artUrl?`<img src="${esc(artUrl)}" alt="${esc(e.in)}" loading="lazy">`:''}
           </div>
           <a class="w-card-name" href="${cardLink(e.in)}" target="_blank" style="color:inherit;text-decoration:none;cursor:grab"
              title="Drag to reorder"
              draggable="true"
              ondragstart="wantDragStart(event,'${uuid}',${idx})"
-             onclick="if(window._wantJustDragged){window._wantJustDragged=false;event.preventDefault();}">${e.in}</a>
+             onclick="if(window._wantJustDragged){window._wantJustDragged=false;event.preventDefault();}">${esc(e.in)}</a>
           <div style="display:flex;align-items:center;gap:4px;flex-shrink:1;min-width:0;padding-right:6px">
             <a class="buy-item-scry" href="https://scryfall.com/search?q=${encodeURIComponent('!"'+e.in+'"')}" target="_blank" rel="noopener" title="Open ${esc(e.in)} on Scryfall" onclick="event.stopPropagation()" style="flex-shrink:0">
               <img src="https://scryfall.com/favicon.ico" alt="Scryfall" width="15" height="15" style="display:block;border-radius:3px">
             </a>
             <input type="text"
               id="wout-${uuid}-${idx}"
-              value="${e.out||''}"
+              value="${esc(e.out||'')}"
               placeholder="replacement..."
               data-deck="${uuid}"
               data-idx="${idx}"
@@ -6513,9 +6526,9 @@ function artPickerRender(data, cardName) {
   grid.innerHTML = cards.map((c,i) => {
     const url = c.image_uris?.art_crop || c.card_faces?.[0]?.image_uris?.art_crop;
     const label = [c.set_name, c.collector_number ? `#${c.collector_number}` : '', c.artist ? `· ${c.artist}` : ''].filter(Boolean).join(' ');
-    return `<div class="art-thumb" onclick="artPickerSelect('${url.replace(/'/g,"\\'")}','${cardName.replace(/'/g,"\\'")}',this)">
-      <img src="${url}" alt="${c.set_name}" loading="lazy">
-      <div class="art-thumb-label">${label}</div>
+    return `<div class="art-thumb" onclick="artPickerSelect('${escJs(url)}','${escJs(cardName)}',this)">
+      <img src="${esc(url)}" alt="${esc(c.set_name)}" loading="lazy">
+      <div class="art-thumb-label">${esc(label)}</div>
     </div>`;
   }).join('');
 }
@@ -6596,19 +6609,19 @@ function openArtSlotChooser(idx) {
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},false,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${esc(deck.name||'')}</div>
-          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+(deck.artOverrideName||'').replace(/</g,'&lt;'):' · default'}</div>
+          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+esc(deck.artOverrideName):' · default'}</div>
         </button>
         <button onclick="closeModal();setTimeout(()=>openArtPickerSlot(${idx},true,true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${esc(deck.partner)}</div>
-          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
+          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+esc(deck.partnerArtOverrideName):' · default'}</div>
         </button>
         <div style="display:flex;gap:6px">
-          <button onclick="closeModal();applyArtSlot(${idx},'artOverride','artOverrideName',null,'${deck.name.replace(/'/g,"\'")}')"
+          <button onclick="closeModal();applyArtSlot(${idx},'artOverride','artOverrideName',null,'${escJs(deck.name)}')"
             style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
             Reset commander
           </button>
-          <button onclick="closeModal();applyArtSlot(${idx},'partnerArtOverride','partnerArtOverrideName',null,'${deck.partner.replace(/'/g,"\'")}')"
+          <button onclick="closeModal();applyArtSlot(${idx},'partnerArtOverride','partnerArtOverrideName',null,'${escJs(deck.partner)}')"
             style="flex:1;padding:7px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--text3);cursor:pointer;font-size:11px">
             Reset partner
           </button>
@@ -7180,7 +7193,7 @@ function openIssuePanel(deckName, uuid) {
 
     const entriesHtml = entries.map(h => {
       const tags = (h.issues||[]).map(iss =>
-        `<span class="issue-hist-tag ${(iss.result||'').toLowerCase()}">${iss.issue}</span>`
+        `<span class="issue-hist-tag ${esc((iss.result||'').toLowerCase())}">${esc(iss.issue)}</span>`
       ).join('');
       return `<div class="issue-hist-entry">
         <div class="issue-hist-date">${fmtDate(h.date)} · <span style="color:${h.last==='Win'?'var(--green)':'var(--red)'}">${h.last||''}</span></div>
@@ -7535,7 +7548,8 @@ function wdlPush(uuid) {
   if (!entry || !entry.list || !entry.url) return;
   navigator.clipboard.writeText(entry.list).catch(()=>{});
   const info = deckSiteInfo(entry.url);
-  if (info.openUrl) window.open(info.openUrl, '_blank');
+  // Only open web links — a pasted javascript:/data: URL would run in this page
+  if (info.openUrl && /^https?:\/\//i.test(info.openUrl)) window.open(info.openUrl, '_blank', 'noopener');
   const btn = document.getElementById('wdl-push-'+uuid);
   if (btn) { btn.textContent='Copied & opened!'; setTimeout(()=>{ btn.textContent=wdlPushLabel(entry.url); },2000); }
 }
@@ -9453,12 +9467,12 @@ function openRivalDeckArtPicker(rivalId, deckId) {
         <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',false),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${esc(deck.name)}</div>
-          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+deck.artOverrideName:' · default'}</div>
+          <div style="font-size:11px;color:var(--text3)">Commander${deck.artOverrideName?' · custom: '+esc(deck.artOverrideName):' · default'}</div>
         </button>
         <button onclick="closeModal();setTimeout(()=>openRivalDeckArtPickerSlot('${rivalId}','${deckId}',true),50)"
           style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;text-align:left">
           <div style="font-weight:500">${esc(deck.partner)}</div>
-          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+deck.partnerArtOverrideName:' · default'}</div>
+          <div style="font-size:11px;color:var(--text3)">Partner${deck.partnerArtOverrideName?' · custom: '+esc(deck.partnerArtOverrideName):' · default'}</div>
         </button>
         <div style="display:flex;gap:6px">
           <button onclick="closeModal();rivalDeckResetArt('${rivalId}','${deckId}',false)"
