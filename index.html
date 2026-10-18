@@ -256,6 +256,31 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .deck-mgr-decklist:empty{display:none}
 .decklist-grouped{border:.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);padding:8px 10px;max-height:420px;overflow:auto;cursor:text}
 .decklist-grouped:hover{border-color:var(--border-md)}
+/* Decklist rows: qty | name | mana cost (Moxfield-style); tap opens the card pop-up */
+.dl-row{display:flex;align-items:center;gap:8px;padding:3px 2px;font-size:13px;color:var(--text);cursor:pointer;border-radius:4px}
+.dl-row:hover,.dl-row:active{background:var(--surface)}
+.dl-q{width:18px;flex-shrink:0;text-align:right;color:var(--text3)}
+.dl-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-c{flex-shrink:0;white-space:nowrap}
+.ms{width:14px;height:14px;vertical-align:-2px;margin-left:1px}
+.dl-h{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin:8px 0 2px}
+.dl-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin:0 0 8px}
+.dl-ctl select{font-size:11px;padding:3px 4px;background:var(--surface);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm)}
+.dl-ctl button,.dl-btn{background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--blue);cursor:pointer;font-size:11px;padding:3px 8px}
+.dl-stats{font-size:12px;color:var(--text2);margin:10px 0 4px;line-height:1.5}
+.dl-curve{display:flex;align-items:flex-end;gap:4px;height:56px;margin:6px 0 2px}
+.dl-curve div{flex:1;background:var(--blue);opacity:.75;border-radius:3px 3px 0 0;min-height:1px}
+.dl-curve-x{display:flex;gap:4px;font-size:10px;color:var(--text3)}
+.dl-curve-x span{flex:1;text-align:center}
+.dl-col{display:flex;align-items:center;gap:6px;font-size:11px;margin:2px 0}
+.dl-col .bar{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.dl-col .bar i{display:block;height:100%}
+.tk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;margin:4px 0 6px}
+.tk{cursor:pointer;font-size:10px;color:var(--text2);text-align:center}
+.tk img{width:100%;border-radius:5px;display:block;aspect-ratio:488/680;object-fit:cover;background:var(--surface)}
+.cp-img{display:block;width:100%;max-width:300px;margin:0 auto 10px;border-radius:12px;aspect-ratio:488/680;background:var(--bg)}
+.cp-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cp-nav button{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:18px;width:44px;height:36px;cursor:pointer}
 .deck-mgr-art{width:150px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative}
 .deck-mgr-card .deck-mgr-art{min-height:120px}
 #page-rivals .deck-mgr-art{align-self:center;width:120px;aspect-ratio:1/1}
@@ -550,7 +575,7 @@ input.setting-input[type="number"]{width:90px}
     <div style="font-size:15px;font-weight:500;margin-bottom:8px;flex-shrink:0" id="modal-title">Confirm</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.5;overflow-y:auto;flex:1;min-height:0" id="modal-body"></div>
     <div style="display:flex;gap:10px;flex-shrink:0">
-      <button onclick="modalCancel()" style="flex:1;padding:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:14px;color:var(--text2)">Cancel</button>
+      <button onclick="modalCancel()" id="modal-cancel" style="flex:1;padding:11px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:none;cursor:pointer;font-size:14px;color:var(--text2)">Cancel</button>
       <button onclick="modalConfirm()" id="modal-ok" style="flex:1;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:14px;font-weight:500">Confirm</button>
     </div>
   </div>
@@ -1106,7 +1131,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.106';
+const APP_VERSION = '2026.07.01.107';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -2920,8 +2945,10 @@ async function fetchArtBulk(names) {
 // name -> primaryType map, and cache that map in IndexedDB. Card typing then
 // becomes instant and offline. Refreshed weekly. Per-card GET remains as a
 // fallback for the odd brand-new card not yet in the export.
-// V6 adds token/emblem parts (tk); bumping the key makes every device re-download once
-const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV6', BULK_KEY_OLD = 'oracleTypesV5';
+// V7: token parts with ids (tk), mana value (mv), mana cost (mc), produced mana (pm),
+// Game Changer flag (gc). Bumping the key makes every device re-download once.
+const BULK_DB = 'mtgTrackerBulk', BULK_STORE = 'kv', BULK_KEY = 'oracleTypesV7', BULK_KEYS_OLD = ['oracleTypesV5','oracleTypesV6'];
+const NON_GAME_LAYOUTS = new Set(['art_series','token','double_faced_token','emblem','vanguard','scheme','planar','reversible_card']);
 const BULK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // refresh after a week
 // Names the API confirmed it can't resolve (tokens, non-cards, typos). Persisted
 // so we don't re-hit Scryfall for them every reload — that was the source of the
@@ -3019,16 +3046,29 @@ async function bulkDownloadAndParse() {
   let parsed = 0, skipped = 0, noType = 0;
   const addCard = (card) => {
     if (!card || !card.name) { skipped++; return; }
-    const tl = card.type_line || (card.card_faces||[]).map(f=>f.type_line).find(Boolean) || '';
+    // Not playable cards. Art-series entries have faces named after real cards ("Sol Ring")
+    // with type "Card" and used to overwrite them as "Other".
+    if (NON_GAME_LAYOUTS.has(card.layout)) { skipped++; return; }
+    const face0 = (card.card_faces || [])[0] || {};
+    // Double-faced cards file under their front face (Kabira Takedown is an instant, not a land), like Moxfield
+    const frontOnly = card.layout === 'modal_dfc' || card.layout === 'transform';
+    const tl = (frontOnly && face0.type_line) || card.type_line || (card.card_faces||[]).map(f=>f.type_line).find(Boolean) || '';
     if (!tl) noType++;
     const rec = { t: primaryTypeFromLine(tl), ci: card.color_identity || [] };
-    // Tokens and emblems this card makes: [name, type line without "Token "]
+    if (typeof card.cmc === 'number') rec.mv = card.cmc;
+    const mc = card.mana_cost || face0.mana_cost || '';
+    if (mc) rec.mc = mc;
+    if (card.produced_mana && card.produced_mana.length) rec.pm = card.produced_mana;
+    if (card.game_changer) rec.gc = 1;
+    // Tokens and emblems this card makes: [name, type line without "Token ", Scryfall id]
     const tk = (card.all_parts || [])
       .filter(pt => pt.name !== card.name && (pt.component === 'token' || /^Emblem\b/.test(pt.type_line || '')))
-      .map(pt => [pt.name, (pt.type_line || '').replace(/^Token /, '')]);
+      .map(pt => [pt.name, (pt.type_line || '').replace(/^Token /, ''), pt.id]);
     if (tk.length) rec.tk = tk;
-    map[scryfallKey(card.name)] = rec;
-    (card.card_faces || []).forEach(f => { if (f.name) map[scryfallKey(f.name)] = rec; });
+    // A face must never replace a real card of the same name that was already typed
+    const put = (k) => { const cur = map[k]; if (!cur || cur.t === 'Other') map[k] = rec; };
+    put(scryfallKey(card.name));
+    (card.card_faces || []).forEach(f => { if (f.name) put(scryfallKey(f.name)); });
     parsed++;
   };
 
@@ -3075,7 +3115,7 @@ async function ensureBulkTypes() {
       _bulkTypeMap = map;
       bulkTypeStatus = 'ready';
       await bulkIdbSet(BULK_KEY, { map, updatedAt, savedAt: Date.now() });
-      bulkIdbSet(BULK_KEY_OLD, null); // drop the previous format's ~MBs
+      BULK_KEYS_OLD.forEach(k => bulkIdbSet(k, null)); // drop previous formats' ~MBs
       dbgLog(`Bulk types: downloaded + cached ${Object.keys(map).length} cards`);
       return map;
     } catch(e) {
@@ -3591,7 +3631,7 @@ function renderScore() { scheduleCropApply();
         </div>
         <div class="deck-left">
           <div class="deck-name">${partnerNameHtml(d.name)}</div>
-          <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · ${lp}</div>
+          <div class="deck-meta">${d.total||0} games · ${d.wins||0}W · ${d.losses||0}L · ${lp}${(()=>{ const b = d._uuid && deckBracket(d._uuid); return b ? ` · B${b.label}` : ''; })()}</div>
         </div>
         <div class="deck-wr ${cls}">${d.winRate||0}%</div>
         <button class="deck-issues-btn${hasHistoricalIssues(d._uuid,d.name)?' has-issues':''}" onclick="event.stopPropagation();openIssuePanel('${sn}','${d._uuid||''}')" title="View issue history">
@@ -3972,6 +4012,8 @@ function showModal(title, body, onConfirm) {
   // Always restore confirm button (art picker hides it; some flows relabel it)
   const okBtn = document.getElementById('modal-ok');
   if (okBtn) { okBtn.style.display = ''; okBtn.textContent = 'Confirm'; }
+  const cancelBtn = document.getElementById('modal-cancel');
+  if (cancelBtn) cancelBtn.textContent = 'Cancel';
   ov.style.display='flex';
   modalCallback = onConfirm;
 }
@@ -5464,7 +5506,7 @@ async function fetchMissingPrices(names) {
     // Cache prices for 24h
     const cached = priceCache[key];
     if (cached && (Date.now() - (cached.ts||0)) < 86400000) continue;
-    if (_priceInFlight.has(key)) continue;
+    if (_priceInFlight.has(key) || / token$/.test(key)) continue;
     _priceInFlight.add(key);
     try {
       const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
@@ -5901,7 +5943,9 @@ function processWantReplacement(uuid, idx) {
   lines.push('1 ' + cardIn);
   // Use a REAL newline (was '\\n', which stored literal backslash-n) and run the
   // result through the canonical scrubber so the stored list stays clean.
-  data.deckLists[uuid].list = scrubCardList(lines.join('\n'));
+  const swapped = scrubCardList(lines.join('\n'));
+  logListChange(uuid, data.deckLists[uuid].list, swapped);
+  data.deckLists[uuid].list = swapped;
 
   // Remove the want entry
   data.deckWants[uuid].splice(idx, 1);
@@ -6186,7 +6230,7 @@ function renderDeckMgr() { scheduleCropApply();
       <div class="deck-mgr-decklist" id="wdl-wrap-${d.uuid}" style="display:${wdlPanelOpen[d.uuid]?'block':'none'}">
         <div id="wdl-panel-${d.uuid}" role="region" style="display:${wdlPanelOpen[d.uuid]?'flex':'none'};flex-direction:column;gap:8px;padding:8px 10px 10px">
           <input class="decklist-url-input" id="wdl-url-${d.uuid}" type="url" placeholder="Moxfield or Archidekt deck URL…" oninput="wdlChanged('${d.uuid}')" value="${wdlPanelOpen[d.uuid]?wdlGetUrl(d.uuid):''}">
-          <div class="decklist-grouped" id="wdl-grouped-${d.uuid}" onclick="wdlRevealRaw('${d.uuid}')" title="Tap to edit / copy the raw list">${wdlPanelOpen[d.uuid]?wdlGroupedHtml(d.uuid):''}</div>
+          <div class="decklist-grouped" id="wdl-grouped-${d.uuid}" style="cursor:default">${wdlPanelOpen[d.uuid]?wdlGroupedHtml(d.uuid):''}</div>
           <textarea class="decklist-textarea" id="wdl-ta-${d.uuid}" style="display:none" placeholder="Paste Moxfield export here…" oninput="wdlChanged('${d.uuid}')" onblur="wdlHideRaw('${d.uuid}')">${wdlPanelOpen[d.uuid]?wdlGetList(d.uuid):''}</textarea>
           <div class="decklist-meta" id="wdl-meta-${d.uuid}">${wdlPanelOpen[d.uuid]?decklistCardCount(d.uuid):''}</div>
           <div class="decklist-actions">
@@ -7073,28 +7117,47 @@ function closeIssuePanel() {
 // ============================================================
 // Authoritative per-card type: the bulk map always wins over cardTypeCache so a
 // stale 'Other' (from an old negative-cache run) can never mis-sort a real card.
-// Tokens/emblems a decklist can make: [{name, type, from:[card names]}], from the bulk card data
+// Tokens/emblems a decklist can make: [{name, type, id, from:[card names]}], from the bulk card data.
+// shortcut: tokens merge by name + type, because P/T and colour aren't in all_parts and printings of the same
+// 1/1 Soldier have different ids. Two genuinely different Soldiers show as one; upgrade by fetching token cards if that matters.
 function deckTokens(entries) {
   const byKey = {};
   for (const e of entries) {
     const rec = _bulkTypeMap && _bulkTypeMap[scryfallKey(e.name)];
-    for (const [name, type] of ((rec && rec.tk) || [])) {
+    for (const [name, type, id] of ((rec && rec.tk) || [])) {
       const k = name + '|' + type;
-      const t = byKey[k] = byKey[k] || { name, type, from: [] };
+      const t = byKey[k] = byKey[k] || { name, type, id, from: [] };
       if (!t.from.includes(e.name)) t.from.push(e.name);
     }
   }
   return Object.values(byKey).sort((a,b) => b.from.length - a.from.length || a.name.localeCompare(b.name));
 }
-function deckTokensHtml(entries) {
-  if (!_bulkTypeMap || !Object.keys(_bulkTypeMap).length) return ''; // card data not loaded yet; the view re-renders when it is
+// Straight from Scryfall's image CDN (not the API): a grid of thumbnails must not count against the API rate limit
+function tokenImg(id, version) { return `https://cards.scryfall.io/${version}/front/${id[0]}/${id[1]}/${encodeURIComponent(id)}.jpg`; }
+function deckTokensHtml(uuid, entries) {
+  if (!bulkReady()) return ''; // card data not loaded yet; the view re-renders when it is
   const toks = deckTokens(entries);
+  _dlOrder[uuid + '#tk'] = toks.map(t => ({ name: t.name, sub: t.type + ' · made by ' + t.from.join(', '), img: t.id ? tokenImg(t.id, 'normal') : null }));
   if (!toks.length) return '';
-  const rows = toks.map(t => `<div style="font-size:12px;color:var(--text);padding:1px 0" title="${esc('Made by: ' + t.from.join(', '))}">${esc(t.name)} <span style="color:var(--text3)">${esc(t.type)} · ${t.from.length===1 ? esc(t.from[0]) : t.from.length + ' cards'}</span></div>`).join('');
-  return `<div style="margin-bottom:7px">
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:2px">Tokens &amp; emblems <span style="color:var(--text2)">${toks.length}</span></div>
-      ${rows}
-    </div>`;
+  const cells = toks.map((t,i) => `<div class="tk" onclick="event.stopPropagation();openCardPopup('${escJs(uuid)}#tk',${i})" title="${esc(t.type + ' — made by ' + t.from.join(', '))}">
+      ${t.id ? `<img loading="lazy" src="${esc(tokenImg(t.id, 'small'))}" alt="${esc(t.name)}">` : ''}<div>${esc(t.name)}</div></div>`).join('');
+  return `<div class="dl-h">Tokens &amp; emblems <span style="color:var(--text2)">${toks.length}</span></div>
+    <div class="tk-grid">${cells}</div>
+    <button class="dl-btn" onclick="event.stopPropagation();addTokensToBuyList('${escJs(uuid)}')">Add tokens to buy list</button>`;
+}
+function addTokensToBuyList(uuid) {
+  const toks = deckTokens(wdlParseEntries(uuid)).filter(t => !/^Emblem/.test(t.type)); // emblems aren't bought
+  if (!data.deckWants) data.deckWants = {};
+  const list = data.deckWants[uuid] = data.deckWants[uuid] || [];
+  const have = new Set(list.map(w => (w.in||'').toLowerCase()));
+  let added = 0;
+  for (const t of toks) {
+    const nm = `${t.name} token`;
+    if (have.has(nm.toLowerCase())) continue;
+    list.push({ in: nm, inStatus: 'buy', out: null }); have.add(nm.toLowerCase()); added++;
+  }
+  scheduleSync(); renderWants();
+  showToast(added ? `Added ${added} token${added!==1?'s':''} to the buy list` : 'Tokens already on the buy list');
 }
 
 function typeForCard(name) {
@@ -7185,26 +7248,234 @@ async function wdlLoadPrices(uuid, btn) {
   if (g) g.innerHTML = wdlGroupedHtml(uuid);
 }
 
+// ── Decklist view (Moxfield-style): qty | name | mana cost rows; tap a row for the card pop-up ──
+const _dlOrder = {};                         // panel key -> [{name, sub, img}] in on-screen order (pop-up prev/next)
+let dlView = { group: 'type', sort: 'name' }; // per-device view preference
+try { Object.assign(dlView, JSON.parse(localStorage.getItem('mtg_dl_view') || '{}')); } catch(e) {}
+function setDlView(key, val) {
+  dlView[key] = val;
+  try { localStorage.setItem('mtg_dl_view', JSON.stringify(dlView)); } catch(e) {}
+  document.querySelectorAll('.decklist-grouped[id^="wdl-grouped-"]').forEach(g => {
+    if (g.style.display !== 'none') g.innerHTML = wdlGroupedHtml(g.id.slice('wdl-grouped-'.length));
+  });
+}
+function bulkReady() { return !!(_bulkTypeMap && Object.keys(_bulkTypeMap).length); }
+function cardRec(name) { return (_bulkTypeMap && _bulkTypeMap[scryfallKey(name)]) || null; }
+function cardImg(name) { return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`; }
+// "{2}{W}{W}" -> Scryfall mana symbol images ({W/U} -> WU.svg)
+function manaCostHtml(cost) {
+  return ((cost || '').match(/\{[^}]+\}/g) || []).map(sym =>
+    `<img class="ms" src="https://svgs.scryfall.io/card-symbols/${encodeURIComponent(sym.slice(1,-1).replace(/\//g,''))}.svg" alt="${esc(sym)}">`).join('');
+}
+const DL_COLOR_NAMES = { W:'White', U:'Blue', B:'Black', R:'Red', G:'Green' };
+function dlGroupOf(e) {
+  const isLand = typeForCard(e.name) === 'Lands';
+  const rec = cardRec(e.name);
+  if (dlView.group === 'none') return 'Cards';
+  if (dlView.group === 'mv') {
+    if (isLand) return 'Lands';
+    if (!rec || typeof rec.mv !== 'number') return 'Unknown';
+    return rec.mv >= 7 ? 'Mana value 7+' : 'Mana value ' + rec.mv;
+  }
+  if (dlView.group === 'color') {
+    if (isLand) return 'Lands';
+    const ci = (rec && rec.ci) || [];
+    if (!rec) return 'Unknown';
+    if (!ci.length) return 'Colourless';
+    return ci.length > 1 ? 'Multicolour' : DL_COLOR_NAMES[ci[0]] || 'Unknown';
+  }
+  return typeForCard(e.name);
+}
+function dlGroupOrder() {
+  if (dlView.group === 'mv') return ['Mana value 0','Mana value 1','Mana value 2','Mana value 3','Mana value 4','Mana value 5','Mana value 6','Mana value 7+','Unknown','Lands'];
+  if (dlView.group === 'color') return ['White','Blue','Black','Red','Green','Multicolour','Colourless','Unknown','Lands'];
+  if (dlView.group === 'none') return ['Cards'];
+  return WDL_TYPE_ORDER;
+}
+function dlSort(list) {
+  const mv = e => { const r = cardRec(e.name); return r && typeof r.mv === 'number' ? r.mv : 99; };
+  const by = dlView.sort === 'mv' ? (a,b) => mv(a) - mv(b) || a.name.localeCompare(b.name)
+           : dlView.sort === 'price' ? (a,b) => (cardPrice(b.name)||0) - (cardPrice(a.name)||0) || a.name.localeCompare(b.name)
+           : (a,b) => a.name.localeCompare(b.name);
+  return list.slice().sort(by);
+}
+function dlControlsHtml(uuid) {
+  const opt = (k, v, label) => `<option value="${v}"${dlView[k]===v?' selected':''}>${label}</option>`;
+  return `<div class="dl-ctl" onclick="event.stopPropagation()">
+    Group <select onchange="setDlView('group',this.value)">${opt('group','type','Type')}${opt('group','mv','Mana value')}${opt('group','color','Colour')}${opt('group','none','None')}</select>
+    Sort <select onchange="setDlView('sort',this.value)">${opt('sort','name','Name')}${opt('sort','mv','Mana value')}${opt('sort','price','Price')}</select>
+    <button onclick="wdlRevealRaw('${escJs(uuid)}')" style="margin-left:auto">Edit list</button>
+  </div>`;
+}
+
+// Card pop-up with prev/next through the list it was opened from
+function openCardPopup(key, i) {
+  const order = _dlOrder[key] || [];
+  if (!order.length) return;
+  i = (i + order.length) % order.length;
+  const it = order[i];
+  const rec = cardRec(it.name);
+  const price = cardPrice(it.name);
+  const isToken = key.endsWith('#tk');
+  const k = escJs(key);
+  const priceLine = isToken ? '' : `<div style="display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:6px">
+      <b style="color:var(--text)">${price != null ? priceSym() + price.toFixed(2) : '—'}</b>
+      <a href="${esc(cardLink(it.name))}" target="_blank" rel="noopener" class="dl-btn" style="text-decoration:none">Buy</a>
+      <a href="https://scryfall.com/search?q=${encodeURIComponent('!"' + it.name + '"')}" target="_blank" rel="noopener" class="dl-btn" style="text-decoration:none">Scryfall</a>
+    </div>`;
+  const html = `<div>
+    <div class="cp-nav"><button onclick="openCardPopup('${k}',${i-1})" aria-label="Previous card">‹</button>
+      <span style="font-size:12px;color:var(--text3)">${i+1} / ${order.length}</span>
+      <button onclick="openCardPopup('${k}',${i+1})" aria-label="Next card">›</button></div>
+    ${it.img || !isToken ? `<img class="cp-img" src="${esc(it.img || cardImg(it.name))}" alt="${esc(it.name)}">` : ''}
+    ${priceLine}
+    <div style="text-align:center;font-size:12px;color:var(--text2)">${rec && rec.mc ? manaCostHtml(rec.mc) + ' · ' : ''}${esc(it.sub || '')}</div>
+  </div>`;
+  showModal(it.name, html, null);
+  const ok = document.getElementById('modal-ok'); if (ok) ok.style.display = 'none';
+  const cancel = document.getElementById('modal-cancel'); if (cancel) cancel.textContent = 'Close';
+}
+
+// M4/M5: mana curve, colour pips vs land production, opening-hand odds
+const _lnF = [0];
+function lnFact(n) { for (let i = _lnF.length; i <= n; i++) _lnF[i] = _lnF[i-1] + Math.log(i); return _lnF[n]; }
+function lnC(n, k) { return (k < 0 || k > n) ? -Infinity : lnFact(n) - lnFact(k) - lnFact(n-k); }
+// P(exactly k successes in n draws from N cards with K successes)
+function hyperP(N, K, n, k) { return Math.exp(lnC(K,k) + lnC(N-K,n-k) - lnC(N,n)); }
+function deckStatsHtml(uuid, allEntries) {
+  if (!bulkReady()) return '';
+  // The commander starts in the command zone, not the library: leave it out of curve and hand odds
+  const d = deckByUuid(uuid), cmd = new Set([d && d.name, d && d.partner].filter(Boolean).map(n => n.toLowerCase()));
+  const entries = allEntries.filter(e => !cmd.has(e.name.toLowerCase()));
+  const N = entries.reduce((s,e) => s + e.qty, 0);
+  if (N < 8) return '';
+  const curve = [0,0,0,0,0,0,0,0];
+  const mvs = [], pips = {W:0,U:0,B:0,R:0,G:0}, prod = {W:0,U:0,B:0,R:0,G:0};
+  let lands = 0, cheap = 0;
+  for (const e of entries) {
+    const rec = cardRec(e.name);
+    if (typeForCard(e.name) === 'Lands') {
+      lands += e.qty;
+      for (const c of ((rec && rec.pm) || [])) if (c in prod) prod[c] += e.qty;
+      continue;
+    }
+    if (!rec || typeof rec.mv !== 'number') continue;
+    curve[Math.min(7, Math.floor(rec.mv))] += e.qty;
+    for (let q = 0; q < e.qty; q++) mvs.push(rec.mv);
+    if (rec.mv <= 2) cheap += e.qty;
+    for (const sym of ((rec.mc || '').match(/\{[^}]+\}/g) || [])) for (const c of 'WUBRG') if (sym.includes(c)) pips[c] += e.qty;
+  }
+  const avg = mvs.length ? mvs.reduce((a,b) => a+b, 0) / mvs.length : 0;
+  const sorted = mvs.slice().sort((a,b) => a-b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length/2)] : 0;
+  const top = Math.max(1, ...curve);
+  const bars = curve.map(n => `<div style="height:${Math.round(n/top*100)}%" title="${n} card${n!==1?'s':''}"></div>`).join('');
+  const xs = curve.map((n,i) => `<span>${i===7?'7+':i}<br>${n}</span>`).join('');
+  const pipTotal = Object.values(pips).reduce((a,b) => a+b, 0);
+  const COLS = {W:'#e8dfb8',U:'#4a90d9',B:'#8a7f8f',R:'#d9534f',G:'#3f9b5a'};
+  const colRows = Object.keys(pips).filter(c => pips[c]).map(c => { // only the colours the spells actually use
+    const pp = pipTotal ? Math.round(pips[c]/pipTotal*100) : 0, lp = lands ? Math.round(prod[c]/lands*100) : 0;
+    return `<div class="dl-col"><img class="ms" src="https://svgs.scryfall.io/card-symbols/${c}.svg" alt="${c}">
+      <span style="width:118px;flex-shrink:0">${pp}% of pips · ${lp}% of lands</span>
+      <span class="bar"><i style="width:${pp}%;background:${COLS[c]}"></i></span></div>`;
+  }).join('');
+  // Opening hand: 7 cards; "turn-2 play" = a non-land with mana value ≤2 among the 8 cards seen on the draw by turn 2 (7 on the play + 1)
+  let p24 = 0; for (let k = 2; k <= 4; k++) p24 += hyperP(N, lands, 7, k);
+  const pCheap = 1 - hyperP(N, cheap, 8, 0);
+  return `<div class="dl-h">Mana curve</div>
+    <div class="dl-curve">${bars}</div><div class="dl-curve-x">${xs}</div>
+    <div class="dl-stats">Average mana value <b style="color:var(--text)">${avg.toFixed(2)}</b> (non-land) · median ${median} · ${lands} lands</div>
+    ${colRows ? `<div class="dl-h">Colours: pips vs land production</div>${colRows}` : ''}
+    <div class="dl-h">Opening hand</div>
+    <div class="dl-stats">Avg lands in 7: <b style="color:var(--text)">${(7*lands/N).toFixed(2)}</b> · 2–4 lands: ${Math.round(p24*100)}% · a ≤2-drop by turn 2: ${Math.round(pCheap*100)}%</div>`;
+}
+
+// M1: bracket estimate from Game Changers only (other bracket rules — combos, extra turns, MLD — aren't checked)
+function deckGameChangers(entries) {
+  return entries.filter(e => { const r = cardRec(e.name); return r && r.gc; }).map(e => e.name);
+}
+function bracketFromGC(n) { return n === 0 ? '≤2' : n <= 3 ? '3' : '4+'; }
+function deckBracket(uuid) {
+  if (!bulkReady()) return null;
+  const entries = wdlParseEntries(uuid);
+  if (!entries.length) return null;
+  const gcs = deckGameChangers(entries);
+  return { label: bracketFromGC(gcs.length), gcs };
+}
+function deckBracketHtml(uuid) {
+  const b = deckBracket(uuid);
+  if (!b) return '';
+  return `<div class="dl-stats" style="margin-top:0">Bracket <b style="color:var(--text)">~${b.label}</b> · ${b.gcs.length} Game Changer${b.gcs.length!==1?'s':''}${b.gcs.length ? ': ' + b.gcs.map(esc).join(', ') : ''}
+    <span style="color:var(--text3)">(estimate from Game Changers only)</span></div>`;
+}
+
+// M2: decklist change log — every saved list change, with the date
+function listCountMap(list) {
+  const m = new Map();
+  for (const line of (list || '').replace(/\\n/g, '\n').split('\n')) {
+    const t = line.trim(); if (!t) continue;
+    const mm = t.match(/^(\d+)[x×]?\s+(.*)$/i);
+    const qty = mm ? parseInt(mm[1]) : 1, name = (mm ? mm[2] : t).trim();
+    const k = name.toLowerCase(), cur = m.get(k);
+    m.set(k, { name, qty: (cur ? cur.qty : 0) + qty });
+  }
+  return m;
+}
+function logListChange(uuid, oldList, newList) {
+  if (!oldList || !oldList.trim()) return; // first paste is not a change
+  const a = listCountMap(oldList), b = listCountMap(newList), add = [], rem = [];
+  for (const [k, v] of b) { const d = v.qty - ((a.get(k)||{}).qty || 0); if (d > 0) add.push([d, v.name]); }
+  for (const [k, v] of a) { const d = v.qty - ((b.get(k)||{}).qty || 0); if (d > 0) rem.push([d, v.name]); }
+  if (!add.length && !rem.length) return;
+  const entry = data.deckLists[uuid];
+  entry.log = [{ d: localToday(), add, rem }, ...(entry.log || [])].slice(0, 50);
+}
+function deckChangeLogHtml(uuid) {
+  const log = ((data.deckLists||{})[uuid] || {}).log || [];
+  if (!log.length) return '';
+  const fmt = (arr, sign) => arr.map(([q, n]) => `${sign}${q>1?q+' ':''}${esc(n)}`).join(', ');
+  const rows = log.slice(0, 15).map(l => `<div style="font-size:12px;padding:2px 0"><span style="color:var(--text3)">${fmtDate(l.d)}</span>
+      ${l.add.length ? `<span style="color:var(--green)">${fmt(l.add,'+')}</span>` : ''}${l.add.length && l.rem.length ? ' · ' : ''}${l.rem.length ? `<span style="color:var(--red)">${fmt(l.rem,'−')}</span>` : ''}</div>`).join('');
+  return `<details onclick="event.stopPropagation()" style="margin-top:8px"><summary class="dl-h" style="cursor:pointer;display:list-item">Recent changes (${log.length})</summary>${rows}</details>`;
+}
+// Dashed vertical lines on the win-rate graph where the shown deck's list changed
+function listChangeMarkers(deckKey, points) {
+  const dates = (((data.deckLists||{})[deckKey] || {}).log || []).map(l => l.d);
+  return { id: 'listChanges', afterDatasetsDraw(chart) {
+    if (!dates.length || !points.length) return;
+    const { ctx: cx, chartArea: { top, bottom }, scales: { x } } = chart;
+    cx.save(); cx.strokeStyle = 'rgba(212,146,31,.9)'; cx.setLineDash([4,3]); cx.lineWidth = 1.5;
+    for (const d of dates) {
+      const i = points.findIndex(p => p.x >= d);
+      if (i < 0) continue;
+      const px = x.getPixelForValue(i);
+      cx.beginPath(); cx.moveTo(px, top); cx.lineTo(px, bottom); cx.stroke();
+    }
+    cx.restore();
+  } };
+}
+
 function wdlGroupedHtml(uuid) {
   const entries = wdlParseEntries(uuid);
-  if (!entries.length) return '<div style="color:var(--text3);font-size:12px;padding:6px 2px">No decklist saved yet — tap to paste one.</div>';
+  if (!entries.length) return `<div style="color:var(--text3);font-size:12px;padding:6px 2px;cursor:pointer" onclick="wdlRevealRaw('${escJs(uuid)}')">No decklist saved yet — tap to paste one.</div>`;
   const groups = {};
-  for (const e of entries) {
-    const cat = typeForCard(e.name);
-    (groups[cat] = groups[cat] || []).push(e);
-  }
-  const parts = [];
-  for (const cat of WDL_TYPE_ORDER) {
+  for (const e of entries) (groups[dlGroupOf(e)] = groups[dlGroupOf(e)] || []).push(e);
+  const order = [], parts = [];
+  for (const cat of dlGroupOrder()) {
     const list = groups[cat];
     if (!list || !list.length) continue;
     const count = list.reduce((s,e)=>s+e.qty, 0);
-    const rows = list.map(e => `<div style="font-size:12px;color:var(--text);padding:1px 0">${e.qty>1?`<span style="color:var(--text3)">${e.qty}×</span> `:''}${esc(e.name)}</div>`).join('');
-    parts.push(`<div style="margin-bottom:7px">
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:2px">${cat} <span style="color:var(--text2)">${count}</span></div>
-      ${rows}
-    </div>`);
+    const rows = dlSort(list).map(e => {
+      const rec = cardRec(e.name);
+      order.push({ name: e.name, sub: cat + (rec && typeof rec.mv === 'number' ? ' · mana value ' + rec.mv : '') });
+      return `<div class="dl-row" onclick="event.stopPropagation();openCardPopup('${escJs(uuid)}',${order.length-1})">
+        <span class="dl-q">${e.qty}</span><span class="dl-n">${esc(e.name)}</span><span class="dl-c">${manaCostHtml(rec && rec.mc)}</span></div>`;
+    }).join('');
+    parts.push(`<div style="margin-bottom:4px"><div class="dl-h">${cat} <span style="color:var(--text2)">${count}</span></div>${rows}</div>`);
   }
-  return deckValueHtml(uuid, entries) + parts.join('') + deckTokensHtml(entries);
+  _dlOrder[uuid] = order;
+  return dlControlsHtml(uuid) + deckValueHtml(uuid, entries) + deckBracketHtml(uuid) + parts.join('')
+    + deckTokensHtml(uuid, entries) + deckStatsHtml(uuid, entries) + deckChangeLogHtml(uuid);
 }
 
 // Aggregate the deck's last-10 issue-bearing games into win/loss counts,
@@ -7392,10 +7663,10 @@ function wdlSave(uuid) {
   const urlEl = document.getElementById('wdl-url-'+uuid);
   const taEl  = document.getElementById('wdl-ta-'+uuid);
   if (!data.deckLists) data.deckLists = {};
-  data.deckLists[uuid] = {
-    url:  urlEl ? urlEl.value.trim() : '',
-    list: taEl  ? scrubCardList(taEl.value)  : ''
-  };
+  const prev = data.deckLists[uuid] || {};
+  const newList = taEl ? scrubCardList(taEl.value) : '';
+  data.deckLists[uuid] = { ...prev, url: urlEl ? urlEl.value.trim() : '', list: newList }; // keep the change log
+  logListChange(uuid, prev.list, newList);
   // Reflect the cleaned version back into the textarea
   if (taEl) taEl.value = data.deckLists[uuid].list;
   wdlUpdateMeta(uuid);
@@ -7916,6 +8187,7 @@ function renderGraph() {
 
   if (wrChart) wrChart.destroy();
   wrChart = new Chart(canvas, {
+    plugins: [listChangeMarkers(deckFilter, thinned)],
     type: 'line',
     data: {
       labels: thinned.map(p=>p.x),
@@ -8930,6 +9202,23 @@ function rivalStats() {
 // ── Matchup grid: your decks (rows) vs rival decks (columns), from tagged games ──
 let matchupsOpen = false;
 function toggleMatchups() { matchupsOpen = !matchupsOpen; renderMatchups(); }
+// Your win rate per (estimated) bracket of the deck you played; decks without a stored list are left out
+function bracketWinRateHtml(bucket) {
+  if (!bulkReady()) return '';
+  const tally = {}, cache = {};
+  for (const h of (data.history||[])) {
+    if (!h.last || !bucket.match(h)) continue;
+    const u = h.deckUuid || uuidForName(h.deck);
+    if (!u) continue;
+    const b = (u in cache) ? cache[u] : (cache[u] = deckBracket(u));
+    if (!b) continue;
+    const t = tally[b.label] = tally[b.label] || { w:0, l:0 };
+    if (h.last === 'Win') t.w++; else if (h.last === 'Loss') t.l++;
+  }
+  const keys = ['≤2','3','4+'].filter(k => tally[k]);
+  if (!keys.length) return '';
+  return `<div style="font-size:12px;color:var(--text2);margin-top:6px">By deck bracket: ${keys.map(k => { const t = tally[k], n = t.w+t.l; return `B${k} <b class="${wrClass(Math.round(t.w/n*100), n)}">${t.w}-${t.l}</b> (${Math.round(t.w/n*100)}%)`; }).join(' · ')}</div>`;
+}
 function renderMatchups() {
   const body = document.getElementById('matchup-body');
   const btn  = document.getElementById('matchup-toggle');
@@ -8976,7 +9265,7 @@ function renderMatchups() {
       return `<td class="mu-cell ${wrClass(wr, n)}" title="${c.w}W ${c.l}L" onclick="openRivalHistory('${escJs(o.playerId)}','${escJs(o.deckId)}')"><b>${c.w}-${c.l}</b>${wr}%</td>`;
     }).join('') + '</tr>';
   }).join('');
-  body.innerHTML = `<div style="font-size:11px;color:var(--text3);margin-top:6px">Your decks down the side, rival decks across. Tap a cell to see those games.</div>
+  body.innerHTML = bracketWinRateHtml(bucket) + `<div style="font-size:11px;color:var(--text3);margin-top:6px">Your decks down the side, rival decks across. Tap a cell to see those games.</div>
     <div class="mu-wrap"><table class="mu-table"><thead><tr><th class="mu-me"></th>${head}</tr></thead><tbody>${body2}</tbody></table></div>`;
 }
 
