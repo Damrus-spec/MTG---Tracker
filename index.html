@@ -1143,7 +1143,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.113';
+const APP_VERSION = '2026.07.01.114';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5467,6 +5467,7 @@ async function loadCmPrices() {
 }
 function refreshPriceViews() {
   try { renderBuyPrices(); } catch(e) {}
+  renderDeckMgrSummary();
   document.querySelectorAll('.decklist-grouped[id^="wdl-grouped-"]').forEach(g => {
     if (g.style.display !== 'none' && g.innerHTML) g.innerHTML = wdlGroupedHtml(g.id.slice('wdl-grouped-'.length));
   });
@@ -6191,16 +6192,30 @@ function populateColorDropdown(selectId, selectedValue) {
     COLOR_OPTIONS.map(c=>`<option value="${c}"${c===selectedValue?' selected':''}>${c}</option>`).join('');
 }
 
+// "24 owned · 3 building · 23/32 color combos covered · €1234.56 trend total".
+// The total adds up the stored decklists of Owned decks; "+" when a card has no
+// price or an owned deck has no list.
+function renderDeckMgrSummary() {
+  const el = document.getElementById('deck-mgr-summary');
+  if (!el) return;
+  const decks = data.colorDecks||[];
+  const ownedDecks = decks.filter(d=>d.status==='Owned');
+  const building = decks.filter(d=>d.status==='Building').length;
+  // Count unique colors covered by Owned decks only
+  const ownedColors = new Set(ownedDecks.filter(d=>d.name).map(d=>d.color));
+  const totalColors = COLOR_OPTIONS.length; // 32 combinations
+  let total = 0, missing = 0, noList = 0;
+  for (const d of ownedDecks) { const t = deckListTotal(d.uuid); total += t.total; missing += t.missing; if (!t.hasList) noList++; }
+  const priced = ownedDecks.length > noList;
+  el.textContent = `${ownedDecks.length} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`
+    + (priced ? ` · ${priceSym()}${total.toFixed(2)}${(missing || noList) ? '+' : ''} ${priceTypeLabel()} total` : '');
+  el.title = priced ? [noList ? `${noList} owned deck${noList!==1?'s':''} without a decklist` : '', missing ? `${missing} card${missing!==1?'s':''} without a price` : ''].filter(Boolean).join(' · ') || 'Every owned deck priced' : '';
+}
+
 function renderDeckMgr() { scheduleCropApply();
   populateColorDropdown('new-deck-color','');
   const decks=data.colorDecks||[];
-  const owned=decks.filter(d=>d.status==='Owned').length;
-  const building=decks.filter(d=>d.status==='Building').length;
-  // Count unique colors covered by Owned decks only
-  const ownedColors = new Set(decks.filter(d=>d.status==='Owned'&&d.name).map(d=>d.color));
-  const totalColors = COLOR_OPTIONS.length; // 32 combinations
-  document.getElementById('deck-mgr-summary').textContent=
-    `${owned} owned · ${building} building · ${ownedColors.size}/${totalColors} color combos covered`;
+  renderDeckMgrSummary();
 
   // Sort: Owned first, then Building, then Planned; alphabetically within each group
   const statusOrder = {Owned:0,Building:1,Planned:2,Retired:3};
@@ -7496,11 +7511,16 @@ function deckBracket(uuid) {
   return { label: bracketFromGC(gcs.length), gcs };
 }
 // "B~3 · €123.45 trend" for the deck card on the Decks tab (needs a stored list)
-function deckSummaryHtml(uuid) {
+// Price of a deck's stored list: {total, missing (cards without a price), hasList}
+function deckListTotal(uuid) {
   const entries = wdlParseEntries(uuid);
-  if (!entries.length) return '';
   let total = 0, missing = 0;
   for (const e of entries) { const v = cardPrice(e.name); if (v == null) missing += e.qty; else total += v * e.qty; }
+  return { total, missing, hasList: entries.length > 0 };
+}
+function deckSummaryHtml(uuid) {
+  const { total, missing, hasList } = deckListTotal(uuid);
+  if (!hasList) return '';
   const b = deckBracket(uuid);
   const parts = [];
   if (b) parts.push(`<span title="Bracket estimate from Game Changers (${b.gcs.length})">B${b.label}</span>`);
