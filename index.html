@@ -1045,7 +1045,8 @@ let data = JSON.parse(JSON.stringify(INITIAL_DATA));
 let sortKey = 'lastDate';
 let sortDir = 1; // 1=ascending for lastDate = oldest first (least recently played on top) // -1 = descending (default), 1 = ascending
 let newDeckAddStatus = 'buy'; // for wants add form
-let dirty = false;
+let dirty = false; // local has edits Drive hasn't got; mirrored to localStorage 'mtg_dirty' so it survives reloads
+let syncedStamp = null; // stamp of the Drive state this device last loaded or wrote ('mtg_synced_stamp')
 let syncTimer = null;
 let syncing = false;
 let driveFileId = null; // legacy, kept for migration check
@@ -1112,7 +1113,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.96';
+const APP_VERSION = '2026.07.01.97';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1283,8 +1284,8 @@ function askImportTargetRival(decks) {
   window._pendingImportDecks = decks;
   const html = `
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-      ${rivals.map(r=>`<button onclick="importDecksIntoRival('${r.id}',window._pendingImportDecks);closeModal()" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${esc(r.name)}</button>`).join('')}
-      <button onclick="(()=>{const n=prompt('New rival name:');if(n&&n.trim()){const nr={id:genUUID(),name:n.trim(),decks:[]};if(!data.opponents)data.opponents=[];data.opponents.push(nr);importDecksIntoRival(nr.id,window._pendingImportDecks);closeModal();}})()" style="padding:10px 14px;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:13px;text-align:left">+ New rival…</button>
+      ${rivals.map(r=>`<button onclick="closeModal();importDecksIntoRival('${r.id}',window._pendingImportDecks)" style="padding:10px 14px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);cursor:pointer;font-size:13px;text-align:left">${esc(r.name)}</button>`).join('')}
+      <button onclick="(()=>{const n=prompt('New rival name:');if(n&&n.trim()){const nr={id:genUUID(),name:n.trim(),decks:[]};if(!data.opponents)data.opponents=[];data.opponents.push(nr);closeModal();importDecksIntoRival(nr.id,window._pendingImportDecks);}})()" style="padding:10px 14px;border:.5px dashed var(--border-md);border-radius:var(--radius-sm);background:none;color:var(--blue);cursor:pointer;font-size:13px;text-align:left">+ New rival…</button>
     </div>`;
   showModal('Import into which rival?', html, null);
   const okBtn = document.getElementById('modal-ok');
@@ -1426,11 +1427,22 @@ function saveLocal() {
   localVersion++;
   data._v = localVersion;
   try { localStorage.setItem('mtg_data', JSON.stringify(data)); } catch(e) {}
-  dirty = true;
+  setDirty(true);
 }
+function setDirty(v) {
+  dirty = v;
+  try { if (v) localStorage.setItem('mtg_dirty','1'); else localStorage.removeItem('mtg_dirty'); } catch(e) {}
+}
+function setSyncedStamp(s) {
+  syncedStamp = s;
+  try { if (s) localStorage.setItem('mtg_synced_stamp', s); else localStorage.removeItem('mtg_synced_stamp'); } catch(e) {}
+}
+function freshData() { return JSON.parse(JSON.stringify(INITIAL_DATA)); } // never share INITIAL_DATA's sub-objects
 function loadLocal() {
   // Always load auth tokens first
   try { accessToken    = localStorage.getItem('mtg_token')||null; } catch(e) {}
+  try { syncedStamp   = localStorage.getItem('mtg_synced_stamp')||null; } catch(e) {}
+  try { dirty         = localStorage.getItem('mtg_dirty')==='1'; } catch(e) {}
   try { driveFileId   = localStorage.getItem('mtg_file_id')||null; } catch(e) {}   // legacy
   try { driveFolderId = localStorage.getItem('mtg_folder_id')||null; } catch(e) {}
   try { driveDecksId  = localStorage.getItem('mtg_decks_id')||null; } catch(e) {}
@@ -1443,7 +1455,8 @@ function loadLocal() {
   if (!accessToken) {
     // Not signed in — clear all local game data, show empty state
     localStorage.removeItem('mtg_data');
-    data = JSON.parse(JSON.stringify(INITIAL_DATA));
+    setDirty(false); setSyncedStamp(null);
+    data = freshData();
     return;
   }
 
@@ -1452,20 +1465,25 @@ function loadLocal() {
     const s = localStorage.getItem('mtg_data');
     if (s) {
       const loaded = JSON.parse(s);
-      data = Object.assign({}, INITIAL_DATA, loaded);
+      const d0 = freshData();
+      data = Object.assign({}, d0, loaded);
       localVersion = data._v || 0;
-      if (!data.settings)        data.settings        = INITIAL_DATA.settings;
-      if (!data.deckWants)       data.deckWants       = INITIAL_DATA.deckWants;
-      if (!data.history)         data.history         = INITIAL_DATA.history;
+      if (!data.settings)        data.settings        = d0.settings;
+      if (!data.deckWants)       data.deckWants       = d0.deckWants;
+      if (!data.history)         data.history         = d0.history;
       if (!data.undoStack)       data.undoStack       = [];
       if (!data.buylistExcluded) data.buylistExcluded = [];
       if ((data.history||[]).filter(h=>h.last).length > 0) {
         rebuildAllScoresFromHistory();
       }
+      // Migrations re-derive data and call saveLocal(); that is not a user edit,
+      // so keep the persisted unsynced flag as it was.
+      const wasDirty = dirty;
       migrateDataToUuids(); migrateSelfRivals();
       cleanStaleScores();
+      setDirty(wasDirty);
     }
-  } catch(e) { data = JSON.parse(JSON.stringify(INITIAL_DATA)); }
+  } catch(e) { data = freshData(); }
 }
 function saveArtCache() { try{localStorage.setItem('mtg_art',JSON.stringify(artCache));}catch(e){} }
 function savePartnerCache() { try{localStorage.setItem('mtg_partners_v2',JSON.stringify(partnerCache));}catch(e){} }
@@ -1938,10 +1956,13 @@ function captureRedirectToken() {
   return true;
 }
 function signOut() {
-  if (accessToken) google.accounts.oauth2.revoke(accessToken, ()=>{});
+  if (accessToken && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(accessToken, ()=>{});
   accessToken = null; driveFileId = null; driveFolderId = null;
   driveDecksId = null; driveWantsId = null; driveListsId = null;
   hasFetchedFromDrive = false;
+  // Local data is wiped below; a stale unsynced flag/stamp would otherwise treat the
+  // empty state as "edits" and push it over the next account's Drive.
+  clearTimeout(syncTimer); setDirty(false); setSyncedStamp(null);
   try {
     localStorage.removeItem('mtg_token');
     localStorage.removeItem('mtg_file_id');
@@ -2090,6 +2111,8 @@ async function driveGetFileId(fileName, folderId) {
   const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
   const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
     {headers:{Authorization:`Bearer ${accessToken}`}});
+  // An error must not look like "file missing" — that would create a duplicate empty file
+  if (!r.ok) throw new Error(r.status === 401 ? 'auth' : 'offline');
   const j = await r.json();
   return (j.files && j.files.length > 0) ? j.files[0].id : null;
 }
@@ -2101,11 +2124,17 @@ async function driveReadFile(fileId) {
   return await r.json();
 }
 
-async function driveWriteFile(fileId, fileName, folderId, payload) {
+// Returns the file id, or null on failure (callers must treat null as "not saved").
+async function driveWriteFile(fileId, fileName, folderId, payload, _retried) {
   const body = JSON.stringify(payload, null, 2);
+  const retry401 = async () => {
+    try { await tokenRefresh(); } catch(e) { return null; }
+    return driveWriteFile(fileId, fileName, folderId, payload, true);
+  };
   if (fileId) {
     const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
       {method:'PATCH', headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'}, body});
+    if (r.status === 401 && !_retried) return retry401();
     return r.ok ? fileId : null;
   } else {
     const meta = new Blob([JSON.stringify({name:fileName, mimeType:'application/json', parents:[folderId]})],{type:'application/json'});
@@ -2113,6 +2142,7 @@ async function driveWriteFile(fileId, fileName, folderId, payload) {
     const form = new FormData(); form.append('metadata',meta); form.append('file',content);
     const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
       {method:'POST', headers:{Authorization:`Bearer ${accessToken}`}, body:form});
+    if (r.status === 401 && !_retried) return retry401();
     if (!r.ok) return null;
     const c = await r.json();
     return c.id;
@@ -2178,10 +2208,10 @@ async function resolveFileIds(folderId) {
 
 // ── Merge all 3 files into the in-memory data object ──
 function mergeFilesIntoData(decks, wants, lists) {
-  data = Object.assign({}, INITIAL_DATA);
+  data = freshData();
   if (decks) {
     data._v             = decks._v              || 0;
-    data.settings       = decks.settings       || INITIAL_DATA.settings;
+    data.settings       = decks.settings       || data.settings;
     data.colorDecks     = decks.colorDecks     || [];
     data.scores         = decks.scores         || {};
     data.history        = decks.history        || [];
@@ -2197,7 +2227,7 @@ function mergeFilesIntoData(decks, wants, lists) {
     data.deckLists = lists.deckLists || {};
   }
   // Guard defaults
-  if (!data.settings)   data.settings   = INITIAL_DATA.settings;
+  if (!data.settings)   data.settings   = freshData().settings;
   if (!data.deckWants)  data.deckWants  = {};
   if (!data.colorDecks) data.colorDecks = [];
   if (!data.undoStack)  data.undoStack  = [];
@@ -2395,8 +2425,11 @@ function findSuspiciousPairings() {
 async function syncDrive(silent) {
   if (syncing||!accessToken) return;
   if (authFailed) { dirty = true; return; } // don't trigger refresh popups; flush after re-auth
+  // In-memory flag only: the persisted 'mtg_dirty' is cleared after a confirmed write,
+  // so a crash/close mid-sync still knows local has unsynced edits.
   syncing=true; dirty=false;
   if (!silent) setSyncStatus('busy','Syncing...');
+  let ok = false;
   try {
     let folderId;
     try {
@@ -2408,11 +2441,13 @@ async function syncDrive(silent) {
         e.message==='auth' ? 'Reconnecting…' : 'Offline — saved locally');
       syncing=false; return;
     }
-    if (!folderId) { setSyncStatus('red','Drive folder not found'); syncing=false; return; }
+    if (!folderId) { dirty = true; setSyncStatus('red','Drive folder not found'); syncing=false; return; }
     await resolveFileIds(folderId);
 
+    const stamp = genUUID(); // identifies exactly this write; other devices compare it to detect change
     const decksPayload = {
       _v: localVersion,
+      _sid: stamp,
       settings:       data.settings       || INITIAL_DATA.settings,
       colorDecks:     data.colorDecks     || [],
       scores:         data.scores         || {},
@@ -2434,10 +2469,61 @@ async function syncDrive(silent) {
     if (newDecksId) { driveDecksId = newDecksId; try{localStorage.setItem('mtg_decks_id', driveDecksId);}catch(e){} }
     if (newWantsId) { driveWantsId = newWantsId; try{localStorage.setItem('mtg_wants_id', driveWantsId);}catch(e){} }
     if (newListsId) { driveListsId = newListsId; try{localStorage.setItem('mtg_lists_id', driveListsId);}catch(e){} }
+    if (newDecksId) setSyncedStamp(stamp); // Drive's decks file now holds this write
 
+    if (!newDecksId || !newWantsId || !newListsId) throw new Error('write failed');
+    ok = true;
+    if (!dirty) setDirty(false); // no edits arrived mid-sync: Drive matches local
     setSyncStatus('ok','Saved '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-  } catch(e){ dbgLog('Drive save failed', e); setSyncStatus('red','Offline — saved locally'); }
+  } catch(e){ dirty = true; dbgLog('Drive save failed', e); setSyncStatus('red','Not saved to Drive — kept locally, will retry'); }
   syncing=false;
+  // Edits made while this sync was in flight hit the early return above; flush them now.
+  // (Not after a failure — blur/visibility/next edit retry, avoiding a tight error loop.)
+  if (ok && dirty) { clearTimeout(syncTimer); syncTimer = setTimeout(()=>syncDrive(true), 2000); }
+}
+
+// Decide what a fresh Drive read means for local data. Drive changed iff its stamp
+// differs from the one this device last loaded/wrote; local changed iff dirty.
+// Returns 'took' (Drive replaced local), 'kept' (local kept, needs upload) or 'none'.
+function applyDriveFiles(decks, wants, lists) {
+  const driveStamp = decks._sid || ('v' + (decks._v || 0)); // files written by older app versions have no _sid
+  if (driveStamp === syncedStamp) return dirty ? 'kept' : 'none';
+  if (dirty) {
+    // Both sides changed. Keep local edits, but pull in games logged elsewhere so they aren't lost.
+    // shortcut: only history is merged (by entry id); other-device deck/rival/wants edits lose to local. Upgrade to a per-collection merge if that bites.
+    const have = new Set((data.history||[]).map(h => h.id).filter(Boolean));
+    const extra = (decks.history||[]).filter(h => h.id && !have.has(h.id));
+    if (extra.length) {
+      data.history = (data.history||[]).concat(extra);
+      rebuildAllScoresFromHistory();
+      saveLocal(); renderAll();
+    }
+    dbgLog(`Sync conflict: Drive and this device both changed — kept local edits, merged ${extra.length} game(s) from Drive`);
+    showToast(extra.length ? `Merged ${extra.length} game${extra.length!==1?'s':''} from another device` : 'Kept your unsynced changes');
+    return 'kept';
+  }
+  mergeFilesIntoData(decks, wants, lists);
+  localVersion = data._v || 0;
+  setSyncedStamp(driveStamp);
+  return 'took';
+}
+
+// Shared tail of forced and background loads.
+function finishDriveLoad(result, label) {
+  hasFetchedFromDrive = true; lastFetchTime = Date.now();
+  if (result === 'took') {
+    if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
+    migrateDataToUuids(); migrateSelfRivals(); cleanStaleScores(); deduplicateHistory();
+    saveLocal(); setDirty(false); // migrations only re-derive Drive's data; nothing new to upload
+    renderAll();
+    runInvariantChecks(true);
+  }
+  setSyncStatus('ok', label + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+  if (result === 'kept') syncDrive(true);
+}
+// A read that failed must never be merged as "empty" — that would wipe the file on the next save.
+function driveReadsOk(decks, wants, lists) {
+  return !!decks && (!driveWantsId || !!wants) && (!driveListsId || !!lists);
 }
 // ── Editing guard ──
 // Any input/textarea/select getting focus sets this; blur clears it after a short delay
@@ -2478,23 +2564,10 @@ async function loadFromDrive(force) {
         driveWantsId ? driveReadFile(driveWantsId) : null,
         driveListsId ? driveReadFile(driveListsId) : null
       ]);
-      if (!decks) return;
+      if (!driveReadsOk(decks, wants, lists)) return;
       if (userIsEditing) return;
-      const driveVersion = decks._v || 0;
-      if (driveVersion < localVersion) { setSyncStatus('ok', '↑ saving…'); return; }
-      if (driveVersion === localVersion) {
-        // Same version — no new data, skip render to avoid art flicker
-        hasFetchedFromDrive = true; lastFetchTime = Date.now();
-        setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-        return;
-      }
-      mergeFilesIntoData(decks, wants, lists);
-      localVersion = data._v || 0;
-      if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
-      hasFetchedFromDrive = true; lastFetchTime = Date.now();
-      migrateDataToUuids(); migrateSelfRivals(); cleanStaleScores();
-      saveLocal(); renderAll();
-      setSyncStatus('ok', new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+      // 'none' skips the re-render to avoid art flicker
+      finishDriveLoad(applyDriveFiles(decks, wants, lists), '');
     } catch(e) { dbgLog('Background Drive fetch failed', e); }
     return;
   }
@@ -2515,6 +2588,7 @@ async function loadFromDrive(force) {
 
     // Check for legacy file and migrate if found
     const legacy = await migrateLegacyFile(folderId);
+    let result;
     if (legacy) {
       // Migration just wrote the files; resolve IDs and merge what we got
       mergeFilesIntoData(
@@ -2523,29 +2597,27 @@ async function loadFromDrive(force) {
         { deckWants: legacy.deckWants || {} },
         { deckLists: {} }
       );
+      localVersion = data._v || 0;
+      setSyncedStamp('v' + localVersion);
+      result = 'took';
     } else {
       await resolveFileIds(folderId);
       if (!driveDecksId) {
         hasFetchedFromDrive = true; lastFetchTime = Date.now();
         setSyncStatus('ok','No Drive files yet — will save on first change');
-        renderAll(); return;
+        renderAll();
+        if (dirty) syncDrive(true); // edits made before the first Drive save
+        return;
       }
       const [decks, wants, lists] = await Promise.all([
         driveDecksId ? driveReadFile(driveDecksId) : null,
         driveWantsId ? driveReadFile(driveWantsId) : null,
         driveListsId ? driveReadFile(driveListsId) : null
       ]);
-      if (!decks) { setSyncStatus('red','Load error'); return; }
-      mergeFilesIntoData(decks, wants, lists);
+      if (!driveReadsOk(decks, wants, lists)) { setSyncStatus('red','Load error — using local data'); return; }
+      result = applyDriveFiles(decks, wants, lists);
     }
-
-    localVersion = data._v || 0;
-    if ((data.history||[]).filter(h=>h.last).length > 0) rebuildAllScoresFromHistory();
-    hasFetchedFromDrive = true; lastFetchTime = Date.now();
-    migrateDataToUuids(); migrateSelfRivals(); cleanStaleScores(); deduplicateHistory();
-    saveLocal(); renderAll();
-    runInvariantChecks(true);
-    setSyncStatus('ok', legacy ? 'Migrated & loaded ' : 'Loaded ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+    finishDriveLoad(result, legacy ? 'Migrated & loaded ' : 'Loaded ');
   } catch(e){ dbgLog('Drive load failed', e); setSyncStatus('red','Offline — using local'); }
 }
 function scheduleSync() {
@@ -4339,8 +4411,15 @@ function histEditSave() {
     if (!h) continue;
     if (d._deleted) { data.history.splice(i,1); deleted++; continue; }
     if (d.date != null) h.date = d.date;
-    if (d.wins != null) h.wins = d.wins; else if ('wins' in d) delete h.wins;
-    if (d.losses != null) h.losses = d.losses; else if ('losses' in d) delete h.losses;
+    if (d.wins != null || d.losses != null) {
+      // A snapshot needs both counts (rebuild reads a missing one as 0); the untouched
+      // field keeps the value the row showed, i.e. the stored or running tally.
+      h.wins   = d.wins   != null ? d.wins   : (h.wins   ?? h._cumW ?? 0);
+      h.losses = d.losses != null ? d.losses : (h.losses ?? h._cumL ?? 0);
+    } else {
+      if ('wins' in d) delete h.wins;
+      if ('losses' in d) delete h.losses;
+    }
     if (d.last != null) h.last = d.last;
     if (d.winnerId !== undefined) { if (d.winnerId) h.winnerId = d.winnerId; else delete h.winnerId; }
     if (d.opponents !== undefined) {
