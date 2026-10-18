@@ -801,12 +801,25 @@ input.setting-input[type="number"]{width:90px}
         <div class="setting-block">
           <div class="setting-name">Card marketplace</div>
           <div class="setting-desc">Used for card links throughout the app</div>
-          <select class="setting-input" id="s-cardSeller" onchange="saveStrSetting('cardSeller',this.value)" style="font-size:14px;padding:8px 11px">
+          <select class="setting-input" id="s-cardSeller" onchange="saveStrSetting('cardSeller',this.value);onPriceSettingChange()" style="font-size:14px;padding:8px 11px">
             <option value="cardmarket">Cardmarket (EU)</option>
             <option value="tcgplayer">TCGplayer (US)</option>
             <option value="scryfall">Scryfall</option>
             <option value="manapool">ManaPool (UK)</option>
             <option value="mtggoldfish">MTGGoldfish</option>
+          </select>
+        </div>
+        <div class="setting-block">
+          <div class="setting-name">Price type</div>
+          <div class="setting-desc">Which Cardmarket price totals use (cheapest printing, updated daily). Other marketplaces use Scryfall's price.</div>
+          <select class="setting-input" id="s-priceType" onchange="saveStrSetting('priceType',this.value);onPriceSettingChange()" style="font-size:14px;padding:8px 11px">
+            <option value="trend">Price trend</option>
+            <option value="low">Lowest price</option>
+            <option value="avg">Average sell price</option>
+            <option value="avg1">1-day average</option>
+            <option value="avg7">7-day average</option>
+            <option value="avg30">30-day average</option>
+            <option value="scryfall">Scryfall price</option>
           </select>
         </div>
       </div>
@@ -1043,7 +1056,7 @@ function colorManaHtml(colorLabel) {
 const INITIAL_DATA = {
   settings: {
     maxWin:40, strongWin:35, fallBehind:15, threshold:8, historyLimit:500, pubStompWin:60,
-    cardSeller:'cardmarket', artPref:'oldest', issueLimit:10, rivalsOpenByDefault:true
+    cardSeller:'cardmarket', priceType:'trend', artPref:'oldest', issueLimit:10, rivalsOpenByDefault:true
   },
   colorDecks: [],
   scores: {},
@@ -1131,7 +1144,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.109';
+const APP_VERSION = '2026.07.01.110';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5392,20 +5405,65 @@ function buildBuyList() {
 //   considering + out      → owned        (already promoted once, now mark as obtained)
 
 function priceLabel(name) {
-  const p = priceCache[name.toLowerCase()];
-  if (!p) return '<span class="buy-item-price loading">...</span>';
-  const seller = cfg().cardSeller||'cardmarket';
-  // Scryfall provides eur (Cardmarket) and usd (TCGplayer)
-  let val = null;
-  if (seller==='tcgplayer')  val = p.usd;
-  else                        val = p.eur; // cardmarket, scryfall, manapool, mtggoldfish
-  if (!val) return '<span class="buy-item-price loading">—</span>';
-  const sym = seller==='tcgplayer' ? '$' : '€';
-  return `<span class="buy-item-price">${sym}${parseFloat(val).toFixed(2)}</span>`;
+  const v = cardPrice(name);
+  if (v === undefined) return '<span class="buy-item-price loading">...</span>';
+  if (v === null) return '<span class="buy-item-price loading">—</span>';
+  return `<span class="buy-item-price">${priceSym()}${v.toFixed(2)}</span>`;
 }
 
 // Price of one copy for the chosen seller: number, null (Scryfall has no price) or undefined (not fetched yet)
+// ── Cardmarket price guide (prices.json, rebuilt daily by the Damrus-spec.github.io workflow) ──
+const CM_PRICES_URL = 'https://damrus-spec.github.io/prices.json';
+const CM_PRICES_KEY = 'cmPricesV1';
+let cmPrices = null; // { updated, fields:[...], p:{ lowercase name: [values per field] } }
+function cmPriceType() {
+  const s = cfg();
+  return ((s.cardSeller||'cardmarket') === 'cardmarket' && (s.priceType||'trend') !== 'scryfall') ? (s.priceType||'trend') : null;
+}
+function cmPrice(name) {
+  const t = cmPriceType();
+  if (!t || !cmPrices) return undefined;
+  const row = cmPrices.p[(name||'').toLowerCase()], i = cmPrices.fields.indexOf(t);
+  return row && i >= 0 && row[i] != null ? row[i] : undefined;
+}
+async function loadCmPrices() {
+  if (!cmPriceType()) return;
+  let stale = null;
+  try {
+    const c = await bulkIdbGet(CM_PRICES_KEY);
+    if (c && c.data) { if (Date.now() - c.savedAt < 20*3600*1000) { cmPrices = c.data; return refreshPriceViews(); } stale = c.data; }
+  } catch(e) {}
+  try {
+    const r = await fetch(CM_PRICES_URL, { cache: 'no-cache' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!d || !d.p || !Array.isArray(d.fields)) throw new Error('bad prices.json');
+    cmPrices = d;
+    bulkIdbSet(CM_PRICES_KEY, { data: d, savedAt: Date.now() });
+    dbgLog(`Cardmarket prices: ${Object.keys(d.p).length} cards (guide ${d.updated})`);
+  } catch(e) {
+    cmPrices = cmPrices || stale; // keep what's loaded; yesterday's prices beat none
+    dbgLog('Cardmarket prices unavailable — using ' + (stale ? 'cached copy' : 'Scryfall prices'), e);
+  }
+  refreshPriceViews();
+}
+function refreshPriceViews() {
+  try { renderBuyPrices(); } catch(e) {}
+  document.querySelectorAll('.decklist-grouped[id^="wdl-grouped-"]').forEach(g => {
+    if (g.style.display !== 'none' && g.innerHTML) g.innerHTML = wdlGroupedHtml(g.id.slice('wdl-grouped-'.length));
+  });
+  document.querySelectorAll('[id^="wdl-sum-"]').forEach(el => { el.innerHTML = deckSummaryHtml(el.id.slice('wdl-sum-'.length)); });
+}
+function onPriceSettingChange() { loadCmPrices().then(refreshPriceViews); }
+// Short label for the price in use, e.g. "trend"
+function priceTypeLabel() {
+  const t = cmPriceType();
+  return t ? ({trend:'trend', low:'low', avg:'avg', avg1:'1-day avg', avg7:'7-day avg', avg30:'30-day avg'})[t] : 'Scryfall';
+}
+
 function cardPrice(name) {
+  const cm = cmPrice(name);
+  if (cm !== undefined) return cm;
   const p = priceCache[(name||'').toLowerCase()];
   if (!p) return undefined;
   const v = parseFloat(cfg().cardSeller === 'tcgplayer' ? p.usd : p.eur);
@@ -5506,7 +5564,7 @@ async function fetchMissingPrices(names) {
     // Cache prices for 24h
     const cached = priceCache[key];
     if (cached && (Date.now() - (cached.ts||0)) < 86400000) continue;
-    if (_priceInFlight.has(key) || / token$/.test(key)) continue;
+    if (_priceInFlight.has(key) || / token$/.test(key) || cmPrice(name) !== undefined) continue;
     _priceInFlight.add(key);
     try {
       const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
@@ -6216,6 +6274,7 @@ function renderDeckMgr() { scheduleCropApply();
           </select>
         </div>
         ${(d.status==='Owned'||d.status==='Building') ? `
+        <div id="wdl-sum-${d.uuid}" style="font-size:12px;font-weight:600;color:var(--text);margin-top:4px">${deckSummaryHtml(d.uuid)}</div>
         <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="margin-top:3px;padding:5px 0;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-cards" style="font-size:12px"></i> Decklist
           <span id="wdl-dot-${d.uuid}" style="margin-left:auto;display:inline-flex;align-items:center">${wdlStatusDot(d.uuid)}</span>
@@ -6948,6 +7007,8 @@ function renderSettings() {
   if (issueLimEl) issueLimEl.value = s.issueLimit||10;
   const sellerEl = document.getElementById('s-cardSeller');
   if (sellerEl) sellerEl.value = s.cardSeller||'cardmarket';
+  const ptEl = document.getElementById('s-priceType');
+  if (ptEl) ptEl.value = s.priceType||'trend';
   const artEl = document.getElementById('s-artPref');
   if (artEl) artEl.value = s.artPref||'oldest';
   renderSettingsLegend();
@@ -7234,7 +7295,7 @@ function deckValueHtml(uuid, entries) {
     if (w.inStatus !== 'buy' || !w.in) continue;
     toBuyN++; toBuy += cardPrice(w.in) || 0;
   }
-  const parts = [`Value <b style="color:var(--text)">${sym}${value.toFixed(2)}${unknown?'+':''}</b>`];
+  const parts = [`Value <b style="color:var(--text)">${sym}${value.toFixed(2)}${unknown?'+':''}</b> <span style="color:var(--text3)">${priceTypeLabel()}</span>`];
   if (noPrice) parts.push(`${noPrice} without a price`);
   if (toBuyN) parts.push(`still to buy ${sym}${toBuy.toFixed(2)} (${toBuyN})`);
   const btn = unknown ? ` <button onclick="event.stopPropagation();wdlLoadPrices('${escJs(uuid)}',this)" style="background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--blue);cursor:pointer;font-size:11px;padding:2px 7px">Get prices (${unknown})</button>` : '';
@@ -7420,6 +7481,18 @@ function deckBracket(uuid) {
   if (!entries.length) return null;
   const gcs = deckGameChangers(entries);
   return { label: bracketFromGC(gcs.length), gcs };
+}
+// "B~3 · €123.45 trend" for the deck card on the Decks tab (needs a stored list)
+function deckSummaryHtml(uuid) {
+  const entries = wdlParseEntries(uuid);
+  if (!entries.length) return '';
+  let total = 0, missing = 0;
+  for (const e of entries) { const v = cardPrice(e.name); if (v == null) missing += e.qty; else total += v * e.qty; }
+  const b = deckBracket(uuid);
+  const parts = [];
+  if (b) parts.push(`<span title="Bracket estimate from Game Changers (${b.gcs.length})">B${b.label}</span>`);
+  parts.push(`<span title="${missing ? missing + ' card' + (missing!==1?'s':'') + ' without a price' : 'Every card priced'}">${priceSym()}${total.toFixed(2)}${missing ? '+' : ''} <span style="color:var(--text3)">${priceTypeLabel()}</span></span>`);
+  return parts.join(' · ');
 }
 function deckBracketHtml(uuid) {
   const b = deckBracket(uuid);
@@ -7702,6 +7775,8 @@ function wdlSave(uuid) {
   if (dot) dot.innerHTML = wdlStatusDot(uuid);
   const g = document.getElementById('wdl-grouped-'+uuid);
   if (g) g.innerHTML = wdlGroupedHtml(uuid);
+  const sum = document.getElementById('wdl-sum-'+uuid);
+  if (sum) sum.innerHTML = deckSummaryHtml(uuid);
   wdlEnsureTypes(uuid);
   // Refresh wants so checkmarks update
   renderDeckWants();
@@ -9873,6 +9948,7 @@ window.onerror = function(msg, src, line) {
 loadLocal();
 renderAll();
 updateSignInBtn();
+loadCmPrices();
 // Offline support: the service worker serves the cached app when there's no signal
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => dbgLog('Service worker failed', e));
 // Back online: re-check Drive (the stamp check decides merge vs upload) so offline games go up
