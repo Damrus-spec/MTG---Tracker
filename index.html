@@ -195,7 +195,7 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 /* By deck */
 .deck-section{margin-bottom:12px}
 .deck-sec-header{display:flex;align-items:stretch;gap:0;padding:0;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:0;overflow:hidden;min-height:48px}
-.deck-sec-art{width:60px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
+.deck-sec-art{height:46px;aspect-ratio:80/68;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:center}
 .deck-sec-art img{position:absolute;inset:0;width:100%;height:100%}
 .deck-sec-name{flex:1;font-size:13px;font-weight:500;align-self:center;padding-left:10px}
 .deck-sec-count{font-size:11px;color:var(--text2);align-self:center;padding:0 8px}
@@ -933,8 +933,8 @@ input.setting-input[type="number"]{width:90px}
         <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box;z-index:2"></div>
         <!-- Frame labels live at container level so they always sit above every frame line -->
         <span id="ap-lbl-deck"  style="display:none;position:absolute;z-index:20;background:#5bd16a;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Decks</span>
-        <span id="ap-lbl-score" style="display:none;position:absolute;z-index:20;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Score</span>
-        <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Wants / Rivals</span>
+        <span id="ap-lbl-score" style="display:none;position:absolute;z-index:20;background:#4da3ff;color:#fff;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">Score / Wants</span>
+        <span id="ap-lbl-sq"    style="display:none;position:absolute;z-index:20;background:#ffcc44;color:#000;font-size:9px;font-weight:600;padding:0 4px;border-radius:3px;line-height:14px;pointer-events:none;white-space:nowrap">History / Rivals</span>
         <!-- Partner diagonal cut indicator (shown only for partnered, non-single decks) -->
         <svg id="ap-split" style="display:none;position:absolute;inset:0;width:100%;height:100%;z-index:15;pointer-events:none">
           <line id="ap-split-line" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="2" stroke-dasharray="5 4" opacity="0.95"/>
@@ -1143,7 +1143,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.112';
+const APP_VERSION = '2026.07.01.113';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1593,9 +1593,9 @@ function deckArtHtml(deckUuidOrName, cellAR) {
   const sc2  = flipped && art2raw ? (d.artScale||DEFAULT_ART_SCALE) : (d.partnerArtScale||DEFAULT_ART_SCALE);
   // Single-image option: use just art1 (which flip chooses) across the whole card.
   if (d.partner && d.partnerSingleArt) {
-    return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1, cellAR);
+    return splitArtHtml(art1, null, deckDisplayName(d), false, pos1, null, sc1, 1, cellAR, d.uuid);
   }
-  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2, cellAR);
+  return splitArtHtml(art1, art2, deckDisplayName(d), false, pos1, pos2, sc1, sc2, cellAR, d.uuid);
 }
 
 // Crop position stored as object-position percentages "X% Y%" (0..100, 50/50=center)
@@ -1644,8 +1644,8 @@ function clampObjectPos(P, win) {
 // Cell aspect ratios per tab, used by the centered-crop model so every cell
 // crops centered on the same art point. Must match the editor's crop frames.
 const CELL_AR_DECK  = 150/120; // deck-manager art cell
-const CELL_AR_SCORE = 80/68;   // score tab deck-art
-const CELL_AR_SQ    = 1;       // history / wants / rivals (square)
+const CELL_AR_SCORE = 80/68;   // score tab deck-art + wants .deck-sec-art (fixed 80/68 in CSS)
+const CELL_AR_SQ    = 1;       // history / rivals (square)
 
 // Visible window [w, h] as a fraction of the art (cover), shrunk by zoom.
 // Shared by the render and the reposition editor's frames.
@@ -1662,10 +1662,24 @@ function centerToObjectPos(px, py, cellAR, artAR, sc, clampExtra) {
   const conv = (P, win) => clampObjectPos(P, win);
   return [conv(px/100, winW) * 100, conv(py/100, winH) * 100];
 }
+// Real Decks-tab cell aspect per deck uuid (that cell stretches with its row), so
+// the reposition editor's "Decks" frame matches what this screen shows.
+const _deckCellAR = {};
+// Re-apply a crop whenever its cell changes size (tab shown, row grew, rotation):
+// object-position depends on the real box, which data-cellar only approximates.
+const _cropRO = typeof ResizeObserver === 'function' ? new ResizeObserver(es => es.forEach(e => applyCenterCrop(e.target))) : null;
+let _cropObserved = new WeakSet();
 function applyCenterCrop(img) {
-  if (!img || !img.naturalWidth || !img.naturalHeight) return;
-  const cellAR = parseFloat(img.getAttribute('data-cellar'));
+  if (!img) return;
+  if (_cropRO && !_cropObserved.has(img)) { _cropObserved.add(img); _cropRO.observe(img); }
+  if (!img.naturalWidth || !img.naturalHeight) return;
+  // Crop for the cell's REAL shape; the CELL_AR_* constant is only the fallback
+  // while it isn't laid out (hidden tab). Using the constant on a stretched cell
+  // pushed object-position far outside the art (cut-out / blank cells).
+  const bw = img.clientWidth, bh = img.clientHeight;
+  const cellAR = (bw && bh) ? bw / bh : parseFloat(img.getAttribute('data-cellar'));
   if (!cellAR) return; // no cell aspect → leave default centering
+  if (bw && bh && img.dataset.uuid && img.closest('#page-decks .deck-mgr-art')) _deckCellAR[img.dataset.uuid] = cellAR;
   const px = parseFloat(img.getAttribute('data-cx'));
   const py = parseFloat(img.getAttribute('data-cy'));
   const sc = parseFloat(img.getAttribute('data-sc')) || 1;
@@ -1688,11 +1702,13 @@ function scheduleCropApply() {
   _cropApplyScheduled = true;
   requestAnimationFrame(() => {
     _cropApplyScheduled = false;
+    // Start a fresh observation set so imgs from replaced renders are released.
+    if (_cropRO) { _cropRO.disconnect(); _cropObserved = new WeakSet(); }
     applyCenterCropAll();
   });
 }
 
-function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR) {
+function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR, uuid) {
   if (!art1 && !art2) return '';
   const a = (flipped && art2) ? art2 : art1;
   const b = (flipped && art2) ? art1 : art2;
@@ -1706,7 +1722,7 @@ function splitArtHtml(art1, art2, altText, flipped, pos1, pos2, sc1, sc2, cellAR
   const imgTag = (src, pos, sc, extra) => {
     const [px, py] = posToObjectPos(pos);
     if (cellAR) {
-      return `<img src="${esc(src)}" alt="${altText}" loading="lazy" onload="applyCenterCrop(this)" data-cellar="${cellAR}" data-cx="${px}" data-cy="${py}" data-sc="${sc}" data-extra="${extra||0}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;transform:scale(${sc});transform-origin:50% 50%">`;
+      return `<img src="${esc(src)}" alt="${altText}" loading="lazy" onload="applyCenterCrop(this)"${uuid ? ` data-uuid="${esc(uuid)}"` : ''} data-cellar="${cellAR}" data-cx="${px}" data-cy="${py}" data-sc="${sc}" data-extra="${extra||0}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;transform:scale(${sc});transform-origin:50% 50%">`;
     }
     return `<img src="${esc(src)}" alt="${altText}" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${sc});transform-origin:${px}% ${py}%">`;
   };
@@ -5803,7 +5819,7 @@ function renderDeckWantsSection(uuid, deck, dw, group) {
   return `<div class="deck-section">
     <div class="deck-sec-header${group==='Building'&&deckBuylistExcluded.has(uuid)?' buy-excluded':''}" data-deck="${uuid}" role="button" aria-expanded="${isOpen?'true':'false'}" onclick="toggleWantsDeckSection(this.dataset.deck)">
       <div class="deck-sec-art${art?'':' loading'}" data-art="${key}" style="position:relative;overflow:hidden">
-        ${deckArtHtml(uuid, CELL_AR_SQ)}
+        ${deckArtHtml(uuid, CELL_AR_SCORE)}
       </div>
       <span class="deck-sec-name">${partnerNameHtml(deck)}</span>
       <span class="deck-sec-count">${countLabel}</span>
@@ -6470,6 +6486,7 @@ let _artPickerPosCallback = null; // fn(x, y) — called when position saved
 let _artPickerPosArt   = null;  // current art URL for reposition preview
 let _artPickerShowSplit = false; // show partner diagonal cut on canvas
 let _artPickerIsRival = false;   // rival decks render in the square cell
+let _artPickerDeckUuid = null;   // owned deck being edited: its Decks frame uses that cell's real shape
 let _artPickerSplitSide = 'left';
 let _artPickerPosX     = 50;
 let _artPickerPosY     = 50;
@@ -6479,6 +6496,7 @@ let _artPickerReturnIdx = null; // deck idx to return to its slot-chooser on X, 
 
 function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
   _artPickerShowSplit   = false; // default; slot openers set true after this call
+  _artPickerDeckUuid    = null;
   _artPickerCallback    = onSelect;
   _artPickerPosCallback = onSavePos || null;
   _artPickerPosArt      = posArt || null;
@@ -6540,7 +6558,8 @@ function artPickerInitPos() {
   if (snapEl) snapEl.checked = !!_artPickerPosSnap;
   const slS = document.getElementById('ap-s');
   if (slS) slS.value = Math.round((_artPickerPosScale || 1) * 100);
-  artPickerUpdatePos();
+  // No artPickerUpdatePos() here: its clamp needs the deck globals the slot openers
+  // set after openArtPicker returns. artPickerTab('position') / img load lay it out.
 }
 
 let _apDispW = 0, _apDispH = 0; // displayed art size, so drag moves frames 1:1 with the pointer
@@ -6565,7 +6584,7 @@ function artPickerUpdatePos() {
     const dispL = img.offsetLeft + (iw - dispW) / 2, dispT = img.offsetTop + (ih - dispH) / 2;
     _apDispW = dispW; _apDispH = dispH;
 
-    const FRAMES = [['deck', CELL_AR_DECK, 'tl'], ['score', CELL_AR_SCORE, 'tr'], ['sq', CELL_AR_SQ, 'br']]
+    const FRAMES = [['deck', (_artPickerDeckUuid && _deckCellAR[_artPickerDeckUuid]) || CELL_AR_DECK, 'tl'], ['score', CELL_AR_SCORE, 'tr'], ['sq', CELL_AR_SQ, 'br']]
       .map(([k, ar, corner]) => ({ k, corner, win: cropWindow(ar, artAR, sc) }));
     const primary = FRAMES.find(f => f.k === (_artPickerIsRival ? 'sq' : 'deck'));
     // Keep each axis inside the range where some cell's crop still moves (all
@@ -6924,6 +6943,7 @@ function openArtPickerSlot(idx, isPartner, cameFromModal) {
   _artPickerShowSplit = !!(deck.partner && !deck.partnerSingleArt);
   _artPickerSplitSide = ((!!isPartner) !== (!!deck.artFlipped)) ? 'right' : 'left';
   _artPickerIsRival = false;
+  _artPickerDeckUuid = deck.uuid;
 }
 
 function applyArtSlot(idx, fieldKey, nameKey, url, defaultName) {
@@ -9470,8 +9490,8 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
       // no editable fields or mutation buttons (managed in the Decks tab).
       if (isSelfGroup) {
         rows += `<div class="deck-mgr-row">
-          <div class="deck-mgr-art" style="width:150px;align-self:stretch;position:relative;cursor:default">
-            ${deckArtHtml(d.id, CELL_AR_DECK)}
+          <div class="deck-mgr-art" style="cursor:default">
+            ${deckArtHtml(d.id, CELL_AR_SQ)}
           </div>
           <div class="deck-mgr-fields" style="justify-content:center">
             <div style="font-size:13px;font-weight:600;margin-bottom:3px">${partnerNameHtml(d.partner?d.name+' // '+d.partner:d.name)}</div>
@@ -9548,7 +9568,7 @@ ${isSelfGroup ? '' : `<i class="ti ti-grip-vertical" title="Drag to reorder" onc
       const label = info ? info.display : 'Unknown deck';
       const owner = info && info.ownerName ? info.ownerName : '';
       rows += `<div class="deck-mgr-row">
-        <div class="deck-mgr-art" style="width:150px;align-self:stretch;position:relative;cursor:default">${deckArtHtml(gid, CELL_AR_DECK)}</div>
+        <div class="deck-mgr-art" style="cursor:default">${deckArtHtml(gid, CELL_AR_SQ)}</div>
         <div class="deck-mgr-fields" style="justify-content:center">
           <div style="font-size:13px;font-weight:600;margin-bottom:3px">${partnerNameHtml(label)}</div>
           <div style="display:flex;align-items:center;gap:8px;padding:0 4px;flex-wrap:wrap">
