@@ -264,8 +264,10 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .dl-c{flex-shrink:0;white-space:nowrap}
 .ms{width:14px;height:14px;vertical-align:-2px;margin-left:1px}
 .dl-h{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin:8px 0 2px}
-.dl-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin:0 0 8px}
-.dl-ctl select{font-size:11px;padding:3px 4px;background:var(--surface);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm)}
+.dl-ctl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:end;gap:6px 10px;font-size:11px;color:var(--text3);margin:0 0 8px}
+.dl-f{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dl-f-row{display:flex;align-items:center;gap:4px;min-width:0}
+.dl-ctl select{flex:1;min-width:0;width:auto;margin:0;font-size:11px;padding:3px 4px;background:var(--surface);color:var(--text);border:.5px solid var(--border-md);border-radius:var(--radius-sm)}
 .dl-ctl button,.dl-btn{background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--blue);cursor:pointer;font-size:11px;padding:3px 8px}
 .dl-stats{font-size:12px;color:var(--text2);margin:10px 0 4px;line-height:1.5}
 .dl-curve{display:flex;align-items:flex-end;gap:4px;height:56px;margin:6px 0 2px}
@@ -278,6 +280,9 @@ label.field-label{display:block;font-size:11px;color:var(--text2);margin-bottom:
 .tk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;margin:4px 0 6px}
 .tk{cursor:pointer;font-size:10px;color:var(--text2);text-align:center}
 .tk img{width:100%;border-radius:5px;display:block;aspect-ratio:488/680;object-fit:cover;background:var(--surface)}
+.tk-got{opacity:.35}
+.tk-from{font-size:9px;color:var(--text3);line-height:1.25;margin-top:1px}
+.tk .dl-btn{margin-top:3px;padding:2px 8px}
 .cp-img{display:block;width:100%;max-width:300px;margin:0 auto 10px;border-radius:12px;aspect-ratio:488/680;background:var(--bg)}
 .cp-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .cp-nav button{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:18px;width:44px;height:36px;cursor:pointer}
@@ -679,7 +684,8 @@ input.setting-input[type="number"]{width:90px}
     </select>
     <button class="submit-btn" style="margin-top:2px" onclick="addDeck()">Add deck</button>
   </div>
-  <p style="font-size:12px;color:var(--text2);margin-bottom:8px" id="deck-mgr-summary"></p>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:8px" id="deck-mgr-summary"></div>
+  <div id="deck-tokens" style="margin-bottom:8px"></div>
   <div style="display:flex;gap:8px;margin-bottom:8px">
     <button class="submit-btn" style="flex:1;padding:9px 16px;font-size:13px;background:var(--surface);color:var(--text2);border:.5px solid var(--border-md)" onclick="exportOwnedDecks()">Export owned decks</button>
   </div>
@@ -1062,6 +1068,7 @@ const INITIAL_DATA = {
   deckWants: {},
   deckLists: {},
   buylistExcluded: [],
+  tokensOwned: [],   // token keys "name|type" checked off as owned (all decks)
   history: [],
   undoStack: [],
   opponents: [],
@@ -1143,7 +1150,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.114';
+const APP_VERSION = '2026.07.01.115';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1521,6 +1528,7 @@ function loadLocal() {
       if (!data.history)         data.history         = d0.history;
       if (!data.undoStack)       data.undoStack       = [];
       if (!data.buylistExcluded) data.buylistExcluded = [];
+      if (!data.tokensOwned)     data.tokensOwned     = [];
       if ((data.history||[]).filter(h=>h.last).length > 0) {
         rebuildAllScoresFromHistory();
       }
@@ -2313,6 +2321,7 @@ function mergeFilesIntoData(decks, wants, lists) {
     data.history        = decks.history        || [];
     data.undoStack      = decks.undoStack      || [];
     data.buylistExcluded = decks.buylistExcluded || [];
+    data.tokensOwned     = decks.tokensOwned     || [];
     data.opponents        = decks.opponents        || [];
     data.retiredOpponents = decks.retiredOpponents || [];
   }
@@ -2551,6 +2560,7 @@ async function syncDrive(silent) {
       history:        data.history        || [],
       undoStack:      data.undoStack      || [],
       buylistExcluded: data.buylistExcluded || [],
+      tokensOwned:     data.tokensOwned     || [],
       opponents:        data.opponents        || [],
       retiredOpponents: data.retiredOpponents || []
     };
@@ -2587,7 +2597,7 @@ async function syncDrive(silent) {
 // Without a base (first conflict after upgrading) it degrades to a union where
 // nothing is deleted and local wins clashes.
 const SYNC_BASE_KEY = 'syncBaseV1';
-const SYNC_FIELDS = ['settings','colorDecks','history','buylistExcluded','opponents','retiredOpponents','deckWants','deckLists'];
+const SYNC_FIELDS = ['settings','colorDecks','history','buylistExcluded','tokensOwned','opponents','retiredOpponents','deckWants','deckLists'];
 function syncSnapshot(src) {
   const o = {}; SYNC_FIELDS.forEach(k => o[k] = src[k]);
   return JSON.parse(JSON.stringify(o, persistReplacer));
@@ -2640,12 +2650,13 @@ function mergeSynced(base, local, remote) {
     deckWants:        mergeObj(base.deckWants, local.deckWants, remote.deckWants),
     deckLists:        mergeObj(base.deckLists, local.deckLists, remote.deckLists),
     buylistExcluded:  Object.keys(mergeObj(asSet(base.buylistExcluded), asSet(local.buylistExcluded), asSet(remote.buylistExcluded))),
+    tokensOwned:      Object.keys(mergeObj(asSet(base.tokensOwned), asSet(local.tokensOwned), asSet(remote.tokensOwned))),
   };
 }
 function remoteSynced(decks, wants, lists) {
   return {
     settings: decks.settings || {}, colorDecks: decks.colorDecks || [], history: decks.history || [],
-    buylistExcluded: decks.buylistExcluded || [], opponents: decks.opponents || [],
+    buylistExcluded: decks.buylistExcluded || [], tokensOwned: decks.tokensOwned || [], opponents: decks.opponents || [],
     retiredOpponents: decks.retiredOpponents || [],
     deckWants: (wants && wants.deckWants) || {}, deckLists: (lists && lists.deckLists) || {},
   };
@@ -5365,7 +5376,7 @@ function switchWantsTab(tab, btn) {
   document.getElementById('wants-deck').style.display = tab==='deck'?'':'none';
 }
 
-function renderWants() { scheduleCropApply(); renderBuyList(); renderDeckWants(); }
+function renderWants() { scheduleCropApply(); renderBuyList(); renderDeckWants(); renderDeckTokens(); }
 
 // Jump from a buy-list deck pill straight to that deck in the By-deck view:
 // switch sub-tab, expand the section, re-render, then scroll it into view.
@@ -6217,6 +6228,7 @@ function renderDeckMgr() { scheduleCropApply();
   populateColorDropdown('new-deck-color','');
   const decks=data.colorDecks||[];
   renderDeckMgrSummary();
+  renderDeckTokens();
 
   // Sort: Owned first, then Building, then Planned; alphabetically within each group
   const statusOrder = {Owned:0,Building:1,Planned:2,Retired:3};
@@ -6861,7 +6873,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkForUpdate();
   // Warm the card-type bulk map early (non-blocking) so decklist grouping is
   // ready by the time a panel opens, instead of showing everything as "Other".
-  try { ensureBulkTypes(); } catch(e){}
+  try { ensureBulkTypes().then(renderDeckTokens, () => {}); } catch(e){} // token list needs card data
 });
 
 
@@ -7235,19 +7247,91 @@ function deckTokensHtml(uuid, entries) {
     <div class="tk-grid">${cells}</div>
     <button class="dl-btn" onclick="event.stopPropagation();addTokensToBuyList('${escJs(uuid)}')">Add tokens to buy list</button>`;
 }
-function addTokensToBuyList(uuid) {
-  const toks = deckTokens(wdlParseEntries(uuid)).filter(t => !/^Emblem/.test(t.type)); // emblems aren't bought
+// Put "<name> token" on a deck's buy list unless it is already there. Returns true if added.
+function addTokenWant(uuid, tokenName) {
   if (!data.deckWants) data.deckWants = {};
   const list = data.deckWants[uuid] = data.deckWants[uuid] || [];
-  const have = new Set(list.map(w => (w.in||'').toLowerCase()));
+  const nm = `${tokenName} token`;
+  if (list.some(w => (w.in||'').toLowerCase() === nm.toLowerCase())) return false;
+  list.push({ in: nm, inStatus: 'buy', out: null });
+  return true;
+}
+function addTokensToBuyList(uuid) {
+  const toks = deckTokens(wdlParseEntries(uuid)).filter(t => !/^Emblem/.test(t.type)); // emblems aren't bought
   let added = 0;
-  for (const t of toks) {
-    const nm = `${t.name} token`;
-    if (have.has(nm.toLowerCase())) continue;
-    list.push({ in: nm, inStatus: 'buy', out: null }); have.add(nm.toLowerCase()); added++;
-  }
+  for (const t of toks) if (addTokenWant(uuid, t.name)) added++;
   scheduleSync(); renderWants();
   showToast(added ? `Added ${added} token${added!==1?'s':''} to the buy list` : 'Tokens already on the buy list');
+}
+
+// ── Token checklist (top of the Decks tab): every token the Owned decks' lists make.
+// Checking a token off means you own it for ALL decks (data.tokensOwned, synced as
+// "name|type" keys). Unchecked tokens sort first and can go onto a deck's buy list.
+let _tokPanelOpen = false, _tokList = [], _tokBuyPending = null;
+function ownedDeckTokens() {
+  const byKey = {};
+  for (const d of (data.colorDecks||[]).filter(d => d.status === 'Owned')) {
+    for (const t of deckTokens(wdlParseEntries(d.uuid))) {
+      if (/^Emblem/.test(t.type)) continue; // emblems aren't physical tokens
+      const key = t.name + '|' + t.type;
+      const o = byKey[key] = byKey[key] || { name: t.name, type: t.type, id: t.id, key, decks: [] };
+      o.decks.push({ uuid: d.uuid, name: deckDisplayName(d) });
+    }
+  }
+  return Object.values(byKey);
+}
+function renderDeckTokens() {
+  const el = document.getElementById('deck-tokens');
+  if (!el) return;
+  const toks = bulkReady() ? ownedDeckTokens() : [];
+  if (!toks.length) { el.innerHTML = ''; return; }
+  const have = new Set(data.tokensOwned || []);
+  const missing = toks.filter(t => !have.has(t.key)).length;
+  toks.sort((a,b) => have.has(a.key) - have.has(b.key) || b.decks.length - a.decks.length || a.name.localeCompare(b.name));
+  _tokList = toks;
+  const btn = `<button class="dl-btn" aria-expanded="${_tokPanelOpen}" onclick="toggleDeckTokens()" style="font-size:12px;padding:5px 10px">
+    <i class="ti ti-coins"></i> Tokens ${toks.length} · ${missing ? `${missing} missing` : 'all owned'} <i class="ti ti-chevron-${_tokPanelOpen ? 'up' : 'down'}"></i></button>`;
+  if (!_tokPanelOpen) { el.innerHTML = btn; return; }
+  const onBuyList = t => t.decks.some(d => ((data.deckWants||{})[d.uuid]||[]).some(w => (w.in||'').toLowerCase() === `${t.name} token`.toLowerCase()));
+  const cells = toks.map((t, i) => {
+    const got = have.has(t.key);
+    return `<div class="tk${got ? ' tk-got' : ''}">
+      <div role="checkbox" aria-checked="${got}" tabindex="0" onclick="toggleTokenOwned(${i})" title="${esc(t.type)} — ${got ? 'owned, tap to uncheck' : 'tap when you own it'}">
+        ${t.id ? `<img loading="lazy" src="${esc(tokenImg(t.id, 'small'))}" alt="${esc(t.name)}">` : ''}<div>${got ? '✓ ' : ''}${esc(t.name)}</div>
+      </div>
+      <div class="tk-from">${esc(t.decks.map(d => d.name).join(', '))}</div>
+      ${got ? '' : onBuyList(t) ? '<div class="tk-from" style="color:var(--blue)">on buy list</div>'
+        : `<button class="dl-btn" onclick="tokenToBuyList(${i})">+ buy</button>`}
+    </div>`;
+  }).join('');
+  el.innerHTML = btn + `<div style="font-size:11px;color:var(--text3);margin:6px 0 2px">Tap a token you own to check it off. Owned tokens move to the bottom.</div>
+    <div class="tk-grid">${cells}</div>`;
+}
+function toggleDeckTokens() { _tokPanelOpen = !_tokPanelOpen; renderDeckTokens(); }
+function toggleTokenOwned(i) {
+  const t = _tokList[i]; if (!t) return;
+  const set = new Set(data.tokensOwned || []);
+  if (set.has(t.key)) set.delete(t.key); else set.add(t.key);
+  data.tokensOwned = [...set];
+  scheduleSync(); renderDeckTokens();
+}
+function tokenToBuyList(i) {
+  const t = _tokList[i]; if (!t) return;
+  if (t.decks.length === 1) { tokenBuyAdd(t, t.decks[0]); return; }
+  _tokBuyPending = t;
+  showModal(`Add ${t.name} token to…`, `<div>${t.decks.map((d, j) =>
+    `<button class="dl-btn" style="display:block;width:100%;margin:6px 0;padding:9px;font-size:13px;text-align:left" onclick="tokenBuyPick(${j})">${esc(d.name)}</button>`).join('')}</div>`);
+  const okBtn = document.getElementById('modal-ok'); if (okBtn) okBtn.style.display = 'none'; // a deck button is the confirm
+}
+function tokenBuyPick(j) {
+  const t = _tokBuyPending; _tokBuyPending = null;
+  modalCancel();
+  if (t && t.decks[j]) tokenBuyAdd(t, t.decks[j]);
+}
+function tokenBuyAdd(t, deck) {
+  const added = addTokenWant(deck.uuid, t.name);
+  scheduleSync(); renderWants();
+  showToast(added ? `Added ${t.name} token to ${deck.name}'s buy list` : `${t.name} token is already on ${deck.name}'s buy list`);
 }
 
 function typeForCard(name) {
@@ -7411,9 +7495,9 @@ function dirBtn(key) {
 function dlControlsHtml(uuid) {
   const opt = (k, v, label) => `<option value="${v}"${dlView[k]===v?' selected':''}>${label}</option>`;
   return `<div class="dl-ctl" onclick="event.stopPropagation()">
-    Group <select onchange="setDlView('group',this.value)">${opt('group','type','Type')}${opt('group','mv','Mana value')}${opt('group','color','Colour')}${opt('group','none','None')}</select>${dirBtn('groupDir')}
-    Sort <select onchange="setDlView('sort',this.value)">${opt('sort','name','Name')}${opt('sort','mv','Mana value')}${opt('sort','price','Price')}</select>${dirBtn('sortDir')}
-    <button onclick="wdlRevealRaw('${escJs(uuid)}')" style="margin-left:auto">Edit list</button>
+    <div class="dl-f">Group<div class="dl-f-row"><select aria-label="Group" onchange="setDlView('group',this.value)">${opt('group','type','Type')}${opt('group','mv','Mana value')}${opt('group','color','Colour')}${opt('group','none','None')}</select>${dirBtn('groupDir')}</div></div>
+    <div class="dl-f">Sort<div class="dl-f-row"><select aria-label="Sort" onchange="setDlView('sort',this.value)">${opt('sort','name','Name')}${opt('sort','mv','Mana value')}${opt('sort','price','Price')}</select>${dirBtn('sortDir')}</div></div>
+    <button onclick="wdlRevealRaw('${escJs(uuid)}')">Edit list</button>
   </div>`;
 }
 
