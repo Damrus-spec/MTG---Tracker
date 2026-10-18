@@ -926,9 +926,8 @@ input.setting-input[type="number"]{width:90px}
          same stored translate+scale. -->
     <div id="ap-panel-position" style="display:none;flex-direction:column;flex:1;overflow-y:auto;padding:14px 16px;gap:14px">
       <div style="position:relative;width:100%;padding-bottom:70%;overflow:hidden;border-radius:6px;background:var(--bg);touch-action:none;cursor:grab" id="ap-pos-bg">
-        <span style="position:absolute;top:3px;right:5px;z-index:3;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:600;padding:0 5px;border-radius:3px;line-height:15px;pointer-events:none">Full art</span>
         <div id="ap-frame-deck" style="display:none;position:absolute;border:2px solid #5bd16a;pointer-events:none;box-sizing:border-box;z-index:2"></div>
-        <img id="ap-pos-img" src="" alt="" draggable="false" style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;transform-origin:center;user-select:none;pointer-events:none">
+        <img id="ap-pos-img" src="" alt="" draggable="false" style="display:none;position:absolute;top:16px;left:16px;width:calc(100% - 32px);height:calc(100% - 32px);object-fit:contain;object-position:center;transform-origin:center;user-select:none;pointer-events:none">
         <!-- Crop-frame overlays (positioned by JS) -->
         <div id="ap-frame-score" style="display:none;position:absolute;border:2px solid #4da3ff;pointer-events:none;box-sizing:border-box;z-index:2"></div>
         <div id="ap-frame-sq" style="display:none;position:absolute;border:2px dashed #ffcc44;pointer-events:none;box-sizing:border-box;z-index:2"></div>
@@ -944,18 +943,18 @@ input.setting-input[type="number"]{width:90px}
           <span style="color:var(--text3);font-size:12px">No art loaded</span>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text3);margin-top:-8px">Drag the art to reposition. The frames show how each tab crops it.</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:-8px">Full art shown. Drag to move the frames; each frame shows how that tab crops the art.</div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Horizontal</span><span id="ap-x-val" style="color:var(--text)">50%</span>
         </div>
-        <input id="ap-x" type="range" min="-400" max="400" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-x" type="range" min="-150" max="250" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
           <span>Vertical</span><span id="ap-y-val" style="color:var(--text)">0%</span>
         </div>
-        <input id="ap-y" type="range" min="-300" max="300" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
+        <input id="ap-y" type="range" min="-150" max="250" step="any" value="50" style="width:100%;height:6px;accent-color:var(--blue);cursor:pointer" oninput="artPickerUpdatePos()">
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
@@ -1144,7 +1143,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.111';
+const APP_VERSION = '2026.07.01.112';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1648,13 +1647,16 @@ const CELL_AR_DECK  = 150/120; // deck-manager art cell
 const CELL_AR_SCORE = 80/68;   // score tab deck-art
 const CELL_AR_SQ    = 1;       // history / wants / rivals (square)
 
-function centerToObjectPos(px, py, cellAR, artAR, sc, clampExtra) {
-  // Visible window as a fraction of the art (cover), shrunk by zoom.
+// Visible window [w, h] as a fraction of the art (cover), shrunk by zoom.
+// Shared by the render and the reposition editor's frames.
+function cropWindow(cellAR, artAR, sc) {
   let winW, winH;
   if (cellAR > artAR) { winW = 1; winH = artAR / cellAR; }
   else                { winH = 1; winW = cellAR / artAR; }
-  winW = Math.min(1, winW / sc);
-  winH = Math.min(1, winH / sc);
+  return [Math.min(1, winW / sc), Math.min(1, winH / sc)];
+}
+function centerToObjectPos(px, py, cellAR, artAR, sc, clampExtra) {
+  const [winW, winH] = cropWindow(cellAR, artAR, sc);
   // Center P (0..1) -> object-position op via clampObjectPos (shared with the
   // reposition editor's frame preview so the two can never drift out of sync).
   const conv = (P, win) => clampObjectPos(P, win);
@@ -6474,9 +6476,6 @@ let _artPickerPosY     = 50;
 let _artPickerPosScale = 1;
 let _artPickerPosSnap  = false;
 let _artPickerReturnIdx = null; // deck idx to return to its slot-chooser on X, or null
-// Actual display dimensions (px) for the frame overlay
-const ART_FRAME_W = 150; // deck-mgr-art width
-const ART_FRAME_H = 110; // approx full row height (art fills stretch)
 
 function openArtPicker(title, initialName, onSelect, posArt, posX, posY, onSavePos) {
   _artPickerShowSplit   = false; // default; slot openers set true after this call
@@ -6541,74 +6540,59 @@ function artPickerInitPos() {
   if (snapEl) snapEl.checked = !!_artPickerPosSnap;
   const slS = document.getElementById('ap-s');
   if (slS) slS.value = Math.round((_artPickerPosScale || 1) * 100);
-  artPickerMeasureDeckMgrAR();
   artPickerUpdatePos();
 }
 
-// Crop-frame aspect ratios (width/height) matching real app cells:
-//   Deck mgr -> .deck-mgr-art (150 wide, runtime height) — measured live
-//   Score    -> .deck-art 80x68
-//   Hist/Wants -> .h-art / .w-card-art ~52x52 (square)
-const AP_FRAME_SCORE_AR = 80/68;
-const AP_FRAME_SQ_AR    = 1;
-let _apDeckMgrAR = 150/120; // fallback; replaced by live measurement
-
-// Measure the real deck-manager art cell aspect for the "Decks" crop frame.
-function artPickerMeasureDeckMgrAR() {
-  const cell = document.querySelector('.deck-mgr-art');
-  if (cell) {
-    const r = cell.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) _apDeckMgrAR = r.width / r.height;
-  }
-}
-
+let _apDispW = 0, _apDispH = 0; // displayed art size, so drag moves frames 1:1 with the pointer
 function artPickerUpdatePos() {
-  let x  = parseFloat(document.getElementById('ap-x')?.value ?? 50); // object-position X 0..100
-  let y  = parseFloat(document.getElementById('ap-y')?.value ?? 50); // object-position Y 0..100
+  const slX = document.getElementById('ap-x'), slY = document.getElementById('ap-y');
+  let x  = parseFloat(slX?.value ?? 50); // art point (0..100) the frames centre on
+  let y  = parseFloat(slY?.value ?? 50);
   const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
   const snap = !!document.getElementById('ap-snap')?.checked;
   const img = document.getElementById('ap-pos-img');
   const bg  = document.getElementById('ap-pos-bg');
 
-  // Snap object-position to 0 / 50 / 100 (edges and center) when close.
-  if (snap) {
-    const TH = 6;
-    for (const t of [0, 50, 100]) { if (Math.abs(x - t) <= TH) { x = t; break; } }
-    for (const t of [0, 50, 100]) { if (Math.abs(y - t) <= TH) { y = t; break; } }
-    const slX = document.getElementById('ap-x'); if (slX) slX.value = x;
-    const slY = document.getElementById('ap-y'); if (slY) slY.value = y;
-  }
-
-  // Show the FULL art (contain) so the user sees the whole painting; the crop
-  // frames drawn over it show exactly what each cover-cropped cell will display.
-  if (img && _artPickerPosArt) {
-    img.src = _artPickerPosArt;
-    img.style.display = 'block';
-    img.style.objectFit       = 'contain';
-    img.style.objectPosition  = 'center';
-    img.style.transform       = 'none';
-  }
-
-  if (img && bg && img.complete && img.naturalWidth) {
+  // img shows the FULL art (object-fit:contain), inset 16px so the frames and
+  // their labels have room; the frames show what each cover-cropped cell displays.
+  if (img && bg && img.complete && img.naturalWidth && img.clientWidth) {
     const fw = bg.clientWidth, fh = bg.clientHeight;
+    const iw = img.clientWidth, ih = img.clientHeight;
     const artAR = img.naturalWidth / img.naturalHeight;
-    const boxAR = fw / fh;
-    // Displayed (contain) art box within the preview
     let dispW, dispH;
-    if (artAR > boxAR) { dispW = fw; dispH = fw / artAR; }
-    else               { dispH = fh; dispW = fh * artAR; }
-    const dispL = (fw - dispW) / 2, dispT = (fh - dispH) / 2;
+    if (artAR > iw / ih) { dispW = iw; dispH = iw / artAR; }
+    else                 { dispH = ih; dispW = ih * artAR; }
+    const dispL = img.offsetLeft + (iw - dispW) / 2, dispT = img.offsetTop + (ih - dispH) / 2;
+    _apDispW = dispW; _apDispH = dispH;
 
-    // For a cell of aspect cellAR, cover shows a window of the art. Window size as
-    // fraction of the displayed art, then shrunk by zoom (sc). Position within the
-    // art from object-position (x,y in 0..100).
-    const placeCropFrame = (el, cellAR, lblEl, corner) => {
+    const FRAMES = [['deck', CELL_AR_DECK, 'tl'], ['score', CELL_AR_SCORE, 'tr'], ['sq', CELL_AR_SQ, 'br']]
+      .map(([k, ar, corner]) => ({ k, corner, win: cropWindow(ar, artAR, sc) }));
+    const primary = FRAMES.find(f => f.k === (_artPickerIsRival ? 'sq' : 'deck'));
+    // Keep each axis inside the range where some cell's crop still moves (all
+    // three cell shapes, since rivals also render in deck-shaped cells), so the
+    // slider/drag has no dead zone. An axis no cell can move on is disabled.
+    const fitAxis = (v, i, sl) => {
+      const wins = FRAMES.map(f => f.win[i]).filter(w => w < 1);
+      if (sl) { sl.disabled = !wins.length; sl.style.opacity = wins.length ? '' : '.4'; sl.title = wins.length ? '' : 'Zoom in to move the art this way'; }
+      if (!wins.length) return v;
+      // inverse of clampObjectPos: centre P where object-position hits the clamp
+      const lo = Math.min(...wins.map(w => (CROP_CLAMP_MIN * (1 - w) + w / 2) * 100));
+      const hi = Math.max(...wins.map(w => (CROP_CLAMP_MAX * (1 - w) + w / 2) * 100));
+      v = Math.max(lo, Math.min(hi, v));
+      // Snap the main frame flush to an art edge, or centred, when close.
+      if (snap && primary.win[i] < 1) {
+        const half = primary.win[i] * 50;
+        for (const t of [half, 50, 100 - half]) { if (Math.abs(v - t) <= 6) { v = t; break; } }
+      }
+      return v;
+    };
+    x = fitAxis(x, 0, slX); y = fitAxis(y, 1, slY);
+    if (slX) slX.value = x;
+    if (slY) slY.value = y;
+
+    const placeCropFrame = (el, win, lblEl, corner) => {
       if (!el) return;
-      let winWFrac, winHFrac;
-      if (cellAR > artAR) { winWFrac = 1; winHFrac = artAR / cellAR; } // cell wider: full width, crop height
-      else                { winHFrac = 1; winWFrac = cellAR / artAR; } // cell taller/narrower: full height, crop width
-      winWFrac = Math.min(1, winWFrac / sc);
-      winHFrac = Math.min(1, winHFrac / sc);
+      const [winWFrac, winHFrac] = win;
       const w = dispW * winWFrac, h = dispH * winHFrac;
       // Same clamp the render uses (clampObjectPos) — keeps the preview frame and
       // the rendered crop pixel-identical at the extremes.
@@ -6620,21 +6604,22 @@ function artPickerUpdatePos() {
       el.style.display = 'block';
       el.style.left = left + 'px'; el.style.top = top + 'px';
       el.style.width = w + 'px';   el.style.height = h + 'px';
-      // Position the label (container-level, top layer) at a chosen corner
+      // Label (container-level, top layer) sits just outside the frame line: above
+      // it for tl/tr, below it for br; kept inside the preview box so never clipped.
       if (lblEl) {
         lblEl.style.display = 'block';
-        if (corner === 'tl') { lblEl.style.left = (left+2)+'px'; lblEl.style.top = (top-8)+'px'; lblEl.style.right=''; lblEl.style.bottom=''; }
-        else if (corner === 'tr') { lblEl.style.left = ''; lblEl.style.right = (fw-(left+w)+2)+'px'; lblEl.style.top = (top-8)+'px'; lblEl.style.bottom=''; }
-        else { lblEl.style.left = ''; lblEl.style.right = (fw-(left+w)+2)+'px'; lblEl.style.top = (top+h-7)+'px'; lblEl.style.bottom=''; }
+        const lw = lblEl.offsetWidth, lh = lblEl.offsetHeight;
+        const lx = corner === 'tl' ? left : left + w - lw;
+        const ly = corner === 'br' ? top + h : top - lh;
+        lblEl.style.right = ''; lblEl.style.bottom = '';
+        lblEl.style.left = Math.max(0, Math.min(fw - lw, lx)) + 'px';
+        lblEl.style.top  = Math.max(0, Math.min(fh - lh, ly)) + 'px';
       }
     };
-    // Use the SAME cell-aspect constants the render uses, so the editor frames and
-    // render crop identically. (Live measurement diverged from the render's fixed
-    // constants, putting the cut line in the wrong spot.) Rivals render square, so
-    // only the square (yellow) frame is shown for them.
-    placeCropFrame(document.getElementById('ap-frame-deck'),  CELL_AR_DECK, document.getElementById('ap-lbl-deck'),  'tl');
-    placeCropFrame(document.getElementById('ap-frame-score'), CELL_AR_SCORE, document.getElementById('ap-lbl-score'), 'tr');
-    placeCropFrame(document.getElementById('ap-frame-sq'),    CELL_AR_SQ, document.getElementById('ap-lbl-sq'), 'br');
+    // Use the SAME cell-aspect constants the render uses (via cropWindow), so the
+    // editor frames and render crop identically. Rivals render square, so only the
+    // square (yellow) frame is shown for them.
+    FRAMES.forEach(f => placeCropFrame(document.getElementById('ap-frame-' + f.k), f.win, document.getElementById('ap-lbl-' + f.k), f.corner));
     if (_artPickerIsRival) ['ap-frame-deck','ap-lbl-deck','ap-frame-score','ap-lbl-score'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
 
     // Partner diagonal cut. Each art is clipped to a wedge at 57.5%/42.5% of EACH
@@ -6681,8 +6666,8 @@ function artPickerUpdatePos() {
   const xv = document.getElementById('ap-x-val');
   const yv = document.getElementById('ap-y-val');
   const sv = document.getElementById('ap-s-val');
-  if (xv) xv.textContent = `${Math.round(x)}%`;
-  if (yv) yv.textContent = `${Math.round(y)}%`;
+  if (xv) xv.textContent = slX?.disabled ? 'zoom in to move' : `${Math.round(x)}%`;
+  if (yv) yv.textContent = slY?.disabled ? 'zoom in to move' : `${Math.round(y)}%`;
   if (sv) sv.textContent = `${sc.toFixed(2)}×`;
 }
 let _apDragBound = false;
@@ -6705,14 +6690,15 @@ function artPickerBindDrag() {
     const dxPx = p.clientX - lastX, dyPx = p.clientY - lastY;
     lastX = p.clientX; lastY = p.clientY;
     const rect = bg.getBoundingClientRect();
-    const dxPct = (dxPx / rect.width) * 100;
-    const dyPct = (dyPx / rect.height) * 100;
+    // Percent of the displayed art, so the frames follow the pointer 1:1.
+    const dxPct = (dxPx / (_apDispW || rect.width)) * 100;
+    const dyPct = (dyPx / (_apDispH || rect.height)) * 100;
     const slX = document.getElementById('ap-x');
     const slY = document.getElementById('ap-y');
-    // Dragging right moves the crop window right over the art. Wide range so art
-    // can be panned far via object-position extrapolation (X extra-wide).
-    if (slX) slX.value = Math.max(-200, Math.min(300, parseFloat(slX.value||50) + dxPct));
-    if (slY) slY.value = Math.max(-100, Math.min(200, parseFloat(slY.value||50) + dyPct));
+    // Dragging right moves the crop frames right over the art. artPickerUpdatePos
+    // clamps to the useful range, so there is no dead zone to drag back out of.
+    if (slX && !slX.disabled) slX.value = parseFloat(slX.value||50) + dxPct;
+    if (slY && !slY.disabled) slY.value = parseFloat(slY.value||50) + dyPct;
     artPickerUpdatePos();
     e.preventDefault();
   };
@@ -6723,6 +6709,12 @@ function artPickerBindDrag() {
   bg.addEventListener('touchstart', onDown, {passive:false});
   window.addEventListener('touchmove', onMove, {passive:false});
   window.addEventListener('touchend', onUp);
+  // Re-lay out the frames when the art finishes loading (a fresh image isn't
+  // complete on the first pass) and when the viewport resizes/rotates.
+  document.getElementById('ap-pos-img')?.addEventListener('load', artPickerUpdatePos);
+  window.addEventListener('resize', () => {
+    if (document.getElementById('art-picker-overlay')?.style.display === 'flex') artPickerUpdatePos();
+  });
 }
 
 function artPickerResetPos() {
@@ -6734,8 +6726,9 @@ function artPickerResetPos() {
 }
 
 function artPickerSavePos() {
-  const x  = parseFloat(document.getElementById('ap-x')?.value ?? 0);
-  const y  = parseFloat(document.getElementById('ap-y')?.value ?? 0);
+  // Sliders are step="any"; one decimal is plenty for the stored position.
+  const x  = Math.round(parseFloat(document.getElementById('ap-x')?.value ?? 0) * 10) / 10;
+  const y  = Math.round(parseFloat(document.getElementById('ap-y')?.value ?? 0) * 10) / 10;
   const sc = parseFloat(document.getElementById('ap-s')?.value ?? 100) / 100;
   const snap = !!document.getElementById('ap-snap')?.checked;
   // Callback stores marked translate offsets (see slot opener save handler)
