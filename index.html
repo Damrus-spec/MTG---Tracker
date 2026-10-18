@@ -288,6 +288,16 @@ input.setting-input[type="number"]{width:90px}
 /* DECK EXPAND PANEL */
 .deck-expand{display:none;background:var(--bg);border-bottom:.5px solid var(--border);padding:10px 12px}
 .issues-row{margin-top:0;border-top:.5px solid var(--border);padding-top:6px}
+.mu-wrap{overflow-x:auto;margin-top:8px;-webkit-overflow-scrolling:touch}
+.mu-table{border-collapse:separate;border-spacing:0;font-size:11px}
+.mu-table th,.mu-table td{padding:5px 6px;text-align:center;border-bottom:.5px solid var(--border);white-space:nowrap}
+.mu-table thead th{font-weight:600;color:var(--text2);vertical-align:bottom;line-height:1.25}
+.mu-table thead th span{display:block;font-weight:400;color:var(--text3);max-width:96px;overflow:hidden;text-overflow:ellipsis}
+.mu-table th.mu-me{position:sticky;left:0;background:var(--surface);text-align:left;max-width:120px;overflow:hidden;text-overflow:ellipsis;z-index:1}
+.mu-table td.mu-cell{cursor:pointer;min-width:48px;line-height:1.25}
+.mu-table td.mu-cell b{display:block;font-weight:600}
+.mu-table td.mu-cell:hover{background:var(--bg)}
+.mu-table td.mu-empty{color:var(--text3)}
 .issues-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
 .issues-toggle:hover{color:var(--text2)}
 .issues-grid{display:none;margin-top:8px}
@@ -664,6 +674,12 @@ input.setting-input[type="number"]{width:90px}
   </div>
   <div class="pod-bar" style="display:flex;gap:4px;margin:4px 0 8px"></div>
   <p style="font-size:11px;color:var(--text3);margin-bottom:8px">Win rates shown are yours against each rival.</p>
+  <div class="card" style="margin-bottom:10px">
+    <button class="issues-toggle" id="matchup-toggle" aria-expanded="false" aria-controls="matchup-body" onclick="toggleMatchups()">
+      <i class="ti ti-table" style="font-size:12px"></i> Matchups <i class="ti ti-chevron-down" style="font-size:11px"></i>
+    </button>
+    <div id="matchup-body" style="display:none"></div>
+  </div>
   <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;font-size:12px;color:var(--text2);user-select:none">
     <input type="checkbox" id="s-showMyDecks" onchange="toggleShowMyDecks(this.checked)" style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
     Show my own decks here (from the Decks tab) so they're pickable when someone else pilots them
@@ -1085,7 +1101,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.102';
+const APP_VERSION = '2026.07.01.103';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -8796,7 +8812,61 @@ function rivalStats() {
   return stats;
 }
 
+// ── Matchup grid: your decks (rows) vs rival decks (columns), from tagged games ──
+let matchupsOpen = false;
+function toggleMatchups() { matchupsOpen = !matchupsOpen; renderMatchups(); }
+function renderMatchups() {
+  const body = document.getElementById('matchup-body');
+  const btn  = document.getElementById('matchup-toggle');
+  if (!body) return;
+  if (btn) {
+    btn.setAttribute('aria-expanded', matchupsOpen ? 'true' : 'false');
+    const icons = btn.querySelectorAll('i'); const last = icons[icons.length-1];
+    if (last) last.className = matchupsOpen ? 'ti ti-chevron-up' : 'ti ti-chevron-down';
+  }
+  body.style.display = matchupsOpen ? '' : 'none';
+  if (!matchupsOpen) return;
+  const bucket = podBucket();
+  const cells = {}, rowTot = {}, colTot = {}, colRef = {};
+  for (const h of (data.history||[])) {
+    if (!h.last || !Array.isArray(h.opponents) || !bucket.match(h)) continue;
+    const mine = h.deckUuid || uuidForName(h.deck) || h.deck;
+    const youWon = (h.winnerId !== undefined) ? !h.winnerId : (h.last === 'Win'); // same rule as h2hVs
+    for (const o of h.opponents) {
+      if (!o.playerId || !o.deckId) continue; // a player with no deck pick has no column
+      const col = o.playerId + '|' + o.deckId;
+      const c = ((cells[mine] = cells[mine] || {})[col] = cells[mine][col] || {w:0, l:0});
+      if (youWon) c.w++; else c.l++;
+      rowTot[mine] = (rowTot[mine]||0) + 1;
+      colTot[col]  = (colTot[col]||0) + 1;
+      colRef[col]  = o;
+    }
+  }
+  const rows = Object.keys(rowTot).sort((a,b) => rowTot[b] - rowTot[a]);
+  const cols = Object.keys(colTot).sort((a,b) => colTot[b] - colTot[a]);
+  if (!rows.length) {
+    body.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px 0 2px">No games with a tagged rival deck yet. Pick rival decks when you log games and they show up here.</div>';
+    return;
+  }
+  const head = cols.map(col => {
+    const o = colRef[col], r = resolveRival(o.playerId), d = resolveDeckAnywhere(o.deckId);
+    return `<th title="${esc((r?r.name:'?') + ' — ' + (d?d.display:'?'))}">${esc(r ? r.name : '?')}<span>${esc(d ? d.name : '?')}</span></th>`;
+  }).join('');
+  const body2 = rows.map(mine => {
+    const name = displayNameForUuid(mine) || mine;
+    return `<tr><th class="mu-me" title="${esc(name)}">${esc(name)}</th>` + cols.map(col => {
+      const c = (cells[mine]||{})[col];
+      if (!c) return '<td class="mu-empty">·</td>';
+      const n = c.w + c.l, wr = Math.round(c.w / n * 100), o = colRef[col];
+      return `<td class="mu-cell ${wrClass(wr, n)}" title="${c.w}W ${c.l}L" onclick="openRivalHistory('${escJs(o.playerId)}','${escJs(o.deckId)}')"><b>${c.w}-${c.l}</b>${wr}%</td>`;
+    }).join('') + '</tr>';
+  }).join('');
+  body.innerHTML = `<div style="font-size:11px;color:var(--text3);margin-top:6px">Your decks down the side, rival decks across. Tap a cell to see those games.</div>
+    <div class="mu-wrap"><table class="mu-table"><thead><tr><th class="mu-me"></th>${head}</tr></thead><tbody>${body2}</tbody></table></div>`;
+}
+
 function renderRivals() { scheduleCropApply();
+  renderMatchups();
   const allRivals   = [...(data.opponents||[]), ...(data.retiredOpponents||[])];
   // Default: everything collapsed on first render of the session.
   if (!_rivalsCollapsedInit) {
