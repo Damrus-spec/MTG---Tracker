@@ -396,35 +396,6 @@ input.setting-input[type="number"]{width:90px}
 .art-thumb.selected{border-color:var(--green)}
 .art-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top;display:block}
 .art-thumb-label{position:absolute;bottom:0;left:0;right:0;padding:3px 5px;font-size:9px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.editor-row{border-bottom:.5px solid var(--border)}
-.editor-row:last-child{border-bottom:none}
-.editor-row td{padding:6px 0;vertical-align:middle}
-.editor-row td:nth-child(1){padding:6px 6px;text-align:right;white-space:nowrap}
-.editor-row td:nth-child(2){padding:0;width:52px;vertical-align:top;height:1px}
-.editor-row td:nth-child(2) .editor-art{width:52px;height:52px;min-height:52px}
-.editor-row td:nth-child(3){padding:6px 8px}
-.editor-row td:nth-child(4){padding:6px 0;text-align:center}
-.editor-row td:nth-child(5),.editor-row td:nth-child(6){padding:10px 0 2px 0;text-align:center}
-.editor-row td:nth-child(7){padding:6px 6px;text-align:center}
-.editor-row:last-child td{border-bottom:none}
-.editor-input{width:100%;background:transparent;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:0 4px;font-family:inherit;height:28px;box-sizing:border-box}
-.editor-input:focus{outline:none;border-color:var(--blue);background:var(--surface)}
-.editor-input.date-input{width:108px}
-.editor-input.date-input::-webkit-calendar-picker-indicator{display:none!important}
-.editor-input.num-input{width:28px;text-align:center;font-size:11px;padding:0;height:28px;box-sizing:border-box}
-.editor-input.num-input::-webkit-inner-spin-button,.editor-input.num-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.editor-input.num-input{-moz-appearance:textfield}
-.editor-art{width:52px;border-radius:0;overflow:hidden;background:var(--bg);flex-shrink:0;position:relative;align-self:stretch}
-.editor-art img{position:absolute;inset:0;width:100%;height:100%}
-.editor-art.loading{animation:shimmer 1.2s infinite;background:linear-gradient(90deg,var(--bg) 25%,var(--border) 50%,var(--bg) 75%);background-size:200% 100%}
-.editor-select{background:var(--surface);border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text);font-size:11px;padding:0 2px;font-family:inherit;cursor:pointer;width:100%;text-align:center;height:28px;box-sizing:border-box}
-.editor-select:focus{outline:none;border-color:var(--blue)}
-.editor-del{background:none;border:none;cursor:pointer;color:var(--text3);padding:2px 4px;font-size:12px}
-.editor-row.draft-changed{background:rgba(66,133,244,.06)}
-.editor-row.draft-changed td:nth-child(1){border-left:2px solid var(--blue)}
-.editor-row.draft-deleted{background:rgba(224,96,96,.06);opacity:.6}
-.editor-row.draft-deleted td:nth-child(1){border-left:2px solid var(--red)}
-.editor-del:hover{color:var(--red)}
 #quick-stats-card{display:none}
 /* ── RIVALS TAB ── */
 .rival-art{position:relative;width:52px;height:52px;border-radius:var(--radius-sm);overflow:hidden;flex-shrink:0;background:var(--bg)}
@@ -1114,7 +1085,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.99';
+const APP_VERSION = '2026.07.01.100';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -1433,10 +1404,13 @@ function localToday() {
 // ============================================================
 // LOCAL STORAGE
 // ============================================================
+// History rows carry render-only running tallies; keep them out of storage and Drive
+function persistReplacer(k, v) { return (k === '_cumW' || k === '_cumL') ? undefined : v; }
 function saveLocal() {
   localVersion++;
   data._v = localVersion;
-  try { localStorage.setItem('mtg_data', JSON.stringify(data)); } catch(e) {}
+  try { localStorage.setItem('mtg_data', JSON.stringify(data, persistReplacer)); }
+  catch(e) { dbgLog('Local save failed (storage full?) — Drive sync still carries your data', e); }
   setDirty(true);
 }
 function setDirty(v) {
@@ -1465,6 +1439,8 @@ function loadLocal() {
   try { artCache = JSON.parse(localStorage.getItem('mtg_art')||'{}'); } catch(e) { artCache={}; }
   try { partnerCache = JSON.parse(localStorage.getItem('mtg_partners_v2')||'{}'); } catch(e) { partnerCache={}; }
   try { priceCache = JSON.parse(localStorage.getItem('mtg_prices')||'{}'); } catch(e) { priceCache={}; }
+  // Prices are only trusted for 24h; drop week-old ones so the cache can't grow forever
+  for (const k in priceCache) if (!(Date.now() - (priceCache[k]?.ts||0) < 7*86400000)) delete priceCache[k];
 
   if (!accessToken) {
     // Not signed in — clear all local game data, show empty state
@@ -2169,7 +2145,7 @@ async function driveReadFile(fileId) {
 
 // Returns the file id, or null on failure (callers must treat null as "not saved").
 async function driveWriteFile(fileId, fileName, folderId, payload, _retried) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = JSON.stringify(payload, persistReplacer, 2);
   const retry401 = async () => {
     try { await tokenRefresh(); } catch(e) { return null; }
     return driveWriteFile(fileId, fileName, folderId, payload, true);
@@ -2774,12 +2750,22 @@ async function fetchArt(name) {
 }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
+const _artRerender = new Set();
+function scheduleArtRerender(which) {
+  if (!_artRerender.size) requestAnimationFrame(() => {
+    if (_artRerender.has('deckmgr')) renderDeckMgr();
+    if (_artRerender.has('rivals'))  renderRivals();
+    _artRerender.clear();
+  });
+  _artRerender.add(which);
+}
 // Inject a resolved art URL into any rendered cells waiting on this key
 function injectArt(key, url, name) {
   document.querySelectorAll(`[data-art="${key}"]`).forEach(el=>{
     el.classList.remove('loading');
-    if (el.dataset.rerender==='deckmgr') { renderDeckMgr(); return; }
-    if (el.dataset.rerender==='rivals')  { renderRivals();  return; }
+    // Full re-renders are batched: one per frame, not one per cell per resolved card
+    if (el.dataset.rerender==='deckmgr') { scheduleArtRerender('deckmgr'); return; }
+    if (el.dataset.rerender==='rivals')  { scheduleArtRerender('rivals');  return; }
     if (!el.querySelector('img')) {
       const img=document.createElement('img'); img.src=url; img.alt=name||''; img.loading='lazy';
       // Match the fit used by the full render: deck-art contexts show whole art
@@ -2932,6 +2918,7 @@ async function bulkDownloadAndParse() {
     bytes = new Uint8Array(await decompressed.arrayBuffer());
   }
   const text = new TextDecoder('utf-8').decode(bytes);
+  bytes = null; // ~100MB+: let it be collected before parsing (mobile memory)
 
   const map = {};
   let parsed = 0, skipped = 0, noType = 0;
@@ -2950,8 +2937,12 @@ async function bulkDownloadAndParse() {
     try { (JSON.parse(text) || []).forEach(addCard); } catch(e) { throw new Error('bulk JSON array parse failed'); }
   } else {
     // JSON Lines — full text in memory, so every line is whole (no chunk splits).
-    for (const line of text.split('\n')) {
-      const s = line.trim();
+    // Walk it by index: split('\n') would hold a second full copy as an array of lines.
+    for (let start = 0; start < text.length; ) {
+      let end = text.indexOf('\n', start);
+      if (end < 0) end = text.length;
+      const s = text.slice(start, end).trim();
+      start = end + 1;
       if (!s) continue;
       try { addCard(JSON.parse(s)); } catch(e) { skipped++; }
     }
@@ -4017,8 +4008,9 @@ function renderHistory() { scheduleCropApply(); renderPodBar();
   const trueTotal = Object.values(data.scores||{}).reduce((s,d)=>s+(d.total||0), 0);
   const gameOffset = Math.max(0, trueTotal - historyCount);
 
+  const histIdx = new Map((data.history||[]).map((h,i)=>[h,i])); // O(1) lookup; indexOf per row was O(n²)
   const indexed = allWithResult
-    .map((h,i)=>({h, i: (data.history||[]).indexOf(h), absNum:gameOffset+i+1})) // i = real data.history index
+    .map((h,i)=>({h, i: histIdx.get(h), absNum:gameOffset+i+1})) // i = real data.history index
     .filter(({h})=>{
       if (!q) return true;
       const displayN = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || '';
@@ -5311,27 +5303,37 @@ function renderBuyList() {
   updateBuyTotal();
 }
 
+const _priceInFlight = new Set(); // every renderWants starts a loop; don't fetch the same card twice at once
 async function fetchMissingPrices(names) {
+  let fresh = 0;
+  // Batch the full localStorage rewrite + label refresh instead of doing both per card
+  const flush = () => { if (fresh) { savePriceCache(); renderBuyPrices(); fresh = 0; } };
   for (const name of names) {
     const key = name.toLowerCase();
     // Cache prices for 24h
     const cached = priceCache[key];
     if (cached && (Date.now() - (cached.ts||0)) < 86400000) continue;
+    if (_priceInFlight.has(key)) continue;
+    _priceInFlight.add(key);
     try {
       const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
-      if (!res.ok) { await sleep(80); continue; }
-      const card = await res.json();
-      priceCache[key] = {
-        eur: card.prices?.eur || null,
-        usd: card.prices?.usd || null,
-        ts: Date.now()
-      };
-      savePriceCache();
-      // Update the rendered price label live
-      renderBuyPrices();
+      if (res.status === 404) {
+        priceCache[key] = { eur: null, usd: null, ts: Date.now() }; fresh++; // not a card: don't refetch every render
+      } else if (res.ok) {
+        const card = await res.json();
+        priceCache[key] = {
+          eur: card.prices?.eur || null,
+          usd: card.prices?.usd || null,
+          ts: Date.now()
+        };
+        fresh++;
+      }
     } catch(e) {}
+    finally { _priceInFlight.delete(key); }
+    if (fresh >= 5) flush();
     await sleep(80);
   }
+  flush();
 }
 
 function renderBuyPrices() {
@@ -5854,7 +5856,13 @@ function submitBulkImport(deck, key) {
 }
 
 // Silently correct a card name to Scryfall canonical form after it's been added
-async function normaliseWantCardName(deckUuid, rawName) {
+// One lookup at a time: a bulk paste of 100 cards used to fire 100 parallel Scryfall calls (429s)
+let _normQueue = Promise.resolve();
+function normaliseWantCardName(deckUuid, rawName) {
+  _normQueue = _normQueue.then(() => _normaliseWantCardName(deckUuid, rawName));
+  return _normQueue;
+}
+async function _normaliseWantCardName(deckUuid, rawName) {
   try {
     await sleep(200); // small delay to not race the render
     const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(rawName)}`);
@@ -6148,8 +6156,14 @@ function reactivateDeck(idx) {
 }
 
 function deleteDeck(idx) {
-  if(!confirm('Remove this deck entry? Score data is kept.')) return;
+  if(!confirm('Remove this deck entry? Score data is kept; its wants list and stored decklist are removed.')) return;
   const deck = data.colorDecks[idx];
+  if (deck && deck.uuid) {
+    // These are keyed by the deck and would otherwise linger as orphans under "Other" in Wants
+    if (data.deckWants) delete data.deckWants[deck.uuid];
+    if (data.deckLists) delete data.deckLists[deck.uuid];
+    data.buylistExcluded = (data.buylistExcluded||[]).filter(u => u !== deck.uuid);
+  }
   if (deck) {
     // Stamp the human-readable name onto the score entry before removing from colorDecks
     // so it can be displayed in the retired list even though it's no longer in colorDecks
@@ -6720,334 +6734,6 @@ function toggleSettingsSection(labelEl) {
   const body = labelEl.nextElementSibling;
   if (body) body.classList.toggle('collapsed');
 }
-
-let editorSortDir = 1; // 1 = oldest first, -1 = newest first
-// Draft: { [originalIdx]: { field: newValue, ... }, _deleted: true }
-let editorDraft = {};
-// Snapshot of data.history at editor open time for diffing
-let editorSnapshot = null;
-
-function toggleEditorSearchMode() {
-  const btn = document.getElementById('editor-search-mode');
-  if (!btn) return;
-  btn.textContent = btn.textContent.trim() === 'Display' ? 'Commander' : 'Display';
-  renderEditor();
-}
-
-function toggleEditorSort() {
-  editorSortDir = -editorSortDir;
-  const btn = document.getElementById('editor-sort-btn');
-  if (btn) btn.innerHTML = `<i class="ti ti-arrows-sort"></i> ${editorSortDir===1?'Oldest':'Newest'}`;
-  renderEditor();
-}
-
-function renderEditor() {
-  // Take snapshot on first render (so we can diff later)
-  if (!editorSnapshot) editorSnapshot = JSON.parse(JSON.stringify(data.history||[]));
-  const q      = (document.getElementById('editor-search')?.value||'').toLowerCase();
-  const resF   = '';
-  const tbody  = document.getElementById('editor-body');
-  if (!tbody) return;
-
-  const history = (data.history||[]);
-  // Filter to valid + searched entries first (keep original index for edits)
-  const filtered = history
-    .map((h,i)=>({h,i}))
-    .filter(({h})=> h.last && h.deck)
-    .filter(({h})=>{
-      if (!q) return true;
-      const displayN = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || '';
-      const cmdN = h.deck || '';
-      return displayN.toLowerCase().includes(q) || cmdN.toLowerCase().includes(q);
-    })
-    .filter(({h})=>!resF || h.last===resF);
-
-  // Assign a FIXED chronological rank to each entry (oldest = #1), independent of
-  // the current sort direction. Ties on date break by original index for stability.
-  const chrono = filtered.slice().sort((a,b)=>{
-    const c = (a.h.date||'').localeCompare(b.h.date||'');
-    return c !== 0 ? c : (a.i - b.i);
-  });
-  const rankByIdx = {};
-  chrono.forEach(({i}, n) => { rankByIdx[i] = n + 1; });
-
-  // Now order for display per the chosen sort direction
-  const indexed = filtered.slice().sort((a,b)=>{
-    const c = editorSortDir*(a.h.date||'').localeCompare(b.h.date||'');
-    return c !== 0 ? c : editorSortDir*(a.i - b.i);
-  });
-
-  tbody.innerHTML = indexed.map(({h,i})=>`
-    <tr class="editor-row" data-idx="${i}">
-      <td style="color:var(--text3);padding:0 6px;text-align:right;white-space:nowrap;font-size:11px">#${rankByIdx[i]}</td>
-      <td style="padding:0">${(()=>{
-        const cmdName=(h.deck||'').split(' // ')[0].trim();
-        const k=scryfallKey(cmdName);
-        const artHtml = h.deckUuid ? deckArtHtml(h.deckUuid, CELL_AR_SQ) : (()=>{
-          const art=artCache[k];
-          const prtName=(h.deck||'').includes(' // ')?(h.deck||'').split(' // ')[1].trim():null;
-          const prtArt=prtName?artCache[scryfallKey(prtName)]:null;
-          return splitArtHtml(art,prtArt,cmdName, false, undefined, undefined, undefined, undefined, CELL_AR_SQ);
-        })();
-        const hasArt = h.deckUuid ? !!(deckArtHtml(h.deckUuid)) : !!artCache[k];
-        return `<div class="editor-art${hasArt?'':' loading'}" data-art="${k}">${artHtml}</div>`;
-      })()}</td>
-      <td>
-        <span style="font-size:12px;color:var(--text)">${partnerNameHtml((h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '')}</span>
-      </td>
-      <td><input class="editor-input date-input" type="date" value="${h.date||''}"
-        title="Click to edit date"
-        onchange="editorUpdate(${i},'date',this.value)"></td>
-      <td><input class="editor-input num-input" type="number" min="0" value="${h.wins!=null?h.wins:''}"
-        placeholder="—" onchange="editorUpdate(${i},'wins',this.value)"></td>
-      <td><input class="editor-input num-input" type="number" min="0" value="${h.losses!=null?h.losses:''}"
-        placeholder="—" onchange="editorUpdate(${i},'losses',this.value)"></td>
-      <td><button class="h-badge ${h.last==='Win'?'h-win':'h-loss'}" style="border:none;cursor:pointer;font-size:11px;font-weight:500;padding:3px 8px;border-radius:10px;width:44px" onclick="editorFlipResult(${i})" title="Click to flip result">${h.last}</button></td>
-      <td><button class="editor-del" onclick="editorDelete(${i})" title="Delete"><i class="ti ti-trash"></i></button></td>
-    </tr>`).join('');
-  const editorDeckNames = [...new Set(indexed.map(({h})=>(h.deck||'').split(' // ')[0].trim()).filter(Boolean))];
-  fetchMissingArt(editorDeckNames);
-  // Apply draft visual states
-  for (const [idxStr, draft] of Object.entries(editorDraft)) {
-    const idx = parseInt(idxStr);
-    const row = tbody.querySelector(`tr[data-idx="${idx}"]`);
-    if (!row) continue;
-    if (draft._deleted) row.classList.add('draft-deleted');
-    else row.classList.add('draft-changed');
-  }
-  updateEditorSaveBar();
-}
-
-function updateEditorSaveBar() {
-  const bar = document.getElementById('editor-save-bar');
-  const lbl = document.getElementById('editor-save-label');
-  const count = Object.keys(editorDraft).length;
-  if (!bar) return;
-  if (count === 0) {
-    bar.style.display = 'none';
-    return;
-  }
-  bar.style.display = '';
-  const dels = Object.values(editorDraft).filter(d=>d._deleted).length;
-  const edits = count - dels;
-  const parts = [];
-  if (edits) parts.push(`${edits} edit${edits!==1?'s':''}`);
-  if (dels)  parts.push(`${dels} deletion${dels!==1?'s':''}`);
-  if (lbl) {
-    const dels = Object.values(editorDraft).filter(d=>d._deleted).length;
-    const edits = Object.keys(editorDraft).length - dels;
-    const descriptions = [];
-    for (const [idxStr, draft] of Object.entries(editorDraft)) {
-      const idx = parseInt(idxStr);
-      const orig = (editorSnapshot||[])[idx] || {};
-      if (draft._deleted) {
-        const name = (data.history[idx]?.deckUuid ? displayNameForUuid(data.history[idx].deckUuid) : null) || data.history[idx]?.deck || '?';
-        descriptions.push(`Deleted: ${name.split(' // ')[0]}`);
-      } else {
-        const orig2 = data.history[idx] || {};
-        for (const [f, v] of Object.entries(draft)) {
-          if (f.startsWith('_')) continue;
-          const oldVal = orig2[f] ?? '—';
-          const label = {last:'Result',date:'Date',wins:'W',losses:'L'}[f] || f;
-          descriptions.push(`${label}: ${oldVal}→${v}`);
-        }
-      }
-    }
-    lbl.textContent = descriptions.length ? descriptions.slice(0,3).join(' · ') + (descriptions.length > 3 ? ` +${descriptions.length-3} more` : '') : `${parts.join(', ')} pending`;
-  }
-}
-
-function editorFlipResult(idx) {
-  if (!data.history[idx]) return;
-  const current = editorDraft[idx]?.last ?? data.history[idx].last;
-  const flipped = current === 'Win' ? 'Loss' : 'Win';
-  editorUpdate(idx, 'last', flipped);
-}
-
-function editorUpdate(idx, field, value) {
-  if (!data.history[idx]) return;
-  if (!editorDraft[idx]) editorDraft[idx] = {};
-  if (field==='wins' || field==='losses') {
-    const n = parseInt(value);
-    editorDraft[idx][field] = isNaN(n) ? undefined : n;
-  } else {
-    editorDraft[idx][field] = value;
-  }
-  // If draft matches original, remove the entry
-  const orig = editorSnapshot?.[idx];
-  if (orig) {
-    const draftFields = Object.keys(editorDraft[idx]).filter(k=>k!=='_deleted');
-    const allMatch = draftFields.every(k=>String(editorDraft[idx][k]??'') === String(orig[k]??''));
-    if (allMatch) delete editorDraft[idx];
-  }
-  // Re-apply visual state without full re-render
-  const tbody = document.getElementById('editor-body');
-  const row = tbody?.querySelector(`tr[data-idx="${idx}"]`);
-  if (row) {
-    row.classList.toggle('draft-changed', !!editorDraft[idx]);
-    // Live-update the flip button if result changed
-    if (field === 'last') {
-      const btn = row.querySelector('button.h-badge');
-      if (btn) {
-        btn.textContent = value;
-        btn.classList.toggle('h-win', value === 'Win');
-        btn.classList.toggle('h-loss', value === 'Loss');
-      }
-    }
-  }
-  updateEditorSaveBar();
-}
-
-function editorDelete(idx) {
-  if (!data.history[idx]) return;
-  const h = data.history[idx];
-  // Mark as deleted in draft (deferred)
-  if (!editorDraft[idx]) editorDraft[idx] = {};
-  editorDraft[idx]._deleted = true;
-  renderEditor();
-  showToast('Marked for deletion — save to confirm');
-}
-
-function editorSaveChanges() {
-  const draftEntries = Object.entries(editorDraft);
-  if (!draftEntries.length) return;
-
-  // Build diff summary
-  const lines = [];
-  for (const [idxStr, draft] of draftEntries) {
-    const idx = parseInt(idxStr);
-    const h = data.history[idx];
-    if (!h) continue;
-    const name = (h.deckUuid ? displayNameForUuid(h.deckUuid) : null) || h.deck || '?';
-    if (draft._deleted) {
-      lines.push(`Delete: ${name} — ${h.date} — ${h.last}`);
-    } else {
-      for (const [field, newVal] of Object.entries(draft)) {
-        const oldVal = (editorSnapshot?.[idx]?.[field]) ?? '—';
-        lines.push(`${name}: ${field} ${oldVal} → ${newVal??'—'}`);
-      }
-    }
-  }
-
-  showModal('Save changes?', lines.join('\n'), () => {
-    // Apply deletes first (in reverse index order to preserve indices)
-    const toDelete = Object.entries(editorDraft)
-      .filter(([,d])=>d._deleted)
-      .map(([i])=>parseInt(i))
-      .sort((a,b)=>b-a);
-    for (const idx of toDelete) {
-      data.history.splice(idx, 1);
-    }
-    // Apply edits (indices may have shifted, use snapshot to find matches)
-    // Re-index: after deletes, remaining edits need to find their entry by snapshot match
-    for (const [idxStr, draft] of Object.entries(editorDraft)) {
-      if (draft._deleted) continue;
-      const idx = parseInt(idxStr);
-      const snap = editorSnapshot?.[idx];
-      if (!snap) continue;
-      // Find this entry in the (now-mutated) history by matching snapshot fields
-      const entry = data.history.find(h =>
-        h.deckUuid === snap.deckUuid &&
-        h.date === snap.date &&
-        h.last === snap.last &&
-        h.deck === snap.deck
-      );
-      if (!entry) continue;
-      for (const [field, val] of Object.entries(draft)) {
-        if (field === '_deleted') continue;
-        if (val === undefined || val === '') delete entry[field];
-        else entry[field] = val;
-      }
-    }
-    editorDraft = {};
-    editorSnapshot = null;
-    scheduleSync();
-    renderEditor();
-    showToast('Changes saved');
-  });
-}
-
-function editorDiscard() {
-  const count = Object.keys(editorDraft).length;
-  if (!count) return;
-  showModal('Discard changes?', `Discard ${count} pending change${count!==1?'s':''}?`, () => {
-    editorDraft = {};
-    renderEditor();
-    showToast('Changes discarded');
-  });
-}
-
-function editorOpenAdd() {
-  // Populate deck dropdown
-  const decks = (data.colorDecks||[]).filter(d=>d.name);
-  const deckOpts = decks.map(d=>`<option value="${d.uuid||''}" data-name="${esc(deckDisplayName(d))}">${esc(deckDisplayName(d))}</option>`).join('');
-  const today = new Date().toISOString().slice(0,10);
-  showModal('Add history entry',
-    `Fill in the entry details below.`,
-    () => {
-      const deck   = document.getElementById('ea-deck');
-      const date   = document.getElementById('ea-date');
-      const wins   = document.getElementById('ea-wins');
-      const losses = document.getElementById('ea-losses');
-      const result = document.getElementById('ea-result');
-      if (!deck||!date||!result) return;
-      const selectedOpt = deck.options[deck.selectedIndex];
-      const deckName = selectedOpt?.dataset?.name || deck.value;
-      const deckUuid = deck.value || null;
-      const entry = {
-        date:   date.value || today,
-        deck:   deckName,
-        last:   result.value,
-      };
-      if (deckUuid) entry.deckUuid = deckUuid;
-      const w = parseInt(wins?.value);
-      const l = parseInt(losses?.value);
-      if (!isNaN(w)) entry.wins   = w;
-      if (!isNaN(l)) entry.losses = l;
-      data.history.push(entry);
-      renderEditor();
-      scheduleSync();
-      showToast('Entry added');
-    }
-  );
-  // Inject form into modal body after it opens
-  setTimeout(()=>{
-    const body = document.getElementById('modal-body');
-    if (!body) return;
-    body.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Deck</div>
-          <select id="ea-deck" style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-            ${deckOpts}
-          </select>
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Date</div>
-          <input id="ea-date" type="date" value="${today}" style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-        </div>
-        <div style="display:flex;gap:10px">
-          <div style="flex:1">
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Cumulative wins <span style="color:var(--text3)">(optional)</span></div>
-            <input id="ea-wins" type="number" min="0" placeholder="e.g. 7" style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-          </div>
-          <div style="flex:1">
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Cumulative losses <span style="color:var(--text3)">(optional)</span></div>
-            <input id="ea-losses" type="number" min="0" placeholder="e.g. 11" style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-          </div>
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Result</div>
-          <select id="ea-result" style="width:100%;padding:7px 8px;border:.5px solid var(--border-md);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
-            <option value="Win">Win</option>
-            <option value="Loss">Loss</option>
-          </select>
-        </div>
-      </div>`;
-  }, 20);
-}
-
-function updateEditorTab() { /* Editor tab removed; history editing now lives in the History tab. */ }
 
 function renderSettings() {
   const s=cfg();
@@ -7885,7 +7571,6 @@ function runRebuildScores() {
 
 function renderAll() {
   renderScore(); renderHistory(); renderWants(); renderDeckMgr(); renderRivals(); populateHistoryFilters();
-  updateEditorTab();
   setTimeout(()=>{
     lastExpandedDeck = null;
     populateHistoryFilters();
