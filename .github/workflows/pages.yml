@@ -1,0 +1,49 @@
+name: Publish site
+
+# Publishes the app to GitHub Pages together with prices.json (Cardmarket price guide,
+# rebuilt daily). Pages source must be "GitHub Actions" (Settings → Pages).
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * *'   # 05:17 UTC, after Cardmarket's nightly price guide
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Copy app files
+        # Everything tracked except build tooling
+        run: |
+          mkdir _site
+          git ls-files | grep -v -e '^\.github/' -e '^scripts/' | xargs -I{} cp --parents {} _site/
+      - name: Build prices.json
+        # A Cardmarket outage must not take the app down: publish without prices (the app falls back to Scryfall)
+        run: node scripts/build-prices.mjs _site/prices.json || echo "::warning::prices.json not built"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

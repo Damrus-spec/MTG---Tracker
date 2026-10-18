@@ -1144,7 +1144,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.110';
+const APP_VERSION = '2026.07.01.111';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5412,8 +5412,8 @@ function priceLabel(name) {
 }
 
 // Price of one copy for the chosen seller: number, null (Scryfall has no price) or undefined (not fetched yet)
-// ── Cardmarket price guide (prices.json, rebuilt daily by the Damrus-spec.github.io workflow) ──
-const CM_PRICES_URL = 'https://damrus-spec.github.io/prices.json';
+// ── Cardmarket price guide (prices.json next to the app, rebuilt daily by .github/workflows/pages.yml) ──
+const CM_PRICES_URL = 'prices.json';
 const CM_PRICES_KEY = 'cmPricesV1';
 let cmPrices = null; // { updated, fields:[...], p:{ lowercase name: [values per field] } }
 function cmPriceType() {
