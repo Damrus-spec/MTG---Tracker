@@ -609,9 +609,12 @@ input.setting-input[type="number"]{width:90px}
   <div id="wants-buy">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <button class="buy-copy-btn" title="Copy the buy list items shown to clipboard" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy list</button>
-      <input id="buy-max" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Max price" title="Only show cards up to this price (empty = all)" oninput="setBuyMax(this.value)"
-        style="width:92px;flex-shrink:0;padding:10px 8px;font-size:13px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
       <div id="buy-total-price" style="font-size:14px;font-weight:600;color:var(--text);flex-shrink:0;padding:10px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm)">€—</div>
+    </div>
+    <div id="buy-max-row" style="display:none;align-items:center;gap:10px;margin-bottom:8px;font-size:12px;color:var(--text2)">
+      <span style="flex-shrink:0">Max price</span>
+      <input id="buy-max" type="range" min="0" step="0.5" value="0" aria-label="Maximum card price" oninput="setBuyMax(this.value)" style="flex:1;min-width:0;accent-color:var(--blue)">
+      <span id="buy-max-label" style="flex-shrink:0;min-width:64px;text-align:right;color:var(--text);font-weight:600">All</span>
     </div>
     <div class="card"><div id="buy-list"></div></div>
   </div>
@@ -1103,7 +1106,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.105';
+const APP_VERSION = '2026.07.01.106';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -5371,8 +5374,25 @@ function priceSym() { return cfg().cardSeller === 'tcgplayer' ? '$' : '€'; }
 // Buy-list max-price filter: a per-device view preference, so plain localStorage
 let buyMax = NaN;
 try { buyMax = parseFloat(localStorage.getItem('mtg_buy_max')); } catch(e) {}
+// Slider runs 0 .. (priciest known card + 1); the top stop means "no filter"
+function buySliderTop() {
+  let top = 0;
+  for (const i of buildBuyList()) { const v = cardPrice(i.name); if (v != null && v > top) top = v; }
+  return Math.ceil(top) + 1;
+}
+function syncBuySlider() {
+  const row = document.getElementById('buy-max-row'), el = document.getElementById('buy-max'), lab = document.getElementById('buy-max-label');
+  if (!row || !el) return;
+  const top = buySliderTop();
+  row.style.display = top > 1 ? 'flex' : 'none'; // nothing priced yet: nothing to slide over
+  el.max = top;
+  const all = isNaN(buyMax) || buyMax >= top;
+  if (document.activeElement !== el) el.value = all ? top : buyMax; // don't yank it mid-drag
+  if (lab) lab.textContent = all ? 'All' : `≤ ${priceSym()}${buyMax.toFixed(2)}`;
+}
 function setBuyMax(v) {
-  buyMax = parseFloat(v);
+  const n = parseFloat(v), top = parseFloat(document.getElementById('buy-max')?.max);
+  buyMax = (isNaN(n) || n >= top) ? NaN : n;
   try { if (isNaN(buyMax)) localStorage.removeItem('mtg_buy_max'); else localStorage.setItem('mtg_buy_max', String(buyMax)); } catch(e) {}
   applyBuyFilter();
 }
@@ -5386,15 +5406,15 @@ function applyBuyFilter() {
   document.querySelectorAll('.buy-item-row').forEach(row => {
     row.style.display = buyItemShown(row.dataset.name) ? '' : 'none';
   });
+  syncBuySlider(); // newly fetched prices can raise the top stop
   updateBuyTotal();
 }
 
 function renderBuyList() {
   const items=buildBuyList();
-  const maxEl = document.getElementById('buy-max');
-  if (maxEl && document.activeElement !== maxEl) maxEl.value = isNaN(buyMax) ? '' : buyMax;
   if(!items.length){
     document.getElementById('buy-list').innerHTML='<div class="empty">No cards to buy — add cards with Buy status in the By deck tab.</div>';
+    syncBuySlider(); updateBuyTotal();
     return;
   }
   const artNames = items.map(i=>i.name);
