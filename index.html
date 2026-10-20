@@ -1166,7 +1166,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.119';
+const APP_VERSION = '2026.07.01.120';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10125,6 +10125,17 @@ function promptRenameRival(rivalId) {
 window.onerror = function(msg, src, line) {
   setSyncStatus('red', 'Error line ' + line + ': ' + msg);
 };
+// Local testing without Google (no sign-in pop-ups, no Drive reads/writes):
+// open http://127.0.0.1:<port>/…/index.html?nodrive. Ignored on any other host, so never active live.
+const NO_DRIVE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('nodrive');
+if (NO_DRIVE) {
+  try { localStorage.setItem('mtg_token', 'nodrive'); } catch(e) {} // keeps local data; skips the login gate
+  loadFromDrive = async () => setSyncStatus('busy', 'Test mode — no Google Drive');
+  syncDrive = async () => {};
+  silentSignIn = () => {};
+  quietTokenRefresh = () => true;
+  tokenRefresh = async () => 'nodrive';
+}
 loadLocal();
 renderAll();
 updateSignInBtn();
