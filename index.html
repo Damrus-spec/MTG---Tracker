@@ -1166,7 +1166,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.120';
+const APP_VERSION = '2026.07.01.121';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -9447,11 +9447,12 @@ function rivalStats() {
 let matchupsOpen = false;
 function toggleMatchups() { matchupsOpen = !matchupsOpen; renderMatchups(); }
 // Collapsed rival groups in the matchup grid: a per-device view preference
-let muCollapsed = new Set(), _muGroupIds = [];
-try { muCollapsed = new Set(JSON.parse(localStorage.getItem('mtg_mu_collapsed') || '[]')); } catch(e) {}
-function saveMuCollapsed() { try { localStorage.setItem('mtg_mu_collapsed', JSON.stringify([...muCollapsed])); } catch(e) {} }
-function toggleMuGroup(pid) { if (!muCollapsed.delete(pid)) muCollapsed.add(pid); saveMuCollapsed(); renderMatchups(); }
-function setAllMuGroups(shut) { muCollapsed = new Set(shut ? _muGroupIds : []); saveMuCollapsed(); renderMatchups(); }
+// Every rival starts collapsed each visit; expanding one lasts until the app is closed (user choice, not stored)
+let muExpanded = new Set(), _muGroupIds = [];
+try { localStorage.removeItem('mtg_mu_collapsed'); } catch(e) {} // old remembered state (v.118-v.120)
+const muIsShut = pid => !muExpanded.has(pid);
+function toggleMuGroup(pid) { if (!muExpanded.delete(pid)) muExpanded.add(pid); renderMatchups(); }
+function setAllMuGroups(shut) { muExpanded = new Set(shut ? [] : _muGroupIds); renderMatchups(); }
 // Your win rate per (estimated) bracket of the deck you played; decks without a stored list are left out
 function bracketWinRateHtml(bucket) {
   if (!bulkReady()) return '';
@@ -9513,10 +9514,10 @@ function renderMatchups() {
   }
   const rname = pid => { const r = resolveRival(pid); return r ? r.name : '?'; };
   const head1 = glist.map(g => {
-    const shut = muCollapsed.has(g.pid);
+    const shut = muIsShut(g.pid);
     return `<th class="mu-grp mu-gs" colspan="${shut ? 1 : g.cols.length}" onclick="toggleMuGroup('${escJs(g.pid)}')" title="${shut ? 'Show' : 'Collapse'} ${esc(rname(g.pid))}'s decks">${shut ? '▸' : '▾'} ${esc(rname(g.pid))} <small>${g.total}</small></th>`;
   }).join('');
-  const head2 = glist.map(g => muCollapsed.has(g.pid)
+  const head2 = glist.map(g => muIsShut(g.pid)
     ? `<th class="mu-gs"><span>all decks</span></th>`
     : g.cols.map((col, i) => { const d = resolveDeckAnywhere(colRef[col].deckId);
         return `<th class="${i ? '' : 'mu-gs'}" title="${esc(d ? d.display : '?')}"><span>${esc(d ? d.name : '?')}</span></th>`; }).join('')
@@ -9529,7 +9530,7 @@ function renderMatchups() {
   const body2 = rows.map(mine => {
     const name = displayNameForUuid(mine) || mine, mc = cells[mine] || {};
     return `<tr><th class="mu-me" title="${esc(name)}">${esc(name)}</th>` + glist.map(g => {
-      if (muCollapsed.has(g.pid)) {
+      if (muIsShut(g.pid)) {
         const sum = g.cols.reduce((a, col) => { const c = mc[col]; if (c) { a.w += c.w; a.l += c.l; } return a; }, { w:0, l:0 });
         return cellHtml(sum, 'mu-gs', g.pid, '');
       }
