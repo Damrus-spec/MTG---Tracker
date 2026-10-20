@@ -328,6 +328,12 @@ input.setting-input[type="number"]{width:90px}
 .mu-table td.mu-cell b{display:block;font-weight:600}
 .mu-table td.mu-cell:hover{background:var(--bg)}
 .mu-table td.mu-empty{color:var(--text3)}
+.mu-table .mu-gs{border-left:.5px solid var(--border-md)}
+.mu-table thead th.mu-grp{cursor:pointer;color:var(--text);user-select:none}
+.mu-table thead th.mu-grp:hover{background:var(--bg)}
+.mu-table thead th.mu-grp small{font-weight:400;color:var(--text3)}
+.mu-tools{display:flex;gap:6px;margin-top:6px}
+.mu-tools button{background:none;border:.5px solid var(--border-md);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer;font-size:11px;padding:3px 8px}
 .issues-toggle{background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0;display:flex;align-items:center;gap:4px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
 .issues-toggle:hover{color:var(--text2)}
 .issues-grid{display:none;margin-top:8px}
@@ -1150,7 +1156,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.117';
+const APP_VERSION = '2026.07.01.118';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -9430,6 +9436,12 @@ function rivalStats() {
 // ── Matchup grid: your decks (rows) vs rival decks (columns), from tagged games ──
 let matchupsOpen = false;
 function toggleMatchups() { matchupsOpen = !matchupsOpen; renderMatchups(); }
+// Collapsed rival groups in the matchup grid: a per-device view preference
+let muCollapsed = new Set(), _muGroupIds = [];
+try { muCollapsed = new Set(JSON.parse(localStorage.getItem('mtg_mu_collapsed') || '[]')); } catch(e) {}
+function saveMuCollapsed() { try { localStorage.setItem('mtg_mu_collapsed', JSON.stringify([...muCollapsed])); } catch(e) {} }
+function toggleMuGroup(pid) { if (!muCollapsed.delete(pid)) muCollapsed.add(pid); saveMuCollapsed(); renderMatchups(); }
+function setAllMuGroups(shut) { muCollapsed = new Set(shut ? _muGroupIds : []); saveMuCollapsed(); renderMatchups(); }
 // Your win rate per (estimated) bracket of the deck you played; decks without a stored list are left out
 function bracketWinRateHtml(bucket) {
   if (!bulkReady()) return '';
@@ -9475,26 +9487,48 @@ function renderMatchups() {
     }
   }
   const rows = Object.keys(rowTot).sort((a,b) => rowTot[b] - rowTot[a]);
-  const cols = Object.keys(colTot).sort((a,b) => colTot[b] - colTot[a]);
+  // Columns grouped by rival (most-played rival first, their decks by games); a collapsed rival is one total column
+  const groups = {};
+  for (const col of Object.keys(colTot)) {
+    const pid = colRef[col].playerId;
+    const g = groups[pid] = groups[pid] || { pid, cols: [], total: 0 };
+    g.cols.push(col); g.total += colTot[col];
+  }
+  const glist = Object.values(groups).sort((a,b) => b.total - a.total);
+  glist.forEach(g => g.cols.sort((a,b) => colTot[b] - colTot[a]));
+  _muGroupIds = glist.map(g => g.pid);
   if (!rows.length) {
     body.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px 0 2px">No games with a tagged rival deck yet. Pick rival decks when you log games and they show up here.</div>';
     return;
   }
-  const head = cols.map(col => {
-    const o = colRef[col], r = resolveRival(o.playerId), d = resolveDeckAnywhere(o.deckId);
-    return `<th title="${esc((r?r.name:'?') + ' — ' + (d?d.display:'?'))}">${esc(r ? r.name : '?')}<span>${esc(d ? d.name : '?')}</span></th>`;
+  const rname = pid => { const r = resolveRival(pid); return r ? r.name : '?'; };
+  const head1 = glist.map(g => {
+    const shut = muCollapsed.has(g.pid);
+    return `<th class="mu-grp mu-gs" colspan="${shut ? 1 : g.cols.length}" onclick="toggleMuGroup('${escJs(g.pid)}')" title="${shut ? 'Show' : 'Collapse'} ${esc(rname(g.pid))}'s decks">${shut ? '▸' : '▾'} ${esc(rname(g.pid))} <small>${g.total}</small></th>`;
   }).join('');
+  const head2 = glist.map(g => muCollapsed.has(g.pid)
+    ? `<th class="mu-gs"><span>all decks</span></th>`
+    : g.cols.map((col, i) => { const d = resolveDeckAnywhere(colRef[col].deckId);
+        return `<th class="${i ? '' : 'mu-gs'}" title="${esc(d ? d.display : '?')}"><span>${esc(d ? d.name : '?')}</span></th>`; }).join('')
+  ).join('');
+  const cellHtml = (c, cls, pid, deckId) => {
+    if (!c || !(c.w + c.l)) return `<td class="mu-empty ${cls}">·</td>`;
+    const n = c.w + c.l, wr = Math.round(c.w / n * 100);
+    return `<td class="mu-cell ${cls} ${wrClass(wr, n)}" title="${c.w}W ${c.l}L" onclick="openRivalHistory('${escJs(pid)}','${escJs(deckId)}')"><b>${c.w}-${c.l}</b>${wr}%</td>`;
+  };
   const body2 = rows.map(mine => {
-    const name = displayNameForUuid(mine) || mine;
-    return `<tr><th class="mu-me" title="${esc(name)}">${esc(name)}</th>` + cols.map(col => {
-      const c = (cells[mine]||{})[col];
-      if (!c) return '<td class="mu-empty">·</td>';
-      const n = c.w + c.l, wr = Math.round(c.w / n * 100), o = colRef[col];
-      return `<td class="mu-cell ${wrClass(wr, n)}" title="${c.w}W ${c.l}L" onclick="openRivalHistory('${escJs(o.playerId)}','${escJs(o.deckId)}')"><b>${c.w}-${c.l}</b>${wr}%</td>`;
+    const name = displayNameForUuid(mine) || mine, mc = cells[mine] || {};
+    return `<tr><th class="mu-me" title="${esc(name)}">${esc(name)}</th>` + glist.map(g => {
+      if (muCollapsed.has(g.pid)) {
+        const sum = g.cols.reduce((a, col) => { const c = mc[col]; if (c) { a.w += c.w; a.l += c.l; } return a; }, { w:0, l:0 });
+        return cellHtml(sum, 'mu-gs', g.pid, '');
+      }
+      return g.cols.map((col, i) => cellHtml(mc[col], i ? '' : 'mu-gs', g.pid, colRef[col].deckId)).join('');
     }).join('') + '</tr>';
   }).join('');
-  body.innerHTML = bracketWinRateHtml(bucket) + `<div style="font-size:11px;color:var(--text3);margin-top:6px">Your decks down the side, rival decks across. Tap a cell to see those games.</div>
-    <div class="mu-wrap"><table class="mu-table"><thead><tr><th class="mu-me"></th>${head}</tr></thead><tbody>${body2}</tbody></table></div>`;
+  body.innerHTML = bracketWinRateHtml(bucket) + `<div style="font-size:11px;color:var(--text3);margin-top:6px">Your decks down the side, rival decks across. Tap a rival's name to collapse their decks into one column; tap a cell to see those games.</div>
+    <div class="mu-tools"><button onclick="setAllMuGroups(true)">Collapse all</button><button onclick="setAllMuGroups(false)">Expand all</button></div>
+    <div class="mu-wrap"><table class="mu-table"><thead><tr><th class="mu-me" rowspan="2"></th>${head1}</tr><tr>${head2}</tr></thead><tbody>${body2}</tbody></table></div>`;
 }
 
 function renderRivals() { scheduleCropApply();
