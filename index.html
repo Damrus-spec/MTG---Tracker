@@ -1166,7 +1166,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.121';
+const APP_VERSION = '2026.07.01.122';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -6339,7 +6339,7 @@ function renderDeckMgr() { scheduleCropApply();
         </div>
         ${(d.status==='Owned'||d.status==='Building') ? `
         <div id="wdl-sum-${d.uuid}" style="font-size:12px;font-weight:600;color:var(--text);margin-top:4px">${deckSummaryHtml(d.uuid)}</div>
-        <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" style="margin-top:3px;padding:5px 0;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
+        <button class="issues-toggle" id="wdl-toggle-${d.uuid}" aria-expanded="${wdlPanelOpen[d.uuid]?'true':'false'}" aria-controls="wdl-panel-${d.uuid}" onclick="toggleWantsDecklistPanel('${d.uuid}')" title="Decklist: ${wdlStatusInfo(d.uuid).label}" style="margin-top:3px;padding:5px 0;width:100%;display:flex;align-items:center;gap:5px;font-size:11px;color:${wdlPanelOpen[d.uuid]?'var(--accent)':'var(--text3)'}">
           <i class="ti ti-cards" style="font-size:12px"></i> Decklist
           <span id="wdl-dot-${d.uuid}" style="margin-left:auto;display:inline-flex;align-items:center">${wdlStatusDot(d.uuid)}</span>
           <i id="wdl-chev-${d.uuid}" class="ti ti-${wdlPanelOpen[d.uuid]?'chevron-up':'chevron-down'}" style="font-size:11px;margin-left:6px"></i>
@@ -7398,13 +7398,16 @@ function wdlGetList(uuid) { return (((data.deckLists||{})[uuid]||{}).list || '')
 //   green  = a valid 100-card list
 //   orange = something stored, but not 100 cards
 //   red    = nothing stored
-function wdlStatusDot(uuid) {
+function wdlStatusInfo(uuid) {
   const total = wdlParseEntries(uuid).reduce((s,e)=>s+e.qty, 0);
-  let color, label;
-  if (total === 0)        { color = 'var(--red)';    label = 'No decklist saved'; }
-  else if (total === 100) { color = 'var(--green)';  label = '100 cards — complete'; }
-  else                    { color = '#e0902b';       label = `${total} cards — not 100`; }
-  return `<span title="${label}" style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
+  if (total === 0)   return { color: 'var(--red)',   label: 'No decklist saved' };
+  if (total === 100) return { color: 'var(--green)', label: '100 cards — complete' };
+  return { color: '#e0902b', label: `${total} cards — not 100` };
+}
+function wdlStatusDot(uuid) {
+  const { color, label } = wdlStatusInfo(uuid);
+  // Padding around the 9px dot gives the hover tooltip a target you can actually hit
+  return `<span title="${label}" aria-label="${label}" style="display:inline-flex;padding:6px;margin:-6px;cursor:help"><span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span></span>`;
 }
 
 function wdlParseEntries(uuid) {
@@ -7923,6 +7926,8 @@ function wdlSave(uuid) {
   // Refresh the completeness dot + grouped view from the saved list.
   const dot = document.getElementById('wdl-dot-'+uuid);
   if (dot) dot.innerHTML = wdlStatusDot(uuid);
+  const tog = document.getElementById('wdl-toggle-'+uuid);
+  if (tog) tog.title = 'Decklist: ' + wdlStatusInfo(uuid).label;
   const g = document.getElementById('wdl-grouped-'+uuid);
   if (g) g.innerHTML = wdlGroupedHtml(uuid);
   const sum = document.getElementById('wdl-sum-'+uuid);
