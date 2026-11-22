@@ -655,6 +655,7 @@ input.setting-input[type="number"]{width:90px}
   <div id="wants-buy">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <button class="buy-copy-btn" title="Copy the buy list items shown to clipboard" onclick="copyBuyList()" style="flex:1;margin:0"><i class="ti ti-copy"></i> Copy list</button>
+      <button class="buy-copy-btn" title="Scan cards with the camera and see which ones are on your wishlist" onclick="openCardScanner()" style="flex:1;margin:0"><i class="ti ti-scan"></i> Scan cards</button>
       <div id="buy-total-price" style="font-size:14px;font-weight:600;color:var(--text);flex-shrink:0;padding:10px 14px;background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-sm)">€—</div>
     </div>
     <div id="buy-max-row" style="display:none;align-items:center;gap:10px;margin-bottom:8px;font-size:12px;color:var(--text2)">
@@ -1166,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.122';
+const APP_VERSION = '2026.07.01.123';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10172,6 +10173,167 @@ if (captureRedirectToken()) {
      the build (scripts/sync-html.sh) when copying this file into the app. -->
 <script>window.__ANDROID_OAUTH_CLIENT_ID = window.__ANDROID_OAUTH_CLIENT_ID || '759702102602-j316h1cjupqt2fsogk4at5v9c5th4oma.apps.googleusercontent.com';</script>
 <script src="native-auth.js" onerror="/* web: no native bridge, ignore */"></script>
+<!-- ===== MTG CARD SCANNER (Wants → Scan cards) ===== -->
+<style>
+#cs-ov{display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);color:var(--text);flex-direction:column;font-family:system-ui,sans-serif}
+#cs-ov.on{display:flex}
+#cs-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border-md)}
+#cs-top b{color:var(--accent);letter-spacing:1px}
+#cs-top button{background:none;border:1px solid var(--border-md);color:var(--accent);border-radius:6px;padding:6px 12px;font-size:14px}
+#cs-cam{position:relative;background:#000;overflow:hidden;margin:0 auto}
+#cs-cam video{width:100%;height:100%;display:block}
+#cs-guide{position:absolute;border:2px dashed var(--accent);border-radius:10px;box-sizing:border-box}
+#cs-strip{position:absolute;border:2px solid var(--green);border-radius:4px;box-sizing:border-box}
+#cs-status{padding:6px 14px;font-size:13px;color:var(--text2);min-height:20px}
+#cs-sum{padding:2px 14px 8px;font-weight:700;color:var(--accent)}
+#cs-list{flex:1;overflow:auto;padding:0 10px 14px}
+.cs-row{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:6px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
+.cs-row.want{background:var(--green-bg);border-color:var(--green)}
+.cs-row .n{flex:1}
+.cs-row .w{display:block;font-size:12px;color:var(--green)}
+.cs-row .q{color:var(--text2);font-size:13px}
+.cs-row button{background:none;border:0;color:var(--red);font-size:18px;padding:4px 8px}
+</style>
+
+<div id="cs-ov">
+  <div id="cs-top"><b>CARD SCANNER</b><button onclick="closeCardScanner()">Done</button></div>
+  <div id="cs-cam"><video id="cs-v" playsinline muted autoplay></video><div id="cs-guide"></div><div id="cs-strip"></div></div>
+  <div id="cs-status"></div>
+  <div id="cs-sum"></div>
+  <div id="cs-list"></div>
+</div>
+
+<script>
+(function(){
+const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; // pinned: the service worker caches jsDelivr files forever
+const CARD_AR=63/88, GUIDE_H=0.8;                 // card aspect, guide height as fraction of video height
+const STRIP={x:0.06,y:0.035,w:0.68,h:0.075};      // title strip inside the card guide (fractions)
+const INTERVAL_MS=600, MIN_CONF=60, SCALE=3;
+
+const norm=s=>s.split('//')[0].trim().toLowerCase();
+
+// Map<normalised card name, [deck labels]> from the app's wants: data.deckWants = { deckUuid: [{in, inStatus, out}] }.
+// The buy list is built from the same entries, so this covers it too.
+function getWantsIndex(){
+  const idx=new Map();
+  const add=(name,label)=>{const k=norm(name);if(!idx.has(k))idx.set(k,[]);idx.get(k).push(label)};
+  for(const [uuid,entries] of Object.entries((data&&data.deckWants)||{})){
+    const deck=displayNameForUuid(uuid)||'Unknown deck';
+    for(const w of (entries||[])){
+      if(!w||!w.in||!w.in.trim())continue;
+      add(w.in, w.inStatus==='owned'?deck+' (owned)':deck); // already-owned wants stay visible but say so
+    }
+  }
+  return idx;
+}
+
+const $=id=>document.getElementById(id);
+const ov=$('cs-ov'),cam=$('cs-cam'),vid=$('cs-v'),guide=$('cs-guide'),strip=$('cs-strip'),list=$('cs-list');
+const c=document.createElement('canvas'),cx=c.getContext('2d',{willReadFrequently:true});
+let stream=null,worker=null,running=false,wants=new Map(),g,s;
+let prev='',weak=0,armed=true,lastName='';
+const cache=new Map(),rows=new Map();
+
+const status=t=>{$('cs-status').textContent=t};
+const esc=t=>t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const clean=t=>t.replace(/[^A-Za-z',\- ]/g,' ').replace(/\s+/g,' ').trim();
+function lev(a,b){const d=[];for(let i=0;i<=a.length;i++){d[i]=[i];}for(let j=1;j<=b.length;j++)d[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return d[a.length][b.length]}
+const loadTess=()=>window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const e=document.createElement('script');e.src=TESS_URL;e.onload=ok;e.onerror=()=>no(new Error('OCR failed to load'));document.head.appendChild(e)});
+const place=(el,x,y,w,h,vw,vh)=>{el.style.left=x/vw*100+'%';el.style.top=y/vh*100+'%';el.style.width=w/vw*100+'%';el.style.height=h/vh*100+'%'};
+
+function layout(){
+  const vw=vid.videoWidth,vh=vid.videoHeight;
+  const h=Math.min(innerHeight*0.45,innerWidth*vh/vw),w=h*vw/vh;
+  cam.style.width=w+'px';cam.style.height=h+'px';
+  let gh=vh*GUIDE_H,gw=gh*CARD_AR;
+  if(gw>vw*0.92){gw=vw*0.92;gh=gw/CARD_AR}
+  g={x:(vw-gw)/2,y:(vh-gh)/2,w:gw,h:gh};
+  s={x:g.x+g.w*STRIP.x,y:g.y+g.h*STRIP.y,w:g.w*STRIP.w,h:g.h*STRIP.h};
+  place(guide,g.x,g.y,g.w,g.h,vw,vh);
+  place(strip,s.x,s.y,s.w,s.h,vw,vh);
+}
+
+async function lookup(t){
+  if(cache.has(t))return cache.get(t);
+  try{
+    const r=await fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(t));
+    const name=r.ok?(await r.json()).name:null;
+    cache.set(t,name);return name;
+  }catch(e){return null}
+}
+
+function addCard(name){
+  const r=rows.get(name)||{name,qty:0,decks:wants.get(norm(name))||[]};
+  r.qty++;rows.set(name,r);
+  if(navigator.vibrate)navigator.vibrate(r.decks.length?[120,60,120]:30);
+  render();
+}
+
+function render(){
+  const all=[...rows.values()].sort((a,b)=>(b.decks.length>0)-(a.decks.length>0));
+  const hit=all.filter(r=>r.decks.length).length;
+  $('cs-sum').textContent=all.length?hit+' of '+all.length+' scanned cards on your wishlist':'';
+  list.innerHTML=all.map(r=>'<div class="cs-row'+(r.decks.length?' want':'')+'"><div class="n">'+esc(r.name)
+    +(r.decks.length?'<span class="w">WANTED · '+esc([...new Set(r.decks)].join(', '))+'</span>':'')+'</div>'
+    +'<span class="q">×'+r.qty+'</span><button data-k="'+esc(r.name)+'">✕</button></div>').join('');
+}
+list.onclick=e=>{const k=e.target.dataset&&e.target.dataset.k;if(k){rows.delete(k);render()}};
+
+// play() can resolve before the stream reports its frame size; laying out at 0x0 hid the camera view
+async function waitForSize(){for(let i=0;i<50&&!(vid.videoWidth&&vid.videoHeight);i++)await new Promise(r=>setTimeout(r,100))}
+addEventListener('resize',()=>{if(stream&&vid.videoWidth)layout()});
+
+async function tick(){
+  if(!s||!s.w)layout();
+  c.width=Math.round(s.w*SCALE);c.height=Math.round(s.h*SCALE);
+  cx.filter='grayscale(1) contrast(1.8)';
+  cx.drawImage(vid,s.x,s.y,s.w,s.h,0,0,c.width,c.height);
+  const {data}=await worker.recognize(c);
+  const txt=clean(data.text);
+  status('Reading: '+(txt||'—')+' ('+Math.round(data.confidence)+'%)');
+  if(txt.length<3||data.confidence<MIN_CONF){prev='';if(++weak>=2)armed=true;return}
+  weak=0;
+  const stable=prev&&lev(prev,txt)<=1;prev=txt;
+  if(!stable)return;
+  const name=await lookup(txt);
+  if(!name||(name===lastName&&!armed))return;
+  armed=false;lastName=name;addCard(name);
+}
+
+async function loop(){
+  if(!running)return;
+  const t0=Date.now();
+  try{await tick()}catch(e){status('Error: '+(e.message||e))}
+  setTimeout(loop,Math.max(50,INTERVAL_MS-(Date.now()-t0)));
+}
+
+window.openCardScanner=async function(){
+  ov.classList.add('on');rows.clear();render();
+  wants=getWantsIndex();prev='';weak=0;armed=true;lastName='';
+  status('Starting camera…');
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    vid.srcObject=stream;await vid.play();await waitForSize();layout();
+    status('Loading OCR…');
+    await loadTess();
+    const w=await Tesseract.createWorker('eng');
+    await w.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-"});
+    if(!ov.classList.contains('on')){await w.terminate();return}
+    worker=w;running=true;loop();
+  }catch(e){status('Scanner error: '+(e.message||e))}
+};
+
+window.closeCardScanner=async function(){
+  running=false;
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  vid.srcObject=null;
+  if(worker){const w=worker;worker=null;await w.terminate()}
+  ov.classList.remove('on');
+};
+})();
+</script>
 </body>
 </html>
 
