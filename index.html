@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.123';
+const APP_VERSION = '2026.07.01.124';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10259,8 +10259,10 @@ async function lookup(t){
   if(cache.has(t))return cache.get(t);
   try{
     const r=await fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(t));
-    const name=r.ok?(await r.json()).name:null;
-    cache.set(t,name);return name;
+    // Cache only real answers: a 429/5xx must not mark this text as "not a card" for the session
+    if(r.ok){const name=(await r.json()).name;cache.set(t,name);return name}
+    if(r.status===404)cache.set(t,null);
+    return null;
   }catch(e){return null}
 }
 
