@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.124';
+const APP_VERSION = '2026.07.01.125';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10245,7 +10245,9 @@ const place=(el,x,y,w,h,vw,vh)=>{el.style.left=x/vw*100+'%';el.style.top=y/vh*10
 
 function layout(){
   const vw=vid.videoWidth,vh=vid.videoHeight;
-  const h=Math.min(innerHeight*0.45,innerWidth*vh/vw),w=h*vw/vh;
+  // As big as the screen allows (keep ~190px for the top bar, status line and a peek of the list).
+  // Same aspect as the video, so the strip shown on screen is exactly the region tick() reads.
+  const h=Math.min(Math.max(200,innerHeight-190),innerWidth*vh/vw),w=h*vw/vh;
   cam.style.width=w+'px';cam.style.height=h+'px';
   let gh=vh*GUIDE_H,gw=gh*CARD_AR;
   if(gw>vw*0.92){gw=vw*0.92;gh=gw/CARD_AR}
@@ -10316,7 +10318,9 @@ window.openCardScanner=async function(){
   wants=getWantsIndex();prev='';weak=0;armed=true;lastName='';
   status('Starting camera…');
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    // Ask for frames shaped like the screen: a landscape stream on an upright phone only fills a strip
+    const tall=innerHeight>innerWidth;
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:tall?720:1280},height:{ideal:tall?1280:720},aspectRatio:{ideal:tall?9/16:16/9}},audio:false});
     vid.srcObject=stream;await vid.play();await waitForSize();layout();
     status('Loading OCR…');
     await loadTess();
