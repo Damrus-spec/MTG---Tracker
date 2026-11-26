@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.124';
+const APP_VERSION = '2026.07.01.127';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10177,161 +10177,297 @@ if (captureRedirectToken()) {
 <style>
 #cs-ov{display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);color:var(--text);flex-direction:column;font-family:system-ui,sans-serif}
 #cs-ov.on{display:flex}
-#cs-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border-md)}
-#cs-top b{color:var(--accent);letter-spacing:1px}
+#cs-top{display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border-md)}
+#cs-top b{flex:1;color:var(--accent);letter-spacing:1px}
 #cs-top button{background:none;border:1px solid var(--border-md);color:var(--accent);border-radius:6px;padding:6px 12px;font-size:14px}
-#cs-cam{position:relative;background:#000;overflow:hidden;margin:0 auto}
-#cs-cam video{width:100%;height:100%;display:block}
-#cs-guide{position:absolute;border:2px dashed var(--accent);border-radius:10px;box-sizing:border-box}
-#cs-strip{position:absolute;border:2px solid var(--green);border-radius:4px;box-sizing:border-box}
+#cs-view{position:relative;flex:1;min-height:0;overflow:auto;background:#000;display:flex}
+#cs-stage{position:relative;flex-shrink:0;margin:auto}
+#cs-stage video,#cs-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 #cs-status{padding:6px 14px;font-size:13px;color:var(--text2);min-height:20px}
-#cs-sum{padding:2px 14px 8px;font-weight:700;color:var(--accent)}
-#cs-list{flex:1;overflow:auto;padding:0 10px 14px}
-.cs-row{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:6px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
-.cs-row.want{background:var(--green-bg);border-color:var(--green)}
-.cs-row .n{flex:1}
-.cs-row .w{display:block;font-size:12px;color:var(--green)}
-.cs-row .q{color:var(--text2);font-size:13px}
-.cs-row button{background:none;border:0;color:var(--red);font-size:18px;padding:4px 8px}
+#cs-list{max-height:28vh;overflow:auto;padding:0 10px 10px}
+.cs-row{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-bottom:5px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
+.cs-row .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.cs-row .n{flex:1;min-width:0}
+.cs-row .w{display:block;font-size:12px;color:var(--text2)}
+.cs-row .p{font-size:13px;font-weight:600}
 </style>
 
 <div id="cs-ov">
-  <div id="cs-top"><b>CARD SCANNER</b><button onclick="closeCardScanner()">Done</button></div>
-  <div id="cs-cam"><video id="cs-v" playsinline muted autoplay></video><div id="cs-guide"></div><div id="cs-strip"></div></div>
+  <div id="cs-top"><b>CARD SCANNER</b>
+    <button id="cs-photo-btn" onclick="document.getElementById('cs-file').click()" title="Take or pick a sharp photo — best for a whole binder page">Photo</button>
+    <button id="cs-cam-btn" style="display:none" onclick="cardScannerCamera()">Camera</button>
+    <button onclick="closeCardScanner()">Done</button></div>
+  <div id="cs-view"><div id="cs-stage"><video id="cs-v" playsinline muted autoplay></video><canvas id="cs-pic" style="display:none"></canvas><canvas id="cs-marks"></canvas></div></div>
   <div id="cs-status"></div>
-  <div id="cs-sum"></div>
   <div id="cs-list"></div>
+  <input type="file" id="cs-file" accept="image/*" hidden>
 </div>
 
 <script>
+// Card scanner. No guide frame: cards are found by their shape (edges → 4-corner shapes with card
+// proportions, OpenCV.js), each card is straightened, and only its title spot is read (one short line).
+// A read counts for a wishlist card only if that card is its best match among ALL card names, so
+// readable cards that aren't wanted get no mark. Marks: yellow = 50%+ name match, green = 75%+.
+// Prototyped in tools/ocr-spike (detect/titles spikes).
 (function(){
-const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; // pinned: the service worker caches jsDelivr files forever
-const CARD_AR=63/88, GUIDE_H=0.8;                 // card aspect, guide height as fraction of video height
-const STRIP={x:0.06,y:0.035,w:0.68,h:0.075};      // title strip inside the card guide (fractions)
-const INTERVAL_MS=600, MIN_CONF=60, SCALE=3;
+const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';           // pinned: the service worker caches jsDelivr files forever
+const CV_URL='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';  // ~10MB, loaded only when the scanner opens
+const YELLOW=50, GREEN=75;
+const DETECT_SIDE=1500;   // card finding runs on a copy this size
+const READ_SIDE=2400;     // cards are straightened from a copy this size (enough for titles, bounded memory)
+const CW=630, CH=880;     // straightened card
+const EDGE_PASSES=[[30,90],[60,180],[100,250]]; // sleeves/glare hide some edges at one sensitivity but not another
+// Title band variants on the straightened card (fractions): tight first, then a wider one
+const STRIPS=[[0.05,0.035,0.78,0.075],[0.02,0.025,0.84,0.09]];
 
-const norm=s=>s.split('//')[0].trim().toLowerCase();
+const $=id=>document.getElementById(id);
+const ov=$('cs-ov'),view=$('cs-view'),stage=$('cs-stage'),vid=$('cs-v'),pic=$('cs-pic'),marksC=$('cs-marks'),list=$('cs-list');
+let stream=null,worker=null,cv=null,running=false,mode='live',srcW=0,srcH=0,zoom=1,marks=[],busy=false;
+const status=t=>{$('cs-status').textContent=t};
+const esc=t=>String(t).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const key=s=>String(s||'').split(' // ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim();
+function lev(a,b){let p=Array.from({length:b.length+1},(_,j)=>j);
+  for(let i=1;i<=a.length;i++){const c=[i];for(let j=1;j<=b.length;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}
+  return p[b.length]}
+const sim=(a,b)=>1-lev(a,b)/Math.max(a.length,b.length);
+const loadScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>no(new Error('failed to load '+u.split('/npm/')[1]));document.head.appendChild(e)});
 
-// Map<normalised card name, [deck labels]> from the app's wants: data.deckWants = { deckUuid: [{in, inStatus, out}] }.
-// The buy list is built from the same entries, so this covers it too.
-function getWantsIndex(){
+// Wishlist: key(name) -> {name, decks[]}. data.deckWants = { deckUuid: [{in, inStatus, out}] }; the buy list is built from it.
+function getWants(){
   const idx=new Map();
-  const add=(name,label)=>{const k=norm(name);if(!idx.has(k))idx.set(k,[]);idx.get(k).push(label)};
   for(const [uuid,entries] of Object.entries((data&&data.deckWants)||{})){
     const deck=displayNameForUuid(uuid)||'Unknown deck';
     for(const w of (entries||[])){
-      if(!w||!w.in||!w.in.trim())continue;
-      add(w.in, w.inStatus==='owned'?deck+' (owned)':deck); // already-owned wants stay visible but say so
+      const k=key(w&&w.in); if(!k)continue;
+      const e=idx.get(k)||{name:w.in.trim(),decks:[]};
+      e.decks.push(w.inStatus==='owned'?deck+' (owned)':deck); // already-owned wants stay visible but say so
+      idx.set(k,e);
     }
   }
   return idx;
 }
-
-const $=id=>document.getElementById(id);
-const ov=$('cs-ov'),cam=$('cs-cam'),vid=$('cs-v'),guide=$('cs-guide'),strip=$('cs-strip'),list=$('cs-list');
-const c=document.createElement('canvas'),cx=c.getContext('2d',{willReadFrequently:true});
-let stream=null,worker=null,running=false,wants=new Map(),g,s;
-let prev='',weak=0,armed=true,lastName='';
-const cache=new Map(),rows=new Map();
-
-const status=t=>{$('cs-status').textContent=t};
-const esc=t=>t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-const clean=t=>t.replace(/[^A-Za-z',\- ]/g,' ').replace(/\s+/g,' ').trim();
-function lev(a,b){const d=[];for(let i=0;i<=a.length;i++){d[i]=[i];}for(let j=1;j<=b.length;j++)d[0][j]=j;
-  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
-  return d[a.length][b.length]}
-const loadTess=()=>window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const e=document.createElement('script');e.src=TESS_URL;e.onload=ok;e.onerror=()=>no(new Error('OCR failed to load'));document.head.appendChild(e)});
-const place=(el,x,y,w,h,vw,vh)=>{el.style.left=x/vw*100+'%';el.style.top=y/vh*100+'%';el.style.width=w/vw*100+'%';el.style.height=h/vh*100+'%'};
-
-function layout(){
-  const vw=vid.videoWidth,vh=vid.videoHeight;
-  const h=Math.min(innerHeight*0.45,innerWidth*vh/vw),w=h*vw/vh;
-  cam.style.width=w+'px';cam.style.height=h+'px';
-  let gh=vh*GUIDE_H,gw=gh*CARD_AR;
-  if(gw>vw*0.92){gw=vw*0.92;gh=gw/CARD_AR}
-  g={x:(vw-gw)/2,y:(vh-gh)/2,w:gw,h:gh};
-  s={x:g.x+g.w*STRIP.x,y:g.y+g.h*STRIP.y,w:g.w*STRIP.w,h:g.h*STRIP.h};
-  place(guide,g.x,g.y,g.w,g.h,vw,vh);
-  place(strip,s.x,s.y,s.w,s.h,vw,vh);
+// All card names by length, from the bulk card data
+let byLen=null;
+async function allNames(){
+  if(byLen&&byLen.size)return byLen;
+  const m=await ensureBulkTypes();
+  byLen=new Map();
+  for(const k of Object.keys(m||{})){const n=key(k);if(!n)continue;if(!byLen.has(n.length))byLen.set(n.length,[]);byLen.get(n.length).push(n)}
+  return byLen;
+}
+// Which wanted card does a title read belong to? Tries every run of words (a strip can also catch the
+// mana cost or a border) against the wishlist, then rejects the best hit if any other card name fits
+// that run better (e.g. a read of "sol rin" is Sol Ring, not a wanted "Sol Ringer"). Returns {k, s} or null.
+function identify(text,wants){
+  const toks=key(text).split(' ').filter(Boolean);let best=null;
+  for(let i=0;i<toks.length;i++)for(let j=i+1;j<=Math.min(toks.length,i+6);j++){
+    const w=toks.slice(i,j).join(' ');if(w.length<3)continue;
+    for(const k of wants.keys()){if(Math.abs(k.length-w.length)>k.length*0.5)continue;const s=sim(w,k);if(!best||s>best.s)best={k,s,w}}
+  }
+  if(!best||best.s<YELLOW/100)return null;
+  for(let L=Math.floor(best.w.length*0.75);L<=Math.ceil(best.w.length*1.33);L++)
+    for(const n of (byLen.get(L)||[]))if(n!==best.k&&sim(best.w,n)>best.s)return null;
+  return best;
 }
 
-async function lookup(t){
-  if(cache.has(t))return cache.get(t);
-  try{
-    const r=await fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(t));
-    // Cache only real answers: a 429/5xx must not mark this text as "not a card" for the session
-    if(r.ok){const name=(await r.json()).name;cache.set(t,name);return name}
-    if(r.status===404)cache.set(t,null);
-    return null;
-  }catch(e){return null}
-}
-
-function addCard(name){
-  const r=rows.get(name)||{name,qty:0,decks:wants.get(norm(name))||[]};
-  r.qty++;rows.set(name,r);
-  if(navigator.vibrate)navigator.vibrate(r.decks.length?[120,60,120]:30);
-  render();
-}
-
-function render(){
-  const all=[...rows.values()].sort((a,b)=>(b.decks.length>0)-(a.decks.length>0));
-  const hit=all.filter(r=>r.decks.length).length;
-  $('cs-sum').textContent=all.length?hit+' of '+all.length+' scanned cards on your wishlist':'';
-  list.innerHTML=all.map(r=>'<div class="cs-row'+(r.decks.length?' want':'')+'"><div class="n">'+esc(r.name)
-    +(r.decks.length?'<span class="w">WANTED · '+esc([...new Set(r.decks)].join(', '))+'</span>':'')+'</div>'
-    +'<span class="q">×'+r.qty+'</span><button data-k="'+esc(r.name)+'">✕</button></div>').join('');
-}
-list.onclick=e=>{const k=e.target.dataset&&e.target.dataset.k;if(k){rows.delete(k);render()}};
-
-// play() can resolve before the stream reports its frame size; laying out at 0x0 hid the camera view
-async function waitForSize(){for(let i=0;i<50&&!(vid.videoWidth&&vid.videoHeight);i++)await new Promise(r=>setTimeout(r,100))}
-addEventListener('resize',()=>{if(stream&&vid.videoWidth)layout()});
-
-async function tick(){
-  if(!s||!s.w)layout();
-  c.width=Math.round(s.w*SCALE);c.height=Math.round(s.h*SCALE);
-  cx.filter='grayscale(1) contrast(1.8)';
-  cx.drawImage(vid,s.x,s.y,s.w,s.h,0,0,c.width,c.height);
-  const {data}=await worker.recognize(c);
-  const txt=clean(data.text);
-  status('Reading: '+(txt||'—')+' ('+Math.round(data.confidence)+'%)');
-  if(txt.length<3||data.confidence<MIN_CONF){prev='';if(++weak>=2)armed=true;return}
-  weak=0;
-  const stable=prev&&lev(prev,txt)<=1;prev=txt;
-  if(!stable)return;
-  const name=await lookup(txt);
-  if(!name||(name===lastName&&!armed))return;
-  armed=false;lastName=name;addCard(name);
-}
-
-async function loop(){
-  if(!running)return;
-  const t0=Date.now();
-  try{await tick()}catch(e){status('Error: '+(e.message||e))}
-  setTimeout(loop,Math.max(50,INTERVAL_MS-(Date.now()-t0)));
-}
-
-window.openCardScanner=async function(){
-  ov.classList.add('on');rows.clear();render();
-  wants=getWantsIndex();prev='';weak=0;armed=true;lastName='';
-  status('Starting camera…');
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-    vid.srcObject=stream;await vid.play();await waitForSize();layout();
-    status('Loading OCR…');
-    await loadTess();
+async function ensureTools(){
+  if(!worker){
+    status('Loading text reader…');
+    if(!window.Tesseract)await loadScript(TESS_URL);
     const w=await Tesseract.createWorker('eng');
-    await w.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-"});
-    if(!ov.classList.contains('on')){await w.terminate();return}
-    worker=w;running=true;loop();
+    await w.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-"}); // one title line
+    worker=w;
+  }
+  if(!cv){
+    status('Loading card finder…');
+    if(!window.cv)await loadScript(CV_URL);
+    // The OpenCV module is a thenable that resolves to itself: awaiting it directly never ends
+    cv=await new Promise(r=>{const m=window.cv;if(m.Mat)return r(m);m.then(c=>{delete c.then;r(c)})});
+  }
+  if(!byLen||!byLen.size){status('Loading card names…');await allNames()}
+}
+
+const sized=(src,sw,sh,side)=>{const f=side/Math.max(sw,sh),c=document.createElement('canvas');c.width=Math.round(sw*f);c.height=Math.round(sh*f);
+  c.getContext('2d').drawImage(src,0,0,c.width,c.height);return {c,f}};
+
+// Find card-shaped quads. Returns corner lists in source pixels.
+function findCards(src,sw,sh){
+  const {c,f}=sized(src,sw,sh,DETECT_SIDE),img=cv.imread(c),gray=new cv.Mat(),k=cv.Mat.ones(3,3,cv.CV_8U);
+  cv.cvtColor(img,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,gray,new cv.Size(5,5),0);img.delete();
+  const area=c.width*c.height,quads=[];
+  for(const [lo,hi] of EDGE_PASSES){
+    const edges=new cv.Mat(),cs=new cv.MatVector(),hier=new cv.Mat();
+    cv.Canny(gray,edges,lo,hi);cv.dilate(edges,edges,k);
+    cv.findContours(edges,cs,hier,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+    for(let i=0;i<cs.size();i++){
+      const ct=cs.get(i),a=cv.contourArea(ct);
+      if(a>area*0.008&&a<area*0.25){
+        const hull=new cv.Mat();cv.convexHull(ct,hull,false,true);            // ignore notches from art/text touching an edge
+        const ap=new cv.Mat();cv.approxPolyDP(hull,ap,0.04*cv.arcLength(hull,true),true);
+        if(ap.rows===4&&cv.isContourConvex(ap)){
+          const r=cv.minAreaRect(ap),ar=Math.min(r.size.width,r.size.height)/Math.max(r.size.width,r.size.height);
+          if(ar>0.6&&ar<0.82){const pts=[];for(let q=0;q<4;q++)pts.push([ap.data32S[q*2]/f,ap.data32S[q*2+1]/f]);quads.push({a:a/(f*f),pts})}
+        }
+        hull.delete();ap.delete();
+      }
+      ct.delete();
+    }
+    edges.delete();cs.delete();hier.delete();
+  }
+  gray.delete();k.delete();
+  // One quad per card: biggest first, drop others centred on it; drop much smaller ones (art boxes)
+  quads.sort((p,q)=>q.a-p.a);
+  const ctr=q=>[q.pts.reduce((t,p)=>t+p[0],0)/4,q.pts.reduce((t,p)=>t+p[1],0)/4],keep=[];
+  for(const q of quads){const [x,y]=ctr(q);if(!keep.some(o=>{const [ox,oy]=ctr(o);return Math.hypot(ox-x,oy-y)<0.35*Math.sqrt(o.a)}))keep.push(q)}
+  if(keep.length>=3){const med=keep.map(q=>q.a).sort((p,q)=>p-q)[Math.floor(keep.length/2)];return keep.filter(q=>q.a>med*0.5)}
+  return keep;
+}
+
+// Straighten a card and read its title spot (both 180° orientations, tight then wide band).
+// Returns {k, s, name} of the best identified card, or null.
+async function readCard(rc,f,pts,wants){
+  const cx=pts.reduce((t,p)=>t+p[0],0)/4,cy=pts.reduce((t,p)=>t+p[1],0)/4;
+  let p=pts.slice().sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx)); // clockwise
+  const d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  if(d(p[0],p[1])>d(p[1],p[2]))p=[p[1],p[2],p[3],p[0]];                                    // top edge = a short side
+  let best=null;
+  for(const o of [p,[p[2],p[3],p[0],p[1]]]){
+    const from=cv.matFromArray(4,1,cv.CV_32FC2,o.flatMap(([x,y])=>[x*f,y*f])),to=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,CW,0,CW,CH,0,CH]);
+    const M=cv.getPerspectiveTransform(from,to),warped=new cv.Mat();
+    cv.warpPerspective(rc,warped,M,new cv.Size(CW,CH));from.delete();to.delete();M.delete();
+    for(const [x,y,w,h] of STRIPS){
+      const roi=warped.roi(new cv.Rect(Math.round(CW*x),Math.round(CH*y),Math.round(CW*w),Math.round(CH*h)));
+      const sc=document.createElement('canvas');sc.width=roi.cols*2;sc.height=roi.rows*2;
+      const tmp=document.createElement('canvas');cv.imshow(tmp,roi);roi.delete();
+      const g=sc.getContext('2d');g.filter='grayscale(1) contrast(1.5)';g.drawImage(tmp,0,0,sc.width,sc.height);
+      const {data:dd}=await worker.recognize(sc);
+      const id=identify(dd.text,wants);
+      if(id&&(!best||id.s>best.s))best=id;
+      if(best&&best.s>=0.85)break;                                                            // clean read: done with this card
+    }
+    warped.delete();
+    if(best&&best.s>=0.85)break;
+  }
+  return best;
+}
+
+// Find and read every card in an image; marks for wanted cards, in source pixel coords
+async function scanImage(src,sw,sh,onStep){
+  const wants=getWants();
+  if(!wants.size)return {marks:[],cards:0};
+  const cards=findCards(src,sw,sh);
+  const {c:readCanvas,f}=sized(src,sw,sh,READ_SIDE),rc=cv.imread(readCanvas);
+  const out=[];
+  try{
+    for(let i=0;i<cards.length;i++){
+      if(onStep)onStep(i,cards.length);
+      const id=await readCard(rc,f,cards[i].pts,wants);
+      if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
+      const conf=Math.round(id.s*100),w=wants.get(id.k);
+      if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
+      out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts});
+    }
+  }finally{rc.delete()}
+  return {marks:out,cards:cards.length};
+}
+
+// Fit the image into the view (zoom > 1 = bigger, scroll to pan) and size the mark layer
+function fit(){
+  if(!srcW||!srcH)return;
+  const r=Math.min(view.clientWidth/srcW,view.clientHeight/srcH)*zoom;
+  stage.style.width=srcW*r+'px';stage.style.height=srcH*r+'px';
+  const dpr=window.devicePixelRatio||1;
+  marksC.width=Math.round(srcW*r*dpr);marksC.height=Math.round(srcH*r*dpr);
+  drawMarks();
+}
+function drawMarks(){
+  const g=marksC.getContext('2d'),f=marksC.width/srcW;
+  g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,marksC.width,marksC.height);
+  if(!srcW)return;
+  g.setTransform(f,0,0,f,0,0);
+  for(const m of marks){
+    const col=m.conf>=GREEN?'#3fbf3f':'#f2c230';
+    g.beginPath();m.pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.closePath();
+    g.fillStyle=col+'44';g.fill();g.lineWidth=4/f;g.strokeStyle=col;g.stroke();
+    const fs=13/f,label=m.name+' '+m.conf+'%';
+    const t0=m.pts.reduce((a,b)=>b[1]<a[1]?b:a),top=[Math.min(t0[0],srcW-200/f),Math.max(t0[1],fs*1.4)]; // keep the label on the image
+    g.font='600 '+fs+'px system-ui,sans-serif';const tw=g.measureText(label).width;
+    g.fillStyle=col;g.fillRect(top[0],top[1]-fs*1.4,tw+fs*0.6,fs*1.4);g.fillStyle='#000';g.fillText(label,top[0]+fs*0.3,top[1]-fs*0.35);
+  }
+}
+function renderList(){
+  if(!marks.length){list.innerHTML='';return}
+  const by=new Map();for(const m of marks){const e=by.get(m.name);if(!e||m.conf>e.conf)by.set(m.name,m)}
+  list.innerHTML=[...by.values()].sort((a,b)=>b.conf-a.conf).map(m=>'<div class="cs-row"><span class="dot" style="background:'+(m.conf>=GREEN?'#3fbf3f':'#f2c230')+'"></span><div class="n">'+esc(m.name)
+    +'<span class="w">WANTED · '+esc([...new Set(m.decks)].join(', '))+'</span></div><span class="p">'+m.conf+'%</span></div>').join('');
+}
+function show(newMarks){marks=newMarks;window._cardScannerMarks=marks;renderList();fit()} // the list changes the view height: re-fit
+const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
+
+// Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
+const frame=document.createElement('canvas');
+async function liveLoop(){
+  while(running&&mode==='live'){
+    if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
+    frame.width=vid.videoWidth;frame.height=vid.videoHeight;frame.getContext('2d').drawImage(vid,0,0);
+    try{
+      const r=await scanImage(frame,frame.width,frame.height,(i,n)=>status('Reading card '+(i+1)+' of '+n+'… hold still'));
+      if(running&&mode==='live'){show(r.marks);status(summary(r.cards))}
+    }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
+    await new Promise(r=>setTimeout(r,300));
+  }
+}
+async function startCamera(){
+  const tall=innerHeight>innerWidth;
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:tall?1080:1920},height:{ideal:tall?1920:1080},aspectRatio:{ideal:tall?9/16:16/9}},audio:false});
+  vid.srcObject=stream;await vid.play();
+  for(let i=0;i<50&&!(vid.videoWidth&&vid.videoHeight);i++)await new Promise(r=>setTimeout(r,100));
+  srcW=vid.videoWidth;srcH=vid.videoHeight;
+}
+function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid.srcObject=null}
+function setMode(m){
+  mode=m;vid.style.display=m==='live'?'':'none';pic.style.display=m==='photo'?'':'none';
+  $('cs-cam-btn').style.display=m==='photo'?'':'none';zoom=1;
+}
+
+window.cardScannerCamera=async function(){
+  setMode('live');show([]);
+  try{
+    status('Starting camera…');await startCamera();fit();
+    await ensureTools();
+    if(!running)return;
+    liveLoop();
   }catch(e){status('Scanner error: '+(e.message||e))}
 };
 
+// Photo: a sharp still finds more cards than live video; tap the photo to zoom in/out
+async function scanPhoto(file){
+  if(!file)return;
+  if(busy){status('Still reading the previous photo…');return}
+  busy=true;stopCamera();setMode('photo');show([]);
+  try{
+    const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});
+    srcW=bmp.width;srcH=bmp.height;pic.width=srcW;pic.height=srcH;pic.getContext('2d').drawImage(bmp,0,0);fit();
+    await ensureTools();
+    const t0=Date.now();
+    const r=await scanImage(bmp,srcW,srcH,(i,n)=>status('Reading card '+(i+1)+' of '+n+'…'));
+    show(r.marks);status(summary(r.cards)+' · '+Math.round((Date.now()-t0)/1000)+'s · tap the photo to zoom');
+  }catch(e){status('Photo error: '+(e.message||e))}
+  busy=false;
+}
+window.cardScannerScanPhoto=scanPhoto; // also used by tests
+$('cs-file').onchange=e=>{const f=e.target.files&&e.target.files[0];e.target.value='';scanPhoto(f)};
+stage.onclick=()=>{if(mode==='photo'){zoom=zoom>1?1:2.5;fit()}};
+addEventListener('resize',()=>{if(ov.classList.contains('on'))fit()});
+
+window.openCardScanner=async function(){
+  ov.classList.add('on');running=true;
+  if(!getWants().size){status('Your wishlist is empty — add cards in Wants first');return}
+  cardScannerCamera();
+};
 window.closeCardScanner=async function(){
-  running=false;
-  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
-  vid.srcObject=null;
-  if(worker){const w=worker;worker=null;await w.terminate()}
+  running=false;stopCamera();
+  if(worker&&!busy){const w=worker;worker=null;await w.terminate()}
   ov.classList.remove('on');
 };
 })();
