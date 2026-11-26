@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.128';
+const APP_VERSION = '2026.07.01.129';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10419,10 +10419,16 @@ async function scanImage(src,sw,sh,onStep){
 }
 
 // Fit the image into the view (zoom > 1 = bigger, scroll to pan) and size the mark layer
+// Live: fill the view and crop the overflow, like a camera app. Phone cameras often send landscape
+// frames even when the phone is upright, so fitting the whole frame left a thin strip.
 function fit(){
   if(!srcW||!srcH)return;
-  const r=Math.min(view.clientWidth/srcW,view.clientHeight/srcH)*zoom;
+  const live=mode==='live',vw=view.clientWidth,vh=view.clientHeight;
+  const r=(live?Math.max(vw/srcW,vh/srcH):Math.min(vw/srcW,vh/srcH))*zoom;
   stage.style.width=srcW*r+'px';stage.style.height=srcH*r+'px';
+  view.style.overflow=live?'hidden':'auto';
+  stage.style.position=live?'absolute':'relative';
+  stage.style.left=live?(vw-srcW*r)/2+'px':'';stage.style.top=live?(vh-srcH*r)/2+'px':'';
   const dpr=window.devicePixelRatio||1;
   marksC.width=Math.round(srcW*r*dpr);marksC.height=Math.round(srcH*r*dpr);
   drawMarks();
@@ -10448,7 +10454,14 @@ function renderList(){
   list.innerHTML=[...by.values()].sort((a,b)=>b.conf-a.conf).map(m=>'<div class="cs-row"><span class="dot" style="background:'+(m.conf>=GREEN?'#3fbf3f':'#f2c230')+'"></span><div class="n">'+esc(m.name)
     +'<span class="w">WANTED · '+esc([...new Set(m.decks)].join(', '))+'</span></div><span class="p">'+m.conf+'%</span></div>').join('');
 }
-function show(newMarks){marks=newMarks;window._cardScannerMarks=marks;renderList();fit()} // the list changes the view height: re-fit
+// Live view crops the frame: only cards whose middle is on screen count
+function onScreen(m){
+  if(mode!=='live')return true;
+  const r=Math.max(view.clientWidth/srcW,view.clientHeight/srcH),hw=view.clientWidth/r/2,hh=view.clientHeight/r/2;
+  const x=m.pts.reduce((t,p)=>t+p[0],0)/4,y=m.pts.reduce((t,p)=>t+p[1],0)/4;
+  return Math.abs(x-srcW/2)<=hw&&Math.abs(y-srcH/2)<=hh;
+}
+function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window._cardScannerMarks=marks;renderList();fit()} // the list changes the view height: re-fit
 const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
 // Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
