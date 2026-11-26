@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.126';
+const APP_VERSION = '2026.07.01.127';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10204,20 +10204,25 @@ if (captureRedirectToken()) {
 </div>
 
 <script>
-// Card scanner: reads ALL text in view (live camera, or a photo), matches it to the wishlist and
-// marks each wanted card on the image: yellow = 50%+ name match, green = 75%+, nothing below 50%.
-// Matching (from the tools/ocr-spike experiments): words that sit side by side are chained into
-// title candidates; a candidate only counts if it is title-like (short), short names (<6 letters) are
-// read exactly, and the wishlist name is the best match among ALL card names (no look-alike hits).
+// Card scanner. No guide frame: cards are found by their shape (edges → 4-corner shapes with card
+// proportions, OpenCV.js), each card is straightened, and only its title spot is read (one short line).
+// A read counts for a wishlist card only if that card is its best match among ALL card names, so
+// readable cards that aren't wanted get no mark. Marks: yellow = 50%+ name match, green = 75%+.
+// Prototyped in tools/ocr-spike (detect/titles spikes).
 (function(){
-const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; // pinned: the service worker caches jsDelivr files forever
-const LIVE_ANGLES=[0,90,270], PHOTO_ANGLES=[0,90,270,180]; // cards upright or sideways; photo also upside-down
-const LIVE_SIDE=1800, PHOTO_SIDE=3200;                       // long side the image is scaled to before reading
+const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';           // pinned: the service worker caches jsDelivr files forever
+const CV_URL='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';  // ~10MB, loaded only when the scanner opens
 const YELLOW=50, GREEN=75;
+const DETECT_SIDE=1500;   // card finding runs on a copy this size
+const READ_SIDE=2400;     // cards are straightened from a copy this size (enough for titles, bounded memory)
+const CW=630, CH=880;     // straightened card
+const EDGE_PASSES=[[30,90],[60,180],[100,250]]; // sleeves/glare hide some edges at one sensitivity but not another
+// Title band variants on the straightened card (fractions): tight first, then a wider one
+const STRIPS=[[0.05,0.035,0.78,0.075],[0.02,0.025,0.84,0.09]];
 
 const $=id=>document.getElementById(id);
 const ov=$('cs-ov'),view=$('cs-view'),stage=$('cs-stage'),vid=$('cs-v'),pic=$('cs-pic'),marksC=$('cs-marks'),list=$('cs-list');
-let stream=null,worker=null,running=false,mode='live',srcW=0,srcH=0,zoom=1,marks=[],busy=false;
+let stream=null,worker=null,cv=null,running=false,mode='live',srcW=0,srcH=0,zoom=1,marks=[],busy=false;
 const status=t=>{$('cs-status').textContent=t};
 const esc=t=>String(t).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const key=s=>String(s||'').split(' // ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim();
@@ -10225,7 +10230,7 @@ function lev(a,b){let p=Array.from({length:b.length+1},(_,j)=>j);
   for(let i=1;i<=a.length;i++){const c=[i];for(let j=1;j<=b.length;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}
   return p[b.length]}
 const sim=(a,b)=>1-lev(a,b)/Math.max(a.length,b.length);
-const loadTess=()=>window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const e=document.createElement('script');e.src=TESS_URL;e.onload=ok;e.onerror=()=>no(new Error('OCR failed to load'));document.head.appendChild(e)});
+const loadScript=u=>new Promise((ok,no)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=()=>no(new Error('failed to load '+u.split('/npm/')[1]));document.head.appendChild(e)});
 
 // Wishlist: key(name) -> {name, decks[]}. data.deckWants = { deckUuid: [{in, inStatus, out}] }; the buy list is built from it.
 function getWants(){
@@ -10241,7 +10246,7 @@ function getWants(){
   }
   return idx;
 }
-// All card names by length, for the "is this read really that card?" check
+// All card names by length, from the bulk card data
 let byLen=null;
 async function allNames(){
   if(byLen&&byLen.size)return byLen;
@@ -10250,70 +10255,120 @@ async function allNames(){
   for(const k of Object.keys(m||{})){const n=key(k);if(!n)continue;if(!byLen.has(n.length))byLen.set(n.length,[]);byLen.get(n.length).push(n)}
   return byLen;
 }
-function beatenByOtherCard(w,s){
-  for(let L=Math.floor(w.length*0.75);L<=Math.ceil(w.length*1.33);L++)
-    for(const n of (byLen.get(L)||[]))if(sim(w,n)>s+1e-9)return true;
-  return false;
-}
-// Chain words that sit side by side on one (possibly tilted) baseline
-function chainWords(words){
-  const ws=words.map(w=>({t:key(w.text),...w.bbox})).filter(w=>w.t).sort((a,b)=>a.x0-b.x0);
-  const used=new Set(),out=[];
-  for(let i=0;i<ws.length;i++){
-    if(used.has(i))continue;
-    const ch=[ws[i]];used.add(i);let cur=ws[i];
-    for(let j=i+1;j<ws.length;j++){
-      if(used.has(j))continue;
-      const w=ws[j],h=Math.max(cur.y1-cur.y0,w.y1-w.y0),gap=w.x0-cur.x1;
-      const dy=Math.abs((cur.y0+cur.y1)/2-(w.y0+w.y1)/2);
-      if(dy<h&&gap>-0.3*h&&gap<2.5*h){ch.push(w);used.add(j);cur=w}
-    }
-    out.push(ch);
+// Which wanted card does a title read belong to? Tries every run of words (a strip can also catch the
+// mana cost or a border) against the wishlist, then rejects the best hit if any other card name fits
+// that run better (e.g. a read of "sol rin" is Sol Ring, not a wanted "Sol Ringer"). Returns {k, s} or null.
+function identify(text,wants){
+  const toks=key(text).split(' ').filter(Boolean);let best=null;
+  for(let i=0;i<toks.length;i++)for(let j=i+1;j<=Math.min(toks.length,i+6);j++){
+    const w=toks.slice(i,j).join(' ');if(w.length<3)continue;
+    for(const k of wants.keys()){if(Math.abs(k.length-w.length)>k.length*0.5)continue;const s=sim(w,k);if(!best||s>best.s)best={k,s,w}}
   }
-  return out;
+  if(!best||best.s<YELLOW/100)return null;
+  for(let L=Math.floor(best.w.length*0.75);L<=Math.ceil(best.w.length*1.33);L++)
+    for(const n of (byLen.get(L)||[]))if(n!==best.k&&sim(best.w,n)>best.s)return null;
+  return best;
 }
 
-// Read one image (canvas/bitmap, src pixels sw x sh) and return wishlist marks in src pixel coords.
-async function scanImage(src,sw,sh,angles,longSide,onStep){
-  const wants=getWants();
-  if(!wants.size)return [];
-  const scale=longSide/Math.max(sw,sh),W=sw*scale,H=sh*scale;
-  const found=[];
-  for(let ai=0;ai<angles.length;ai++){
-    if(onStep)onStep(ai,angles.length);
-    const deg=angles[ai],rad=deg*Math.PI/180,rw=deg%180?H:W,rh=deg%180?W:H;
-    const c=document.createElement('canvas');c.width=Math.round(rw);c.height=Math.round(rh);
-    const g=c.getContext('2d');g.filter='grayscale(1) contrast(1.4)';
-    g.translate(c.width/2,c.height/2);g.rotate(rad);g.drawImage(src,-W/2,-H/2,W,H);
-    const {data:d}=await worker.recognize(c,{},{blocks:true});
-    const words=(d.blocks||[]).flatMap(b=>b.paragraphs.flatMap(p=>p.lines.flatMap(l=>l.words)));
-    // rotated-canvas point -> source pixel
-    const back=(x,y)=>{x-=c.width/2;y-=c.height/2;const cs=Math.cos(-rad),sn=Math.sin(-rad);
-      return [(x*cs-y*sn+W/2)/scale,(x*sn+y*cs+H/2)/scale]};
-    for(const ch of chainWords(words)){
-      const toks=ch.flatMap(w=>w.t.split(' ').map(t=>({t,b:w})));
-      for(const [k,want] of wants){
-        const nw=k.split(' ').length;
-        if(toks.length>nw+2)continue;                               // a rules-text line, not a title
-        for(let len=Math.max(1,nw-1);len<=nw+1;len++)for(let i=0;i+len<=toks.length;i++){
-          const part=toks.slice(i,i+len),w=part.map(p=>p.t).join(' ');
-          if(w.length<k.length*0.6)continue;
-          const s=sim(w,k);
-          if(s<YELLOW/100||(k.length<6&&s<1)||(k.length<9&&s<0.75))continue; // short names: exact (<6) or near-exact (<9) reads only
-          if(beatenByOtherCard(w,s))continue;                       // another card fits this read better
-          const x0=Math.min(...part.map(p=>p.b.x0)),y0=Math.min(...part.map(p=>p.b.y0)),
-                x1=Math.max(...part.map(p=>p.b.x1)),y1=Math.max(...part.map(p=>p.b.y1)),pad=(y1-y0)*0.6;
-          const pts=[[x0-pad,y0-pad],[x1+pad,y0-pad],[x1+pad,y1+pad],[x0-pad,y1+pad]].map(([x,y])=>back(x,y));
-          found.push({name:want.name,decks:want.decks,conf:Math.round(s*100),pts,read:w}); // read: the text it matched (diagnostics)
-        }
-      }
-    }
+async function ensureTools(){
+  if(!worker){
+    status('Loading text reader…');
+    if(!window.Tesseract)await loadScript(TESS_URL);
+    const w=await Tesseract.createWorker('eng');
+    await w.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',-"}); // one title line
+    worker=w;
   }
-  // Same card found at several angles/windows: keep the best mark per spot
-  found.sort((a,b)=>b.conf-a.conf);
-  const keep=[],ctr=m=>[m.pts.reduce((s,p)=>s+p[0],0)/4,m.pts.reduce((s,p)=>s+p[1],0)/4],size=m=>Math.hypot(m.pts[0][0]-m.pts[2][0],m.pts[0][1]-m.pts[2][1]);
-  for(const m of found){const [cx,cy]=ctr(m);if(!keep.some(k=>k.name===m.name&&Math.hypot(ctr(k)[0]-cx,ctr(k)[1]-cy)<size(k)))keep.push(m)}
+  if(!cv){
+    status('Loading card finder…');
+    if(!window.cv)await loadScript(CV_URL);
+    // The OpenCV module is a thenable that resolves to itself: awaiting it directly never ends
+    cv=await new Promise(r=>{const m=window.cv;if(m.Mat)return r(m);m.then(c=>{delete c.then;r(c)})});
+  }
+  if(!byLen||!byLen.size){status('Loading card names…');await allNames()}
+}
+
+const sized=(src,sw,sh,side)=>{const f=side/Math.max(sw,sh),c=document.createElement('canvas');c.width=Math.round(sw*f);c.height=Math.round(sh*f);
+  c.getContext('2d').drawImage(src,0,0,c.width,c.height);return {c,f}};
+
+// Find card-shaped quads. Returns corner lists in source pixels.
+function findCards(src,sw,sh){
+  const {c,f}=sized(src,sw,sh,DETECT_SIDE),img=cv.imread(c),gray=new cv.Mat(),k=cv.Mat.ones(3,3,cv.CV_8U);
+  cv.cvtColor(img,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,gray,new cv.Size(5,5),0);img.delete();
+  const area=c.width*c.height,quads=[];
+  for(const [lo,hi] of EDGE_PASSES){
+    const edges=new cv.Mat(),cs=new cv.MatVector(),hier=new cv.Mat();
+    cv.Canny(gray,edges,lo,hi);cv.dilate(edges,edges,k);
+    cv.findContours(edges,cs,hier,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+    for(let i=0;i<cs.size();i++){
+      const ct=cs.get(i),a=cv.contourArea(ct);
+      if(a>area*0.008&&a<area*0.25){
+        const hull=new cv.Mat();cv.convexHull(ct,hull,false,true);            // ignore notches from art/text touching an edge
+        const ap=new cv.Mat();cv.approxPolyDP(hull,ap,0.04*cv.arcLength(hull,true),true);
+        if(ap.rows===4&&cv.isContourConvex(ap)){
+          const r=cv.minAreaRect(ap),ar=Math.min(r.size.width,r.size.height)/Math.max(r.size.width,r.size.height);
+          if(ar>0.6&&ar<0.82){const pts=[];for(let q=0;q<4;q++)pts.push([ap.data32S[q*2]/f,ap.data32S[q*2+1]/f]);quads.push({a:a/(f*f),pts})}
+        }
+        hull.delete();ap.delete();
+      }
+      ct.delete();
+    }
+    edges.delete();cs.delete();hier.delete();
+  }
+  gray.delete();k.delete();
+  // One quad per card: biggest first, drop others centred on it; drop much smaller ones (art boxes)
+  quads.sort((p,q)=>q.a-p.a);
+  const ctr=q=>[q.pts.reduce((t,p)=>t+p[0],0)/4,q.pts.reduce((t,p)=>t+p[1],0)/4],keep=[];
+  for(const q of quads){const [x,y]=ctr(q);if(!keep.some(o=>{const [ox,oy]=ctr(o);return Math.hypot(ox-x,oy-y)<0.35*Math.sqrt(o.a)}))keep.push(q)}
+  if(keep.length>=3){const med=keep.map(q=>q.a).sort((p,q)=>p-q)[Math.floor(keep.length/2)];return keep.filter(q=>q.a>med*0.5)}
   return keep;
+}
+
+// Straighten a card and read its title spot (both 180° orientations, tight then wide band).
+// Returns {k, s, name} of the best identified card, or null.
+async function readCard(rc,f,pts,wants){
+  const cx=pts.reduce((t,p)=>t+p[0],0)/4,cy=pts.reduce((t,p)=>t+p[1],0)/4;
+  let p=pts.slice().sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx)); // clockwise
+  const d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  if(d(p[0],p[1])>d(p[1],p[2]))p=[p[1],p[2],p[3],p[0]];                                    // top edge = a short side
+  let best=null;
+  for(const o of [p,[p[2],p[3],p[0],p[1]]]){
+    const from=cv.matFromArray(4,1,cv.CV_32FC2,o.flatMap(([x,y])=>[x*f,y*f])),to=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,CW,0,CW,CH,0,CH]);
+    const M=cv.getPerspectiveTransform(from,to),warped=new cv.Mat();
+    cv.warpPerspective(rc,warped,M,new cv.Size(CW,CH));from.delete();to.delete();M.delete();
+    for(const [x,y,w,h] of STRIPS){
+      const roi=warped.roi(new cv.Rect(Math.round(CW*x),Math.round(CH*y),Math.round(CW*w),Math.round(CH*h)));
+      const sc=document.createElement('canvas');sc.width=roi.cols*2;sc.height=roi.rows*2;
+      const tmp=document.createElement('canvas');cv.imshow(tmp,roi);roi.delete();
+      const g=sc.getContext('2d');g.filter='grayscale(1) contrast(1.5)';g.drawImage(tmp,0,0,sc.width,sc.height);
+      const {data:dd}=await worker.recognize(sc);
+      const id=identify(dd.text,wants);
+      if(id&&(!best||id.s>best.s))best=id;
+      if(best&&best.s>=0.85)break;                                                            // clean read: done with this card
+    }
+    warped.delete();
+    if(best&&best.s>=0.85)break;
+  }
+  return best;
+}
+
+// Find and read every card in an image; marks for wanted cards, in source pixel coords
+async function scanImage(src,sw,sh,onStep){
+  const wants=getWants();
+  if(!wants.size)return {marks:[],cards:0};
+  const cards=findCards(src,sw,sh);
+  const {c:readCanvas,f}=sized(src,sw,sh,READ_SIDE),rc=cv.imread(readCanvas);
+  const out=[];
+  try{
+    for(let i=0;i<cards.length;i++){
+      if(onStep)onStep(i,cards.length);
+      const id=await readCard(rc,f,cards[i].pts,wants);
+      if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
+      const conf=Math.round(id.s*100),w=wants.get(id.k);
+      if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
+      out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts});
+    }
+  }finally{rc.delete()}
+  return {marks:out,cards:cards.length};
 }
 
 // Fit the image into the view (zoom > 1 = bigger, scroll to pan) and size the mark layer
@@ -10333,10 +10388,11 @@ function drawMarks(){
   for(const m of marks){
     const col=m.conf>=GREEN?'#3fbf3f':'#f2c230';
     g.beginPath();m.pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.closePath();
-    g.fillStyle=col+'55';g.fill();g.lineWidth=3/f;g.strokeStyle=col;g.stroke();
-    const fs=13/f,label=m.name+' '+m.conf+'%',[lx,ly]=m.pts[0];
+    g.fillStyle=col+'44';g.fill();g.lineWidth=4/f;g.strokeStyle=col;g.stroke();
+    const fs=13/f,label=m.name+' '+m.conf+'%';
+    const t0=m.pts.reduce((a,b)=>b[1]<a[1]?b:a),top=[Math.min(t0[0],srcW-200/f),Math.max(t0[1],fs*1.4)]; // keep the label on the image
     g.font='600 '+fs+'px system-ui,sans-serif';const tw=g.measureText(label).width;
-    g.fillStyle=col;g.fillRect(lx,ly-fs*1.4,tw+fs*0.6,fs*1.4);g.fillStyle='#000';g.fillText(label,lx+fs*0.3,ly-fs*0.35);
+    g.fillStyle=col;g.fillRect(top[0],top[1]-fs*1.4,tw+fs*0.6,fs*1.4);g.fillStyle='#000';g.fillText(label,top[0]+fs*0.3,top[1]-fs*0.35);
   }
 }
 function renderList(){
@@ -10345,28 +10401,20 @@ function renderList(){
   list.innerHTML=[...by.values()].sort((a,b)=>b.conf-a.conf).map(m=>'<div class="cs-row"><span class="dot" style="background:'+(m.conf>=GREEN?'#3fbf3f':'#f2c230')+'"></span><div class="n">'+esc(m.name)
     +'<span class="w">WANTED · '+esc([...new Set(m.decks)].join(', '))+'</span></div><span class="p">'+m.conf+'%</span></div>').join('');
 }
-function show(newMarks){marks=newMarks;window._cardScannerMarks=marks;drawMarks();renderList()}
-const summary=()=>{const n=new Set(marks.map(m=>m.name)).size;return n?n+' wishlist card'+(n!==1?'s':'')+' marked':'No wishlist cards found'};
+function show(newMarks){marks=newMarks;window._cardScannerMarks=marks;renderList();fit()} // the list changes the view height: re-fit
+const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
-async function ensureWorker(){
-  if(worker)return;
-  status('Loading OCR…');
-  await loadTess();
-  const w=await Tesseract.createWorker('eng');
-  await w.setParameters({tessedit_pageseg_mode:'11'}); // sparse text: every bit of text anywhere in the image
-  worker=w;
-}
-
-// Live: read the whole camera view over and over, marks stay until the next read finishes
+// Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
 const frame=document.createElement('canvas');
 async function liveLoop(){
   while(running&&mode==='live'){
     if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
     frame.width=vid.videoWidth;frame.height=vid.videoHeight;frame.getContext('2d').drawImage(vid,0,0);
     try{
-      const m=await scanImage(frame,frame.width,frame.height,LIVE_ANGLES,LIVE_SIDE,(i,n)=>status('Reading the view… '+(i+1)+'/'+n+(marks.length?' · '+summary():'')));
-      if(running&&mode==='live'){show(m);status(summary()+' · keep the cards in view')}
+      const r=await scanImage(frame,frame.width,frame.height,(i,n)=>status('Reading card '+(i+1)+' of '+n+'… hold still'));
+      if(running&&mode==='live'){show(r.marks);status(summary(r.cards))}
     }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
+    await new Promise(r=>setTimeout(r,300));
   }
 }
 async function startCamera(){
@@ -10386,13 +10434,13 @@ window.cardScannerCamera=async function(){
   setMode('live');show([]);
   try{
     status('Starting camera…');await startCamera();fit();
-    await ensureWorker();status('Loading card names…');await allNames();
+    await ensureTools();
     if(!running)return;
     liveLoop();
   }catch(e){status('Scanner error: '+(e.message||e))}
 };
 
-// Photo: full resolution, all four orientations; tap the photo to zoom in/out
+// Photo: a sharp still finds more cards than live video; tap the photo to zoom in/out
 async function scanPhoto(file){
   if(!file)return;
   if(busy){status('Still reading the previous photo…');return}
@@ -10400,10 +10448,10 @@ async function scanPhoto(file){
   try{
     const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});
     srcW=bmp.width;srcH=bmp.height;pic.width=srcW;pic.height=srcH;pic.getContext('2d').drawImage(bmp,0,0);fit();
-    await ensureWorker();status('Loading card names…');await allNames();
+    await ensureTools();
     const t0=Date.now();
-    const m=await scanImage(bmp,srcW,srcH,PHOTO_ANGLES,PHOTO_SIDE,(i,n)=>status('Reading photo… '+(i+1)+'/'+n));
-    show(m);status(summary()+' · read in '+Math.round((Date.now()-t0)/1000)+'s · tap the photo to zoom');
+    const r=await scanImage(bmp,srcW,srcH,(i,n)=>status('Reading card '+(i+1)+' of '+n+'…'));
+    show(r.marks);status(summary(r.cards)+' · '+Math.round((Date.now()-t0)/1000)+'s · tap the photo to zoom');
   }catch(e){status('Photo error: '+(e.message||e))}
   busy=false;
 }
