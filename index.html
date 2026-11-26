@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.131';
+const APP_VERSION = '2026.07.01.132';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10300,7 +10300,8 @@ const ART_BOX=[0.08,0.11,0.84,0.44];   // art box of a modern card (x, y, w, h f
 const ART_WINDOWS=[[0.08,0.11,0.44],[0.06,0.09,0.46],[0.10,0.13,0.42],[0.08,0.09,0.42],[0.08,0.13,0.44],[0.06,0.11,0.44],[0.10,0.11,0.44]];
 const ARTS_PER_CARD=6,ART_URLS_KEY='cs-art-urls',ART_URLS_DAYS=30;
 const arts=new Map();                  // card key -> [descriptor] (printings loaded so far)
-let artsLoading=null,artsTotal=0,artsDone=0;
+let artsLoading=null,artsTotal=0,artsDone=0,artsFailed=0;
+window._cardScannerArtState=()=>({done:artsDone,total:artsTotal,failed:artsFailed,loading:!!artsLoading,cards:arts.size}); // for tests
 // Thumbnail descriptor from an RGBA Mat: brightness + 2 colour-opponent channels, each normalised
 // to mean 0 / spread 1, so lighting and sleeve glare matter less
 function artDesc(m){
@@ -10331,53 +10332,77 @@ async function artUrls(name){
 }
 function loadImage(u){return new Promise((ok,no)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>ok(im);im.onerror=()=>no(new Error('image'));im.src=u})}
 // Load the art of every wanted card in the background; matching uses whatever has loaded so far
+async function artDescFromUrl(u){
+  const im=await loadImage(u),c=document.createElement('canvas');
+  c.width=Math.round(im.naturalWidth*ART_BOX[2]);c.height=Math.round(im.naturalHeight*ART_BOX[3]);
+  c.getContext('2d').drawImage(im,im.naturalWidth*ART_BOX[0],im.naturalHeight*ART_BOX[1],c.width,c.height,0,0,c.width,c.height);
+  const m=cv.imread(c),d=artDesc(m);m.delete();return d;
+}
+// Background art: the most-played Commander cards (one Scryfall request, cached a month). A found card
+// only counts as a wanted card if its art beats these too, so a small wishlist can't "win" by default.
+const BG_URLS_KEY='cs-bg-urls';
+async function loadBackground(){
+  let list=null;try{const h=JSON.parse(localStorage.getItem(BG_URLS_KEY)||'null');if(h&&Date.now()-h.t<ART_URLS_DAYS*864e5)list=h.l}catch(e){}
+  if(!list){
+    const res=await fetch('https://api.scryfall.com/cards/search?order=edhrec&q='+encodeURIComponent('game:paper'),{headers:{Accept:'application/json'}});
+    if(res.status!==200)return;
+    list=((await res.json()).data||[]).map(c=>[key(c.name),(c.image_uris||(c.card_faces&&c.card_faces[0].image_uris)||{}).small]).filter(x=>x[1]);
+    try{localStorage.setItem(BG_URLS_KEY,JSON.stringify({t:Date.now(),l:list}))}catch(e){}
+  }
+  for(const [k,u] of list){if(arts.has(k)||arts.has('bg:'+k))continue;try{arts.set('bg:'+k,[await artDescFromUrl(u)])}catch(e){}}
+}
 function loadArts(wants){
   if(artsLoading)return artsLoading;
   artsLoading=(async()=>{
     const todo=[...wants].filter(([k])=>!arts.has(k));artsTotal=todo.length;artsDone=0;
     for(const [k,w] of todo){
       try{
-        const descs=[];
-        for(const u of await artUrls(w.name)){
-          const im=await loadImage(u),c=document.createElement('canvas');
-          c.width=Math.round(im.naturalWidth*ART_BOX[2]);c.height=Math.round(im.naturalHeight*ART_BOX[3]);
-          c.getContext('2d').drawImage(im,im.naturalWidth*ART_BOX[0],im.naturalHeight*ART_BOX[1],c.width,c.height,0,0,c.width,c.height);
-          const m=cv.imread(c);descs.push(artDesc(m));m.delete();
-        }
-        arts.set(k,descs);window._cardScannerArtCount=[...arts.values()].reduce((t,d)=>t+d.length,0); // for tests
-      }catch(e){/* skip this card for now; retried next time the scanner opens */}
+        const descs=[];for(const u of await artUrls(w.name))descs.push(await artDescFromUrl(u));
+        arts.delete('bg:'+k);arts.set(k,descs);
+      }catch(e){artsFailed++;console.warn("card scanner art:",w.name,e.message)} // skipped; retried next time the scanner opens
       artsDone++;
     }
+    try{await loadBackground()}catch(e){}
+    window._cardScannerArtCount=[...arts.values()].reduce((t,d)=>t+d.length,0); // for tests
     artsLoading=null;
   })();
   return artsLoading;
 }
-// Best art score per wanted card for one found card (both 180° orientations, all windows)
+// Art score per known art (wanted cards and background) for one found card. Quick pass: the main art
+// window in both 180° orientations against everything; careful pass: all windows for the 12 closest.
 function artScores(rc,f,pts){
-  const g=geo({pts:pts.map(([x,y])=>[x*f,y*f])}),p=g.p,per=new Map(),WW=158,WH=220;
+  const g=geo({pts:pts.map(([x,y])=>[x*f,y*f])}),p=g.p,per=new Map(),WW=158,WH=220,ds=[];
   for(const o of [p,[p[2],p[3],p[0],p[1]]]){
     const from=cv.matFromArray(4,1,cv.CV_32FC2,o.flat()),to=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,WW,0,WW,WH,0,WH]);
     const M=cv.getPerspectiveTransform(from,to),wp=new cv.Mat();cv.warpPerspective(rc,wp,M,new cv.Size(WW,WH));from.delete();to.delete();M.delete();
     for(const [x0,y0,h] of ART_WINDOWS){
       const roi=wp.roi(new cv.Rect(Math.round(WW*x0),Math.round(WH*y0),Math.round(WW*(1-2*x0)),Math.round(WH*h)));
-      const d=artDesc(roi);roi.delete();
-      for(const [k,descs] of arts)for(const a of descs){const s=artScore(d,a);if(!(per.get(k)>=s))per.set(k,s)}
+      ds.push(artDesc(roi));roi.delete();
     }
     wp.delete();
   }
+  const main=[ds[0],ds[ART_WINDOWS.length]];
+  for(const [k,descs] of arts){let b=-1;for(const a of descs)for(const d of main){const s=artScore(d,a);if(s>b)b=s}per.set(k,b)}
+  for(const [k] of [...per].sort((a,b)=>b[1]-a[1]).slice(0,12)){let b=per.get(k);for(const a of arts.get(k))for(const d of ds){const s=artScore(d,a);if(s>b)b=s}per.set(k,b)}
   return per;
 }
-// Decide which found cards are wanted cards. Some art (plain, dark) looks a bit like everything, so a
-// card's score is taken relative to how well that wanted art matches the cards in view in general.
+// Decide which found cards are wanted cards. Each art's score is taken relative to how well it matches
+// the cards in view in general (plain or dark art looks a bit like everything), and the best art must be
+// a wanted card that clearly beats the runner-up (any other wanted or background art): with hundreds of
+// arts, some art always looks a little like any card, but a real match stands well clear (tested: gap
+// 0.16+ for real matches, under 0.15 for nearly all false ones).
+const ART_GAP=0.15;
 function artMarks(scores,cards,wants){
   const base=new Map();
   for(const k of arts.keys()){const v=scores.map(s=>s.get(k)||0).sort((a,b)=>a-b);base.set(k,Math.max(0.2,v.length>=4?v[Math.floor(v.length/2)]:0))}
   const out=[];
   scores.forEach((per,i)=>{
-    let best=null;for(const [k,s] of per){const adj=s-base.get(k);if(!best||adj>best.adj)best={k,s,adj}}
-    if(!best||best.s<0.5)return;
-    const conf=Math.min(99,Math.round(best.adj*100+25)),w=wants.get(best.k);
-    if(conf>=YELLOW&&w)out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
+    let best=null,second=null;
+    for(const [k,s] of per){const x={k,s,adj:s-base.get(k)};if(!best||x.adj>best.adj){second=best;best=x}else if(!second||x.adj>second.adj)second=x}
+    if(!best||best.s<0.5||!wants.has(best.k))return;
+    const gap=best.adj-(second?second.adj:0);if(gap<ART_GAP)return;
+    const conf=Math.min(99,Math.round(50+(gap-ART_GAP)*25/0.15)),w=wants.get(best.k); // gap 0.15 → 50%, 0.30 → 75%
+    out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
   });
   return out;
 }
@@ -10517,7 +10542,7 @@ async function scanImage(src,sw,sh,opts={}){
         if(prev&&(!id||id.k!==key(prev.name))&&readsOther(diag,key(prev.name))){out=out.filter(m=>m!==prev);prev=null} // title says it's another card
         if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
         const conf=Math.round(id.s*100),w=wants.get(id.k);
-        if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
+        if(conf<70||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // weak reads give false marks; short names: only (near-)exact reads
         if(prev&&prev.conf>=conf)continue;
         out=out.filter(m=>m!==prev);out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'title'});
       }
