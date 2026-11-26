@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.129';
+const APP_VERSION = '2026.07.01.130';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10205,10 +10205,12 @@ if (captureRedirectToken()) {
 
 <script>
 // Card scanner. No guide frame: cards are found by their shape (edges → 4-corner shapes with card
-// proportions, OpenCV.js), each card is straightened, and only its title spot is read (one short line).
-// A read counts for a wishlist card only if that card is its best match among ALL card names, so
-// readable cards that aren't wanted get no mark. Marks: yellow = 50%+ name match, green = 75%+.
-// Prototyped in tools/ocr-spike (detect/titles spikes).
+// proportions, OpenCV.js), and each card is straightened. Matching is by ART first: the wanted cards'
+// art (up to 6 printings each, Scryfall small images) is loaded when the scanner opens, and each found
+// card's art box is compared to it. That is fast enough for live video. Photo mode then also reads the
+// title of each card the art didn't settle (Tesseract), which catches cards with plain or dark art.
+// A title read counts only if that card is its best match among ALL card names.
+// Marks: yellow = 50%+, green = 75%+. Prototyped in tools/ocr-spike (artspike, detect3, titles).
 (function(){
 const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';           // pinned: the service worker caches jsDelivr files forever
 const CV_URL='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';  // ~10MB, loaded only when the scanner opens
@@ -10270,8 +10272,8 @@ function identify(text,wants){
   return best;
 }
 
-async function ensureTools(){
-  if(!worker){
+async function ensureTools(text){
+  if(text&&!worker){
     status('Loading text reader…');
     if(!window.Tesseract)await loadScript(TESS_URL);
     const w=await Tesseract.createWorker('eng');
@@ -10284,11 +10286,100 @@ async function ensureTools(){
     // The OpenCV module is a thenable that resolves to itself: awaiting it directly never ends
     cv=await new Promise(r=>{const m=window.cv;if(m.Mat)return r(m);m.then(c=>{delete c.then;r(c)})});
   }
-  if(!byLen||!byLen.size){status('Loading card names…');await allNames()}
+  if(text&&(!byLen||!byLen.size)){status('Loading card names…');await allNames()}
 }
 
 const sized=(src,sw,sh,side)=>{const f=side/Math.max(sw,sh),c=document.createElement('canvas');c.width=Math.round(sw*f);c.height=Math.round(sh*f);
   c.getContext('2d').drawImage(src,0,0,c.width,c.height);return {c,f}};
+
+// ---- Art matching ----
+const AW=24,AH=18;                     // art thumbnail compared (blurred, so small shifts and blur don't matter)
+const ART_BOX=[0.08,0.11,0.84,0.44];   // art box of a modern card (x, y, w, h fractions)
+// Found cards' boxes are not exact and frames differ by era: try a few windows around the art box
+const ART_WINDOWS=[[0.08,0.11,0.44],[0.06,0.09,0.46],[0.10,0.13,0.42],[0.08,0.09,0.42],[0.08,0.13,0.44],[0.06,0.11,0.44],[0.10,0.11,0.44]];
+const ARTS_PER_CARD=6,ART_URLS_KEY='cs-art-urls',ART_URLS_DAYS=30;
+const arts=new Map();                  // card key -> [descriptor] (printings loaded so far)
+let artsLoading=null,artsTotal=0,artsDone=0;
+// Thumbnail descriptor from an RGBA Mat: brightness + 2 colour-opponent channels, each normalised
+// to mean 0 / spread 1, so lighting and sleeve glare matter less
+function artDesc(m){
+  const t=new cv.Mat(),n=AW*AH;cv.resize(m,t,new cv.Size(AW,AH),0,0,cv.INTER_AREA);cv.GaussianBlur(t,t,new cv.Size(3,3),0.6);
+  const d=t.data,out=new Float32Array(n*3);
+  for(let i=0;i<n;i++){const r=d[i*4],g=d[i*4+1],bl=d[i*4+2];out[i]=0.3*r+0.59*g+0.11*bl;out[n+i]=r-g;out[2*n+i]=bl-(r+g)/2}
+  t.delete();
+  for(let c=0;c<3;c++){let s=0,q=0;for(let i=c*n;i<(c+1)*n;i++)s+=out[i];s/=n;for(let i=c*n;i<(c+1)*n;i++)q+=(out[i]-s)**2;q=Math.max(Math.sqrt(q/n),8);for(let i=c*n;i<(c+1)*n;i++)out[i]=(out[i]-s)/q}
+  return out;
+}
+function artScore(a,b){
+  const n=AW*AH;let g=0,c1=0,c2=0;
+  for(let i=0;i<n;i++){g+=a[i]*b[i];c1+=a[n+i]*b[n+i];c2+=a[2*n+i]*b[2*n+i]}
+  return (0.6*g+0.2*c1+0.2*c2)/n;
+}
+// Art image URLs per wanted card (newest printings first), cached for a month
+async function artUrls(name){
+  let cache={};try{cache=JSON.parse(localStorage.getItem(ART_URLS_KEY)||'{}')}catch(e){}
+  const k=key(name),hit=cache[k];
+  if(hit&&Date.now()-hit.t<ART_URLS_DAYS*864e5)return hit.u;
+  const res=await fetch('https://api.scryfall.com/cards/search?unique=art&order=released&dir=desc&q='+encodeURIComponent('!"'+name+'"'),{headers:{Accept:'application/json'}});
+  if(res.status!==200&&res.status!==404)throw new Error('Scryfall '+res.status);  // don't cache rate limits/outages
+  const j=res.status===200?await res.json():{data:[]};
+  const u=(j.data||[]).map(c=>(c.image_uris||(c.card_faces&&c.card_faces[0].image_uris)||{}).small).filter(Boolean).slice(0,ARTS_PER_CARD);
+  try{cache[k]={t:Date.now(),u};localStorage.setItem(ART_URLS_KEY,JSON.stringify(cache))}catch(e){}
+  await new Promise(r=>setTimeout(r,100));                                          // Scryfall asks for ≤10 requests/s
+  return u;
+}
+function loadImage(u){return new Promise((ok,no)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>ok(im);im.onerror=()=>no(new Error('image'));im.src=u})}
+// Load the art of every wanted card in the background; matching uses whatever has loaded so far
+function loadArts(wants){
+  if(artsLoading)return artsLoading;
+  artsLoading=(async()=>{
+    const todo=[...wants].filter(([k])=>!arts.has(k));artsTotal=todo.length;artsDone=0;
+    for(const [k,w] of todo){
+      try{
+        const descs=[];
+        for(const u of await artUrls(w.name)){
+          const im=await loadImage(u),c=document.createElement('canvas');
+          c.width=Math.round(im.naturalWidth*ART_BOX[2]);c.height=Math.round(im.naturalHeight*ART_BOX[3]);
+          c.getContext('2d').drawImage(im,im.naturalWidth*ART_BOX[0],im.naturalHeight*ART_BOX[1],c.width,c.height,0,0,c.width,c.height);
+          const m=cv.imread(c);descs.push(artDesc(m));m.delete();
+        }
+        arts.set(k,descs);window._cardScannerArtCount=[...arts.values()].reduce((t,d)=>t+d.length,0); // for tests
+      }catch(e){/* skip this card for now; retried next time the scanner opens */}
+      artsDone++;
+    }
+    artsLoading=null;
+  })();
+  return artsLoading;
+}
+// Best art score per wanted card for one found card (both 180° orientations, all windows)
+function artScores(rc,f,pts){
+  const g=geo({pts:pts.map(([x,y])=>[x*f,y*f])}),p=g.p,per=new Map(),WW=158,WH=220;
+  for(const o of [p,[p[2],p[3],p[0],p[1]]]){
+    const from=cv.matFromArray(4,1,cv.CV_32FC2,o.flat()),to=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,WW,0,WW,WH,0,WH]);
+    const M=cv.getPerspectiveTransform(from,to),wp=new cv.Mat();cv.warpPerspective(rc,wp,M,new cv.Size(WW,WH));from.delete();to.delete();M.delete();
+    for(const [x0,y0,h] of ART_WINDOWS){
+      const roi=wp.roi(new cv.Rect(Math.round(WW*x0),Math.round(WH*y0),Math.round(WW*(1-2*x0)),Math.round(WH*h)));
+      const d=artDesc(roi);roi.delete();
+      for(const [k,descs] of arts)for(const a of descs){const s=artScore(d,a);if(!(per.get(k)>=s))per.set(k,s)}
+    }
+    wp.delete();
+  }
+  return per;
+}
+// Decide which found cards are wanted cards. Some art (plain, dark) looks a bit like everything, so a
+// card's score is taken relative to how well that wanted art matches the cards in view in general.
+function artMarks(scores,cards,wants){
+  const base=new Map();
+  for(const k of arts.keys()){const v=scores.map(s=>s.get(k)||0).sort((a,b)=>a-b);base.set(k,Math.max(0.2,v.length>=4?v[Math.floor(v.length/2)]:0))}
+  const out=[];
+  scores.forEach((per,i)=>{
+    let best=null;for(const [k,s] of per){const adj=s-base.get(k);if(!best||adj>best.adj)best={k,s,adj}}
+    if(!best||best.s<0.5)return;
+    const conf=Math.min(99,Math.round(best.adj*100+25)),w=wants.get(best.k);
+    if(conf>=YELLOW&&w)out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
+  });
+  return out;
+}
 
 // Find card-shaped quads. Returns corner lists in source pixels.
 function findCards(src,sw,sh){
@@ -10397,24 +10488,43 @@ async function readCard(rc,f,pts,wants,diag=[]){
   return best;
 }
 
-// Find and read every card in an image; marks for wanted cards, in source pixel coords
-async function scanImage(src,sw,sh,onStep){
+// Does a title read contain the exact name of some other card? (veto for an art guess)
+function readsOther(texts,k){
+  for(const t of texts){const toks=key(t).split(' ').filter(Boolean);
+    for(let i=0;i<toks.length;i++)for(let j=i+1;j<=Math.min(toks.length,i+6);j++){const w=toks.slice(i,j).join(' ');
+      if(w.length>=6&&w!==k&&(byLen.get(w.length)||[]).includes(w))return true}}
+  return false;
+}
+// Find every card in an image and mark the wanted ones (source pixel coords). Art first; with
+// opts.text, also read the titles of cards the art didn't mark green (opts.onArt shows art marks early).
+async function scanImage(src,sw,sh,opts={}){
   const wants=getWants();
   if(!wants.size)return {marks:[],cards:0};
-  const cards=findCards(src,sw,sh);
-  const {c:readCanvas,f}=sized(src,sw,sh,READ_SIDE),rc=cv.imread(readCanvas);
-  const out=[];window._cardScannerReads=[];
+  const {c:readCanvas,f}=sized(src,sw,sh,opts.text?READ_SIDE:DETECT_SIDE); // one snapshot for finding and matching (titles need more pixels)
+  const cards=findCards(readCanvas,readCanvas.width,readCanvas.height).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
+  const rc=cv.imread(readCanvas);
+  let out=[];window._cardScannerReads=[];
   try{
-    for(let i=0;i<cards.length;i++){
-      if(onStep)onStep(i,cards.length);
-      const diag=[];window._cardScannerReads.push(diag);                     // raw title reads per card, for testing
-      const id=await readCard(rc,f,cards[i].pts,wants,diag);
-      if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
-      const conf=Math.round(id.s*100),w=wants.get(id.k);
-      if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
-      out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts});
+    out=artMarks(cards.map(c=>artScores(rc,f,c.pts)),cards,wants);
+    if(opts.text){
+      if(opts.onArt)opts.onArt(out.slice());
+      for(let i=0;i<cards.length;i++){
+        let prev=out.find(m=>m.i===i);if(prev&&prev.conf>=GREEN)continue;    // art already sure
+        if(opts.onStep)opts.onStep(i,cards.length);
+        const diag=[];window._cardScannerReads.push(diag);                     // raw title reads per card, for testing
+        const id=await readCard(rc,f,cards[i].pts,wants,diag);
+        if(prev&&(!id||id.k!==key(prev.name))&&readsOther(diag,key(prev.name))){out=out.filter(m=>m!==prev);prev=null} // title says it's another card
+        if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
+        const conf=Math.round(id.s*100),w=wants.get(id.k);
+        if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
+        if(prev&&prev.conf>=conf)continue;
+        out=out.filter(m=>m!==prev);out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'title'});
+      }
     }
   }finally{rc.delete()}
+  // one mark per card: drop a weaker same-name mark sitting on top of another (overlapping boxes)
+  const ctr=m=>[m.pts.reduce((t,p)=>t+p[0],0)/4,m.pts.reduce((t,p)=>t+p[1],0)/4],size=m=>Math.sqrt(cards[m.i].a);
+  out=out.sort((a,b)=>b.conf-a.conf).filter((m,j,all)=>!all.slice(0,j).some(o=>o.name===m.name&&Math.hypot(ctr(o)[0]-ctr(m)[0],ctr(o)[1]-ctr(m)[1])<0.6*size(o)));
   return {marks:out,cards:cards.length};
 }
 
@@ -10465,21 +10575,21 @@ function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window
 const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
 // Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
-const frame=document.createElement('canvas');
 async function liveLoop(){
   while(running&&mode==='live'){
     if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
-    frame.width=vid.videoWidth;frame.height=vid.videoHeight;frame.getContext('2d').drawImage(vid,0,0);
     try{
-      const r=await scanImage(frame,frame.width,frame.height,(i,n)=>status('Reading card '+(i+1)+' of '+n+'… hold still'));
-      if(running&&mode==='live'){show(r.marks);status(summary(r.cards))}
+      const t0=Date.now(),r=await scanImage(vid,vid.videoWidth,vid.videoHeight);
+      if(running&&mode==='live'){show(r.marks);status(summary(r.cards)+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight)}
     }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
-    await new Promise(r=>setTimeout(r,300));
+    await new Promise(r=>setTimeout(r,100));
   }
 }
+const artNote=()=>artsLoading?' · loading art '+artsDone+'/'+artsTotal:'';
 async function startCamera(){
   const tall=innerHeight>innerWidth;
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:tall?1080:1920},height:{ideal:tall?1920:1080},aspectRatio:{ideal:tall?9/16:16/9}},audio:false});
+  // Ask for the full 4:3 sensor picture; a 16:9 request made phones crop it (a zoomed-in view)
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:tall?3024:4032},height:{ideal:tall?4032:3024}},audio:false});
   vid.srcObject=stream;await vid.play();
   for(let i=0;i<50&&!(vid.videoWidth&&vid.videoHeight);i++)await new Promise(r=>setTimeout(r,100));
   srcW=vid.videoWidth;srcH=vid.videoHeight;
@@ -10494,7 +10604,7 @@ window.cardScannerCamera=async function(){
   setMode('live');show([]);
   try{
     status('Starting camera…');await startCamera();fit();
-    await ensureTools();
+    await ensureTools(false);loadArts(getWants());
     if(!running)return;
     liveLoop();
   }catch(e){status('Scanner error: '+(e.message||e))}
@@ -10508,9 +10618,10 @@ async function scanPhoto(file){
   try{
     const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});
     srcW=bmp.width;srcH=bmp.height;pic.width=srcW;pic.height=srcH;pic.getContext('2d').drawImage(bmp,0,0);fit();
-    await ensureTools();
+    await ensureTools(true);
+    status('Loading art of your wanted cards…');await loadArts(getWants());
     const t0=Date.now();
-    const r=await scanImage(bmp,srcW,srcH,(i,n)=>status('Reading card '+(i+1)+' of '+n+'…'));
+    const r=await scanImage(bmp,srcW,srcH,{text:true,onArt:m=>{show(m);status('Art matched · checking titles…')},onStep:(i,n)=>status('Checking title '+(i+1)+' of '+n+'…')});
     show(r.marks);status(summary(r.cards)+' · '+Math.round((Date.now()-t0)/1000)+'s · tap the photo to zoom');
   }catch(e){status('Photo error: '+(e.message||e))}
   busy=false;
