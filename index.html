@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.130';
+const APP_VERSION = '2026.07.01.131';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10180,12 +10180,13 @@ if (captureRedirectToken()) {
 #cs-top{display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border-md)}
 #cs-top b{flex:1;color:var(--accent);letter-spacing:1px}
 #cs-top button{background:none;border:1px solid var(--border-md);color:var(--accent);border-radius:6px;padding:6px 12px;font-size:14px}
+#cs-wrap{position:relative;flex:1;min-height:0;display:flex}
 #cs-view{position:relative;flex:1;min-height:0;overflow:auto;background:#000;display:flex}
 #cs-stage{position:relative;flex-shrink:0;margin:auto}
 #cs-stage video,#cs-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-#cs-status{padding:6px 14px;font-size:13px;color:var(--text2);min-height:20px}
-#cs-list{max-height:28vh;overflow:auto;padding:0 10px 10px}
-.cs-row{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-bottom:5px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}
+#cs-status{padding:6px 14px;font-size:13px;color:var(--text2);min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cs-list{position:absolute;left:0;right:0;bottom:0;max-height:40%;overflow:auto;padding:0 10px 6px} /* over the camera: the view never resizes */
+.cs-row{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-bottom:5px;border-radius:8px;background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--border)}
 .cs-row .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .cs-row .n{flex:1;min-width:0}
 .cs-row .w{display:block;font-size:12px;color:var(--text2)}
@@ -10197,9 +10198,9 @@ if (captureRedirectToken()) {
     <button id="cs-photo-btn" onclick="document.getElementById('cs-file').click()" title="Take or pick a sharp photo — best for a whole binder page">Photo</button>
     <button id="cs-cam-btn" style="display:none" onclick="cardScannerCamera()">Camera</button>
     <button onclick="closeCardScanner()">Done</button></div>
-  <div id="cs-view"><div id="cs-stage"><video id="cs-v" playsinline muted autoplay></video><canvas id="cs-pic" style="display:none"></canvas><canvas id="cs-marks"></canvas></div></div>
+  <div id="cs-wrap"><div id="cs-view"><div id="cs-stage"><video id="cs-v" playsinline muted autoplay></video><canvas id="cs-pic" style="display:none"></canvas><canvas id="cs-marks"></canvas></div></div>
+  <div id="cs-list"></div></div>
   <div id="cs-status"></div>
-  <div id="cs-list"></div>
   <input type="file" id="cs-file" accept="image/*" hidden>
 </div>
 
@@ -10571,7 +10572,7 @@ function onScreen(m){
   const x=m.pts.reduce((t,p)=>t+p[0],0)/4,y=m.pts.reduce((t,p)=>t+p[1],0)/4;
   return Math.abs(x-srcW/2)<=hw&&Math.abs(y-srcH/2)<=hh;
 }
-function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window._cardScannerMarks=marks;renderList();fit()} // the list changes the view height: re-fit
+function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window._cardScannerMarks=marks;renderList();drawMarks()}
 const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
 // Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
