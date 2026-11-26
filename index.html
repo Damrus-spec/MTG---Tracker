@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.127';
+const APP_VERSION = '2026.07.01.128';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10262,7 +10262,7 @@ function identify(text,wants){
   const toks=key(text).split(' ').filter(Boolean);let best=null;
   for(let i=0;i<toks.length;i++)for(let j=i+1;j<=Math.min(toks.length,i+6);j++){
     const w=toks.slice(i,j).join(' ');if(w.length<3)continue;
-    for(const k of wants.keys()){if(Math.abs(k.length-w.length)>k.length*0.5)continue;const s=sim(w,k);if(!best||s>best.s)best={k,s,w}}
+    for(const k of wants.keys()){if(Math.abs(k.length-w.length)>k.length*0.5)continue;const s=sim(w,k);if(!best||s>best.s||(s===best.s&&k.length>best.k.length))best={k,s,w}}
   }
   if(!best||best.s<YELLOW/100)return null;
   for(let L=Math.floor(best.w.length*0.75);L<=Math.ceil(best.w.length*1.33);L++)
@@ -10306,7 +10306,7 @@ function findCards(src,sw,sh){
         const ap=new cv.Mat();cv.approxPolyDP(hull,ap,0.04*cv.arcLength(hull,true),true);
         if(ap.rows===4&&cv.isContourConvex(ap)){
           const r=cv.minAreaRect(ap),ar=Math.min(r.size.width,r.size.height)/Math.max(r.size.width,r.size.height);
-          if(ar>0.6&&ar<0.82){const pts=[];for(let q=0;q<4;q++)pts.push([ap.data32S[q*2]/f,ap.data32S[q*2+1]/f]);quads.push({a:a/(f*f),pts})}
+          if(ar>0.6&&ar<0.82){const pts=[];for(let q=0;q<4;q++)pts.push([ap.data32S[q*2],ap.data32S[q*2+1]]);quads.push({a,pts})}
         }
         hull.delete();ap.delete();
       }
@@ -10314,18 +10314,64 @@ function findCards(src,sw,sh){
     }
     edges.delete();cs.delete();hier.delete();
   }
-  gray.delete();k.delete();
+  k.delete();
   // One quad per card: biggest first, drop others centred on it; drop much smaller ones (art boxes)
   quads.sort((p,q)=>q.a-p.a);
-  const ctr=q=>[q.pts.reduce((t,p)=>t+p[0],0)/4,q.pts.reduce((t,p)=>t+p[1],0)/4],keep=[];
+  const ctr=q=>[q.pts.reduce((t,p)=>t+p[0],0)/4,q.pts.reduce((t,p)=>t+p[1],0)/4];
+  let keep=[];
   for(const q of quads){const [x,y]=ctr(q);if(!keep.some(o=>{const [ox,oy]=ctr(o);return Math.hypot(ox-x,oy-y)<0.35*Math.sqrt(o.a)}))keep.push(q)}
-  if(keep.length>=3){const med=keep.map(q=>q.a).sort((p,q)=>p-q)[Math.floor(keep.length/2)];return keep.filter(q=>q.a>med*0.5)}
-  return keep;
+  if(keep.length>=3){const med=keep.map(q=>q.a).sort((p,q)=>p-q)[Math.floor(keep.length/2)];keep=keep.filter(q=>q.a>med*0.5)}
+  keep=keep.concat(gridFill(gray,keep));gray.delete();
+  return keep.map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
+}
+
+// Card geometry: centre, short side w (top edge p0-p1), long side h, unit vectors u (along w) and v (along h)
+function geo(q){
+  const c=[q.pts.reduce((t,p)=>t+p[0],0)/4,q.pts.reduce((t,p)=>t+p[1],0)/4],d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  let p=q.pts.slice().sort((a,b)=>Math.atan2(a[1]-c[1],a[0]-c[0])-Math.atan2(b[1]-c[1],b[0]-c[0]));
+  if(d(p[0],p[1])>d(p[1],p[2]))p=[p[1],p[2],p[3],p[0]];
+  const w=d(p[0],p[1]),h=d(p[1],p[2]);
+  return {c,w,h,p,u:[(p[1][0]-p[0][0])/w,(p[1][1]-p[0][1])/w],v:[(p[2][0]-p[1][0])/h,(p[2][1]-p[1][1])/h]};
+}
+// Binder pages are grids, and dark cards in dark pockets often show no clear border. When the cards
+// found line up with neighbours, guess the cells next to them (two steps out) and nudge each guess onto
+// the nearby edges. A bigger nudge pulls guesses onto pocket edges. The title read decides: an empty pocket reads nothing.
+function gridFill(gray,found){
+  const ok=found.map(q=>({q,g:geo(q)}));if(ok.length<4)return [];
+  const same=x=>ok.filter(y=>Math.abs(y.q.a/x.q.a-1)<0.35).length;
+  const d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]),rect=({p})=>Math.abs(d(p[0],p[1])/d(p[2],p[3])-1)<0.12&&Math.abs(d(p[1],p[2])/d(p[3],p[0])-1)<0.12; // skewed boxes would copy their skew
+  const ref=ok.reduce((m,x)=>same(x)>same(m)?x:m),good=ok.filter(y=>Math.abs(y.q.a/ref.q.a-1)<0.35&&rect(y.g)); // typical card size
+  const pu=[],pv=[];                                                     // spacing to the nearest aligned neighbour, per card
+  for(const a of good){let bu=9,bv=9;for(const b of good){if(a===b)continue;
+    const dx=b.g.c[0]-a.g.c[0],dy=b.g.c[1]-a.g.c[1],du=Math.abs(dx*a.g.u[0]+dy*a.g.u[1])/a.g.w,dv=Math.abs(dx*a.g.v[0]+dy*a.g.v[1])/a.g.h;
+    if(du>0.95&&du<1.6&&dv<0.25)bu=Math.min(bu,du);if(dv>0.95&&dv<1.6&&du<0.25)bv=Math.min(bv,dv)}
+    if(bu<9)pu.push(bu);if(bv<9)pv.push(bv)}
+  if(pu.length+pv.length<2)return [];                                    // no grid: loose cards on a table
+  const mid=(x,d)=>x.length?x.sort((p,q)=>p-q)[Math.floor(x.length/2)]:d,ku=mid(pu,1.1),kv=mid(pv,1.08);
+  const E=new cv.Mat();cv.Canny(gray,E,30,90);
+  const W=gray.cols,H=gray.rows,ed=E.data,taken=good.map(x=>x.g.c),added=[];
+  const edgeAt=(x,y)=>{const X=Math.round(x),Y=Math.round(y);return X>=1&&Y>=1&&X<W-1&&Y<H-1&&(ed[Y*W+X]||ed[Y*W+X+1]||ed[(Y+1)*W+X])};
+  let src=good;
+  for(let step=0;step<2&&src.length;step++){const next=[];
+    for(const {g} of src)for(const [ax,k] of [[g.u,ku*g.w],[g.u,-ku*g.w],[g.v,kv*g.h],[g.v,-kv*g.h]]){
+      const ox=ax[0]*k,oy=ax[1]*k,pts=g.p.map(([x,y])=>[x+ox,y+oy]),c=[g.c[0]+ox,g.c[1]+oy];
+      if(pts.some(([x,y])=>x<-0.05*W||y<-0.05*H||x>1.05*W||y>1.05*H))continue;
+      if(taken.some(t=>Math.hypot(t[0]-c[0],t[1]-c[1])<g.w*0.6))continue;
+      const per=[];for(let e=0;e<4;e++){const a=pts[e],b=pts[(e+1)%4],n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/4);
+        for(let t=0;t<n;t++)per.push([a[0]+(b[0]-a[0])*t/n,a[1]+(b[1]-a[1])*t/n])}
+      const R=Math.round(g.w*0.05);let best={s:-1,dx:0,dy:0};
+      for(let dy=-R;dy<=R;dy+=2)for(let dx=-R;dx<=R;dx+=2){let s=0;for(const [x,y] of per)if(edgeAt(x+dx,y+dy))s++;if(s>best.s)best={s,dx,dy}}
+      const nq={a:ref.q.a,pts:pts.map(([x,y])=>[x+best.dx,y+best.dy])};
+      taken.push([c[0]+best.dx,c[1]+best.dy]);added.push(nq);next.push({q:nq,g:geo(nq)});
+    }
+    src=next}
+  E.delete();
+  return added;
 }
 
 // Straighten a card and read its title spot (both 180° orientations, tight then wide band).
 // Returns {k, s, name} of the best identified card, or null.
-async function readCard(rc,f,pts,wants){
+async function readCard(rc,f,pts,wants,diag=[]){
   const cx=pts.reduce((t,p)=>t+p[0],0)/4,cy=pts.reduce((t,p)=>t+p[1],0)/4;
   let p=pts.slice().sort((a,b)=>Math.atan2(a[1]-cy,a[0]-cx)-Math.atan2(b[1]-cy,b[0]-cx)); // clockwise
   const d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
@@ -10340,7 +10386,7 @@ async function readCard(rc,f,pts,wants){
       const sc=document.createElement('canvas');sc.width=roi.cols*2;sc.height=roi.rows*2;
       const tmp=document.createElement('canvas');cv.imshow(tmp,roi);roi.delete();
       const g=sc.getContext('2d');g.filter='grayscale(1) contrast(1.5)';g.drawImage(tmp,0,0,sc.width,sc.height);
-      const {data:dd}=await worker.recognize(sc);
+      const {data:dd}=await worker.recognize(sc);diag.push(dd.text.trim());
       const id=identify(dd.text,wants);
       if(id&&(!best||id.s>best.s))best=id;
       if(best&&best.s>=0.85)break;                                                            // clean read: done with this card
@@ -10357,11 +10403,12 @@ async function scanImage(src,sw,sh,onStep){
   if(!wants.size)return {marks:[],cards:0};
   const cards=findCards(src,sw,sh);
   const {c:readCanvas,f}=sized(src,sw,sh,READ_SIDE),rc=cv.imread(readCanvas);
-  const out=[];
+  const out=[];window._cardScannerReads=[];
   try{
     for(let i=0;i<cards.length;i++){
       if(onStep)onStep(i,cards.length);
-      const id=await readCard(rc,f,cards[i].pts,wants);
+      const diag=[];window._cardScannerReads.push(diag);                     // raw title reads per card, for testing
+      const id=await readCard(rc,f,cards[i].pts,wants,diag);
       if(!id||!wants.has(id.k))continue;                       // unreadable, or a card that isn't on the wishlist
       const conf=Math.round(id.s*100),w=wants.get(id.k);
       if(conf<YELLOW||(id.k.length<6&&conf<100)||(id.k.length<9&&conf<75))continue; // short names: only (near-)exact reads
