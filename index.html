@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.135';
+const APP_VERSION = '2026.07.01.136';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10242,9 +10242,9 @@ function getWants(){
   for(const [uuid,entries] of Object.entries((data&&data.deckWants)||{})){
     const deck=displayNameForUuid(uuid)||'Unknown deck';
     for(const w of (entries||[])){
-      const k=key(w&&w.in); if(!k)continue;
+      const k=key(w&&w.in); if(!k||w.inStatus==='owned')continue; // owned: nothing to look for (still found if another deck wants it)
       const e=idx.get(k)||{name:w.in.trim(),decks:[]};
-      e.decks.push(w.inStatus==='owned'?deck+' (owned)':deck); // already-owned wants stay visible but say so
+      e.decks.push(deck);
       idx.set(k,e);
     }
   }
