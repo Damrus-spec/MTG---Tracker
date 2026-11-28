@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.132';
+const APP_VERSION = '2026.07.01.133';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10217,6 +10217,7 @@ const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.m
 const CV_URL='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';  // ~10MB, loaded only when the scanner opens
 const YELLOW=50, GREEN=75;
 const DETECT_SIDE=1500;   // card finding runs on a copy this size
+const LIVE_SIDE=1100;     // live frames: smaller copy, faster scans (art needs ~160px per card)
 const READ_SIDE=2400;     // cards are straightened from a copy this size (enough for titles, bounded memory)
 const CW=630, CH=880;     // straightened card
 const EDGE_PASSES=[[30,90],[60,180],[100,250]]; // sleeves/glare hide some edges at one sensitivity but not another
@@ -10391,7 +10392,8 @@ function artScores(rc,f,pts){
 // a wanted card that clearly beats the runner-up (any other wanted or background art): with hundreds of
 // arts, some art always looks a little like any card, but a real match stands well clear (tested: gap
 // 0.16+ for real matches, under 0.15 for nearly all false ones).
-const ART_GAP=0.15;
+// Lowered (v.133): gap 0.10+ is yellow/green, 0.06..0.10 is a white "maybe" mark.
+const ART_GAP=0.06,ART_SURE=0.10;
 function artMarks(scores,cards,wants){
   const base=new Map();
   for(const k of arts.keys()){const v=scores.map(s=>s.get(k)||0).sort((a,b)=>a-b);base.set(k,Math.max(0.2,v.length>=4?v[Math.floor(v.length/2)]:0))}
@@ -10399,17 +10401,17 @@ function artMarks(scores,cards,wants){
   scores.forEach((per,i)=>{
     let best=null,second=null;
     for(const [k,s] of per){const x={k,s,adj:s-base.get(k)};if(!best||x.adj>best.adj){second=best;best=x}else if(!second||x.adj>second.adj)second=x}
-    if(!best||best.s<0.5||!wants.has(best.k))return;
+    if(!best||best.s<0.45||!wants.has(best.k))return;
     const gap=best.adj-(second?second.adj:0);if(gap<ART_GAP)return;
-    const conf=Math.min(99,Math.round(50+(gap-ART_GAP)*25/0.15)),w=wants.get(best.k); // gap 0.15 → 50%, 0.30 → 75%
+    const conf=Math.min(99,Math.round(50+(gap-ART_SURE)*25/0.12)),w=wants.get(best.k); // gap 0.06 → 42% (white), 0.10 → 50%, 0.22 → 75%
     out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
   });
   return out;
 }
 
 // Find card-shaped quads. Returns corner lists in source pixels.
-function findCards(src,sw,sh){
-  const {c,f}=sized(src,sw,sh,DETECT_SIDE),img=cv.imread(c),gray=new cv.Mat(),k=cv.Mat.ones(3,3,cv.CV_8U);
+function findCards(src,sw,sh,side=DETECT_SIDE){
+  const {c,f}=sized(src,sw,sh,side),img=cv.imread(c),gray=new cv.Mat(),k=cv.Mat.ones(3,3,cv.CV_8U);
   cv.cvtColor(img,gray,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(gray,gray,new cv.Size(5,5),0);img.delete();
   const area=c.width*c.height,quads=[];
   for(const [lo,hi] of EDGE_PASSES){
@@ -10526,12 +10528,14 @@ function readsOther(texts,k){
 async function scanImage(src,sw,sh,opts={}){
   const wants=getWants();
   if(!wants.size)return {marks:[],cards:0};
-  const {c:readCanvas,f}=sized(src,sw,sh,opts.text?READ_SIDE:DETECT_SIDE); // one snapshot for finding and matching (titles need more pixels)
-  const cards=findCards(readCanvas,readCanvas.width,readCanvas.height).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
+  const side=opts.text?READ_SIDE:opts.side||DETECT_SIDE;
+  const {c:readCanvas,f}=sized(src,sw,sh,side); // one snapshot for finding and matching (titles need more pixels)
+  const cards=findCards(readCanvas,readCanvas.width,readCanvas.height,Math.min(side,DETECT_SIDE)).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
   const rc=cv.imread(readCanvas);
   let out=[];window._cardScannerReads=[];
   try{
-    out=artMarks(cards.map(c=>artScores(rc,f,c.pts)),cards,wants);
+    const scores=[];for(const c of cards){scores.push(artScores(rc,f,c.pts));if(opts.onYield)await opts.onYield()} // live: let the mark tracker run between cards
+    out=artMarks(scores,cards,wants);
     if(opts.text){
       if(opts.onArt)opts.onArt(out.slice());
       for(let i=0;i<cards.length;i++){
@@ -10575,19 +10579,20 @@ function drawMarks(){
   if(!srcW)return;
   g.setTransform(f,0,0,f,0,0);
   for(const m of marks){
-    const col=m.conf>=GREEN?'#3fbf3f':'#f2c230';
+    const col=markCol(m);
     g.beginPath();m.pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.closePath();
     g.fillStyle=col+'44';g.fill();g.lineWidth=4/f;g.strokeStyle=col;g.stroke();
-    const fs=13/f,label=m.name+' '+m.conf+'%';
+    const fs=13/f,label=m.name+(m.conf<YELLOW?'?':' '+m.conf+'%');
     const t0=m.pts.reduce((a,b)=>b[1]<a[1]?b:a),top=[Math.min(t0[0],srcW-200/f),Math.max(t0[1],fs*1.4)]; // keep the label on the image
     g.font='600 '+fs+'px system-ui,sans-serif';const tw=g.measureText(label).width;
     g.fillStyle=col;g.fillRect(top[0],top[1]-fs*1.4,tw+fs*0.6,fs*1.4);g.fillStyle='#000';g.fillText(label,top[0]+fs*0.3,top[1]-fs*0.35);
   }
 }
+const markCol=m=>m.conf>=GREEN?'#3fbf3f':m.conf>=YELLOW?'#f2c230':'#ffffff'; // white = maybe
 function renderList(){
   if(!marks.length){list.innerHTML='';return}
   const by=new Map();for(const m of marks){const e=by.get(m.name);if(!e||m.conf>e.conf)by.set(m.name,m)}
-  list.innerHTML=[...by.values()].sort((a,b)=>b.conf-a.conf).map(m=>'<div class="cs-row"><span class="dot" style="background:'+(m.conf>=GREEN?'#3fbf3f':'#f2c230')+'"></span><div class="n">'+esc(m.name)
+  list.innerHTML=[...by.values()].sort((a,b)=>b.conf-a.conf).map(m=>'<div class="cs-row"><span class="dot" style="background:'+markCol(m)+'"></span><div class="n">'+esc(m.name)
     +'<span class="w">WANTED · '+esc([...new Set(m.decks)].join(', '))+'</span></div><span class="p">'+m.conf+'%</span></div>').join('');
 }
 // Live view crops the frame: only cards whose middle is on screen count
@@ -10600,15 +10605,54 @@ function onScreen(m){
 function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window._cardScannerMarks=marks;renderList();drawMarks()}
 const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
-// Live: grab a frame, find + read its cards, show marks; repeat. Hold the cards still while it reads.
+// Follow the camera between scans: track corner points (optical flow) on a small grey copy of the video
+// and move each mark by the median motion of the points inside it (or of all points).
+const TRACK_SIDE=320;let trk=null; // last tracked frame {g,f}
+function grayNow(){const {c,f}=sized(vid,vid.videoWidth,vid.videoHeight,TRACK_SIDE),m=cv.imread(c),g=new cv.Mat();cv.cvtColor(m,g,cv.COLOR_RGBA2GRAY);m.delete();return {g,f}}
+function flow(a,b,ms){
+  if(!ms.length)return;
+  const fp=new cv.Mat(),np=new cv.Mat(),st=new cv.Mat(),er=new cv.Mat(),none=new cv.Mat();
+  try{
+    cv.goodFeaturesToTrack(a.g,fp,200,0.01,6,none,3);if(fp.rows<6)return;
+    cv.calcOpticalFlowPyrLK(a.g,b.g,fp,np,st,er,new cv.Size(15,15),2);
+    const mv=[];for(let i=0;i<fp.rows;i++)if(st.data[i]){const x=fp.data32F[i*2]/a.f,y=fp.data32F[i*2+1]/a.f;mv.push([x,y,np.data32F[i*2]/b.f-x,np.data32F[i*2+1]/b.f-y])}
+    if(mv.length<4)return;
+    const med=v=>v.sort((p,q)=>p-q)[v.length>>1],all=[med(mv.map(m=>m[2])),med(mv.map(m=>m[3]))];
+    for(const m of ms){
+      const xs=m.pts.map(p=>p[0]),ys=m.pts.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+      const inn=mv.filter(([x,y])=>x>=x0&&x<=x1&&y>=y0&&y<=y1),d=inn.length>=4?[med(inn.map(m=>m[2])),med(inn.map(m=>m[3]))]:all;
+      m.pts=m.pts.map(([x,y])=>[x+d[0],y+d[1]]);
+    }
+    window._cardScannerFlows=(window._cardScannerFlows||0)+1; // for tests
+  }finally{fp.delete();np.delete();st.delete();er.delete();none.delete()}
+}
+function trackTick(){
+  if(!running||mode!=='live'){if(trk){trk.g.delete();trk=null}trackTick.on=false;return}
+  if(marks.length&&vid.videoWidth){
+    try{const cur=grayNow();if(trk){flow(trk,cur,marks);trk.g.delete()}trk=cur;drawMarks()}catch(e){window._cardScannerTrackErr=String(e&&e.message||e)}
+  }else if(trk){trk.g.delete();trk=null}
+  requestAnimationFrame(trackTick);
+}
+const HOLD_MS=800; // keep a mark this long after a scan misses it (less flicker)
+// Live: grab a frame, find + match its cards, show marks; repeat. Marks follow the camera in between.
 async function liveLoop(){
+  if(!trackTick.on){trackTick.on=true;requestAnimationFrame(trackTick)}
   while(running&&mode==='live'){
     if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
+    let g0=null;
     try{
-      const t0=Date.now(),r=await scanImage(vid,vid.videoWidth,vid.videoHeight);
-      if(running&&mode==='live'){show(r.marks);status(summary(r.cards)+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight)}
+      const t0=Date.now();g0=grayNow();
+      const r=await scanImage(vid,vid.videoWidth,vid.videoHeight,{side:LIVE_SIDE,onYield:()=>new Promise(res=>setTimeout(res,0))});
+      if(running&&mode==='live'){
+        const cur=grayNow();flow(g0,cur,r.marks);if(trk)trk.g.delete();trk=cur; // scan marks were for the frame at t0: move them to now
+        const now=Date.now(),ctr=m=>[m.pts.reduce((t,p)=>t+p[0],0)/4,m.pts.reduce((t,p)=>t+p[1],0)/4];
+        for(const m of r.marks)m.seen=now;
+        const held=marks.filter(o=>now-(o.seen||0)<HOLD_MS&&!r.marks.some(m=>{const a=ctr(m),b=ctr(o);return Math.hypot(a[0]-b[0],a[1]-b[1])<0.5*Math.hypot(m.pts[0][0]-m.pts[2][0],m.pts[0][1]-m.pts[2][1])}));
+        show(r.marks.concat(held));status(summary(r.cards)+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight);
+      }
     }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
-    await new Promise(r=>setTimeout(r,100));
+    finally{if(g0)g0.g.delete()}
+    await new Promise(r=>requestAnimationFrame(r));
   }
 }
 const artNote=()=>artsLoading?' · loading art '+artsDone+'/'+artsTotal:'';
