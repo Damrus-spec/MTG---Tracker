@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.137';
+const APP_VERSION = '2026.07.01.138';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10560,6 +10560,14 @@ async function readCard(rc,f,pts,wants,diag=[]){
   return best;
 }
 
+// Do two title reads agree on a clear line (8+ letters in common) without any word of the guessed name?
+// Then the title is readable and it's another card (e.g. a Spanish "Mina y Denn, nacidos salvajes").
+function readsSteady(texts,k){
+  const t=texts.map(x=>key(x)).filter(x=>x.length>=8),ws=k.split(' ').filter(w=>w.length>=4);
+  for(let i=0;i<t.length;i++)for(let j=i+1;j<t.length;j++){const a=t[i],b=t[j];
+    for(let p=0;p+8<=a.length;p++){const sub=a.slice(p,p+8);if(/[a-z]{3}/.test(sub)&&b.includes(sub))return !ws.some(w=>a.includes(w)||b.includes(w))}}
+  return false;
+}
 // Does a title read contain the exact name of some other card? (veto for an art guess)
 function readsOther(texts,k){
   for(const t of texts){const toks=key(t).split(' ').filter(Boolean);
@@ -10697,7 +10705,7 @@ function trackTick(){
 async function liveScan(){
   const wants=getWants();if(!wants.size){slots=[];show([]);return {cards:0,checked:0}}
   const t0=Date.now(),W=vid.videoWidth,H=vid.videoHeight;
-  if(wasLoading&&!artsLoading)for(const sl of slots)Object.assign(sl,{name:null,conf:0,state:'open',miss:0,per:null,hits:0}); // all art in: judge every card again
+  if(wasLoading&&!artsLoading)for(const sl of slots)Object.assign(sl,{name:null,conf:0,state:'open',miss:0,per:null,hits:0,titled:0,notName:null}); // all art in: judge every card again
   wasLoading=!!artsLoading;
   probes=[];for(let i=0;i<3;i++)for(let j=0;j<3;j++){const x0=W*i/3,y0=H*j/3,x1=W*(i+1)/3,y1=H*(j+1)/3;probes.push({pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],c:[(x0+x1)/2,(y0+y1)/2]})}
   try{
@@ -10729,7 +10737,7 @@ async function liveScan(){
       else{sl={pts:cd.pts,name:null,decks:[],conf:0,state:'open',miss:0};added.push(sl)}
       sl.seen=now;if(!fresh[i])return;
       sl.per=scores[i];sl.checked=now;const m=byI.get(i),inf=info[i];
-      if(m){
+      if(m&&!(sl.notName&&sl.notName.has(m.name))){
         sl.miss=0;sl.state='open';
         if(sl.name===m.name){sl.conf=Math.round((sl.conf+m.conf)/2);sl.hits=(sl.hits||0)+1} // recent views count, a lucky one doesn't stick
         else if(!sl.name||m.conf>sl.conf){sl.name=m.name;sl.decks=m.decks;sl.conf=m.conf;sl.hits=1}
@@ -10754,6 +10762,30 @@ async function liveScan(){
   }finally{probes=[]}
 }
 function showSlots(){show(slots.filter(sl=>sl.name&&sl.hits>=2))} // two scans must agree: one-frame flukes were most false marks
+// Title check: a card the art isn't sure about (a white or yellow mark) gets its title read once, like a
+// person would. The read confirms the mark (green), names the right wanted card, or rules the mark out
+// when it reads another card's name. Runs beside the scans (the text reader works in the background).
+const TITLE_TRIES=2,TITLE_RETRY_MS=3000;let titleBusy=false;
+async function titleCheck(){
+  if(titleBusy||artsLoading)return;
+  const W=vid.videoWidth,H=vid.videoHeight,now=Date.now();
+  const sl=slots.find(x=>x.name&&x.conf<GREEN&&(x.titled||0)<TITLE_TRIES&&now-(x.titledAt||0)>TITLE_RETRY_MS&&now-x.seen<1000&&x.pts.every(([a,b])=>a>=0&&b>=0&&a<=W&&b<=H));
+  if(!sl)return;
+  titleBusy=true;sl.titled=(sl.titled||0)+1;sl.titledAt=now;
+  try{
+    await ensureTools(true);if(!running||mode!=='live'||!sl.name)return;
+    const wants=getWants(),{c,f}=sized(vid,W,H,READ_SIDE),rc=cv.imread(c),pts=sl.pts.map(p=>p.slice()),was=sl.name,diag=[];
+    let id;try{id=await readCard(rc,f,pts,wants,diag)}finally{rc.delete()}
+    if(!slots.includes(sl)||sl.name!==was)return;                            // slot changed meanwhile
+    const k=id&&id.k,conf=id?Math.round(id.s*100):0,strong=id&&!(conf<70||(k.length<6&&conf<100)||(k.length<9&&conf<75)); // same bar as photo title marks
+    if(strong&&k===key(was)){sl.conf=Math.max(sl.conf,GREEN,conf);sl.hits=Math.max(sl.hits||0,2);sl.titled=TITLE_TRIES}   // title agrees: sure
+    else if(strong&&wants.has(k)){const w=wants.get(k);sl.name=w.name;sl.decks=w.decks;sl.conf=Math.max(GREEN,conf);sl.hits=2;sl.titled=TITLE_TRIES} // it's another wanted card
+    else if(readsOther(diag,key(was))||readsSteady(diag,key(was))){(sl.notName=sl.notName||new Set()).add(was);sl.name=null;sl.conf=0;sl.hits=0;sl.titled=TITLE_TRIES} // reads as some other card
+    window._cardScannerTitleChecks=(window._cardScannerTitleChecks||[]).concat([[was,id&&id.name,conf,sl.name,diag.join(' | '),pts.map(p=>p.map(Math.round))]]); // for tests
+    showSlots();
+  }catch(e){console.warn('card scanner title check:',e.message)}
+  finally{titleBusy=false}
+}
 // Live: scan, show, repeat. Marks follow the camera in between.
 async function liveLoop(){
   if(!trackTick.on){trackTick.on=true;requestAnimationFrame(trackTick)}
@@ -10761,7 +10793,7 @@ async function liveLoop(){
   while(running&&mode==='live'){
     if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
     try{
-      const t0=Date.now(),r=await liveScan();
+      const t0=Date.now(),r=await liveScan();titleCheck();
       if(running&&mode==='live')status(summary(r.cards)+' · '+r.checked+' checked'+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight);
     }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
     await new Promise(r=>requestAnimationFrame(r));
