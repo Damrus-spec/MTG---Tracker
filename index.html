@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.133';
+const APP_VERSION = '2026.07.01.134';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10299,7 +10299,7 @@ const AW=24,AH=18;                     // art thumbnail compared (blurred, so sm
 const ART_BOX=[0.08,0.11,0.84,0.44];   // art box of a modern card (x, y, w, h fractions)
 // Found cards' boxes are not exact and frames differ by era: try a few windows around the art box
 const ART_WINDOWS=[[0.08,0.11,0.44],[0.06,0.09,0.46],[0.10,0.13,0.42],[0.08,0.09,0.42],[0.08,0.13,0.44],[0.06,0.11,0.44],[0.10,0.11,0.44]];
-const ARTS_PER_CARD=6,ART_URLS_KEY='cs-art-urls',ART_URLS_DAYS=30;
+const ARTS_PER_CARD=24,ART_URLS_KEY='cs-art-urls2',ART_URLS_DAYS=30;
 const arts=new Map();                  // card key -> [descriptor] (printings loaded so far)
 let artsLoading=null,artsTotal=0,artsDone=0,artsFailed=0;
 window._cardScannerArtState=()=>({done:artsDone,total:artsTotal,failed:artsFailed,loading:!!artsLoading,cards:arts.size}); // for tests
@@ -10318,7 +10318,7 @@ function artScore(a,b){
   for(let i=0;i<n;i++){g+=a[i]*b[i];c1+=a[n+i]*b[n+i];c2+=a[2*n+i]*b[2*n+i]}
   return (0.6*g+0.2*c1+0.2*c2)/n;
 }
-// Art image URLs per wanted card (newest printings first), cached for a month
+// Art image URLs per wanted card (every art, newest first, up to ARTS_PER_CARD), cached for a month
 async function artUrls(name){
   let cache={};try{cache=JSON.parse(localStorage.getItem(ART_URLS_KEY)||'{}')}catch(e){}
   const k=key(name),hit=cache[k];
@@ -10394,15 +10394,16 @@ function artScores(rc,f,pts){
 // 0.16+ for real matches, under 0.15 for nearly all false ones).
 // Lowered (v.133): gap 0.10+ is yellow/green, 0.06..0.10 is a white "maybe" mark.
 const ART_GAP=0.06,ART_SURE=0.10;
-function artMarks(scores,cards,wants){
+function artMarks(scores,cards,wants,info){
   const base=new Map();
   for(const k of arts.keys()){const v=scores.map(s=>s.get(k)||0).sort((a,b)=>a-b);base.set(k,Math.max(0.2,v.length>=4?v[Math.floor(v.length/2)]:0))}
   const out=[];
   scores.forEach((per,i)=>{
     let best=null,second=null;
     for(const [k,s] of per){const x={k,s,adj:s-base.get(k)};if(!best||x.adj>best.adj){second=best;best=x}else if(!second||x.adj>second.adj)second=x}
-    if(!best||best.s<0.45||!wants.has(best.k))return;
-    const gap=best.adj-(second?second.adj:0);if(gap<ART_GAP)return;
+    if(!best)return;
+    const gap=best.adj-(second?second.adj:0);if(info)info[i]={want:wants.has(best.k),gap,s:best.s};
+    if(best.s<0.45||!wants.has(best.k)||gap<ART_GAP)return;
     const conf=Math.min(99,Math.round(50+(gap-ART_SURE)*25/0.12)),w=wants.get(best.k); // gap 0.06 → 42% (white), 0.10 → 50%, 0.22 → 75%
     out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
   });
@@ -10528,14 +10529,13 @@ function readsOther(texts,k){
 async function scanImage(src,sw,sh,opts={}){
   const wants=getWants();
   if(!wants.size)return {marks:[],cards:0};
-  const side=opts.text?READ_SIDE:opts.side||DETECT_SIDE;
+  const side=opts.text?READ_SIDE:DETECT_SIDE;
   const {c:readCanvas,f}=sized(src,sw,sh,side); // one snapshot for finding and matching (titles need more pixels)
   const cards=findCards(readCanvas,readCanvas.width,readCanvas.height,Math.min(side,DETECT_SIDE)).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
   const rc=cv.imread(readCanvas);
   let out=[];window._cardScannerReads=[];
   try{
-    const scores=[];for(const c of cards){scores.push(artScores(rc,f,c.pts));if(opts.onYield)await opts.onYield()} // live: let the mark tracker run between cards
-    out=artMarks(scores,cards,wants);
+    out=artMarks(cards.map(c=>artScores(rc,f,c.pts)),cards,wants);
     if(opts.text){
       if(opts.onArt)opts.onArt(out.slice());
       for(let i=0;i<cards.length;i++){
@@ -10606,52 +10606,121 @@ function show(newMarks){newMarks=newMarks.filter(onScreen);marks=newMarks;window
 const summary=(n)=>{const k=new Set(marks.map(m=>m.name)).size;return (k?k+' wishlist card'+(k!==1?'s':''):'No wishlist cards')+' among '+n+' card'+(n!==1?'s':'')+' found'};
 
 // Follow the camera between scans: track corner points (optical flow) on a small grey copy of the video
-// and move each mark by the median motion of the points inside it (or of all points).
-const TRACK_SIDE=320;let trk=null; // last tracked frame {g,f}
+// and move each box by the median motion of the points inside it (or of all points). Returns false when
+// the picture can't be followed (blur, covered lens, page turned).
+const TRACK_SIDE=320;let trk=null,trkFails=0; // last tracked frame {g,f}
 function grayNow(){const {c,f}=sized(vid,vid.videoWidth,vid.videoHeight,TRACK_SIDE),m=cv.imread(c),g=new cv.Mat();cv.cvtColor(m,g,cv.COLOR_RGBA2GRAY);m.delete();return {g,f}}
 function flow(a,b,ms){
-  if(!ms.length)return;
+  if(!ms.length)return true;
   const fp=new cv.Mat(),np=new cv.Mat(),st=new cv.Mat(),er=new cv.Mat(),none=new cv.Mat();
   try{
-    cv.goodFeaturesToTrack(a.g,fp,200,0.01,6,none,3);if(fp.rows<6)return;
+    cv.goodFeaturesToTrack(a.g,fp,200,0.01,6,none,3);if(fp.rows<6)return false;
     cv.calcOpticalFlowPyrLK(a.g,b.g,fp,np,st,er,new cv.Size(15,15),2);
     const mv=[];for(let i=0;i<fp.rows;i++)if(st.data[i]){const x=fp.data32F[i*2]/a.f,y=fp.data32F[i*2+1]/a.f;mv.push([x,y,np.data32F[i*2]/b.f-x,np.data32F[i*2+1]/b.f-y])}
-    if(mv.length<4)return;
+    if(mv.length<4||mv.length<fp.rows*0.3)return false;
     const med=v=>v.sort((p,q)=>p-q)[v.length>>1],all=[med(mv.map(m=>m[2])),med(mv.map(m=>m[3]))];
+    const tol=Math.max(3/a.f,0.15*Math.hypot(all[0],all[1]));                 // 3 px on the small copy
+    if(mv.filter(m=>Math.hypot(m[2]-all[0],m[3]-all[1])<tol).length<mv.length*0.4)return false; // jumbled motion: jump, not a pan
     for(const m of ms){
       const xs=m.pts.map(p=>p[0]),ys=m.pts.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
       const inn=mv.filter(([x,y])=>x>=x0&&x<=x1&&y>=y0&&y<=y1),d=inn.length>=4?[med(inn.map(m=>m[2])),med(inn.map(m=>m[3]))]:all;
       m.pts=m.pts.map(([x,y])=>[x+d[0],y+d[1]]);
     }
     window._cardScannerFlows=(window._cardScannerFlows||0)+1; // for tests
+    return true;
   }finally{fp.delete();np.delete();st.delete();er.delete();none.delete()}
 }
+// Live memory: one slot per card position seen (kept up to date by the tracker, also off screen) with
+// what we know about it. A binder page doesn't change while you scan it, so a card we're sure about (a
+// wanted card at 75%+, or clearly another card) isn't matched again every scan, only re-checked now and
+// then; the scan time goes to the cards still in doubt. Turning the page loses the tracking: memory resets.
+const MISS_LIMIT=3,RECHECK_MS=4000,SLOT_MS=60000,TRACK_FAILS=15;
+let slots=[],probes=[],wasLoading=false;
+const ctrOf=p=>[p.reduce((t,q)=>t+q[0],0)/4,p.reduce((t,q)=>t+q[1],0)/4];
+const sure=s=>!artsLoading&&(s.state==='no'||(!!s.name&&s.conf>=GREEN)); // nothing is sure while art is still loading
+window._cardScannerSlots=()=>slots.map(s=>({name:s.name,conf:s.conf,state:s.state,ctr:ctrOf(s.pts).map(Math.round)})); // for tests
 function trackTick(){
   if(!running||mode!=='live'){if(trk){trk.g.delete();trk=null}trackTick.on=false;return}
-  if(marks.length&&vid.videoWidth){
-    try{const cur=grayNow();if(trk){flow(trk,cur,marks);trk.g.delete()}trk=cur;drawMarks()}catch(e){window._cardScannerTrackErr=String(e&&e.message||e)}
+  if((slots.length||probes.length)&&vid.videoWidth){
+    try{
+      const cur=grayNow();
+      if(trk){if(flow(trk,cur,slots.concat(probes)))trkFails=0;else if(++trkFails>=TRACK_FAILS){slots=[];trkFails=0;show([])}trk.g.delete()}
+      trk=cur;drawMarks();
+    }catch(e){window._cardScannerTrackErr=String(e&&e.message||e)}
   }else if(trk){trk.g.delete();trk=null}
   requestAnimationFrame(trackTick);
 }
-const HOLD_MS=800; // keep a mark this long after a scan misses it (less flicker)
-// Live: grab a frame, find + match its cards, show marks; repeat. Marks follow the camera in between.
+// One live scan: find the cards, pair each with its slot, match the art of the cards in doubt, update memory.
+async function liveScan(){
+  const wants=getWants();if(!wants.size){slots=[];show([]);return {cards:0,checked:0}}
+  const t0=Date.now(),W=vid.videoWidth,H=vid.videoHeight;
+  if(wasLoading&&!artsLoading)for(const sl of slots)Object.assign(sl,{name:null,conf:0,state:'open',miss:0,per:null}); // all art in: judge every card again
+  wasLoading=!!artsLoading;
+  probes=[];for(let i=0;i<3;i++)for(let j=0;j<3;j++){const x0=W*i/3,y0=H*j/3,x1=W*(i+1)/3,y1=H*(j+1)/3;probes.push({pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],c:[(x0+x1)/2,(y0+y1)/2]})}
+  try{
+    for(const sl of slots)sl.p0=sl.pts;                                   // slot positions in this frame (the tracker moves pts on)
+    const {c,f}=sized(vid,vid.videoWidth,vid.videoHeight,LIVE_SIDE);
+    const inside=([x,y])=>x>=0&&y>=0&&x<=W&&y<=H;                           // a guessed box past the frame edge can't be judged yet
+    const cards=findCards(c,c.width,c.height,LIVE_SIDE).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])})).filter(cd=>cd.pts.every(inside));
+    const used=new Set(),pair=cards.map(cd=>{
+      const p=ctrOf(cd.pts);let b=null,bd=0.5*geo(cd).w;
+      for(const sl of slots){if(used.has(sl))continue;const q=ctrOf(sl.p0),d=Math.hypot(p[0]-q[0],p[1]-q[1]);if(d<bd){bd=d;b=sl}}
+      if(b)used.add(b);
+      return b});
+    const rc=cv.imread(c),scores=[],fresh=[];let rechecked=false;
+    try{
+      for(let i=0;i<cards.length;i++){
+        const sl=pair[i],known=sl&&sl.per&&sure(sl);
+        if(known&&(rechecked||t0-sl.checked<RECHECK_MS)){scores.push(sl.per);fresh.push(false);continue}
+        if(known)rechecked=true;                                            // one sure card re-checked per scan
+        scores.push(artScores(rc,f,cards[i].pts));fresh.push(true);
+        await new Promise(r=>setTimeout(r,0));                              // let the tracker run between cards
+        if(!running||mode!=='live')return {cards:cards.length,checked:0};
+      }
+    }finally{rc.delete()}
+    const info=[],ms=artMarks(scores,cards,wants,info),byI=new Map(ms.map(m=>[m.i,m]));
+    const now=Date.now(),added=[];
+    cards.forEach((cd,i)=>{
+      let sl=pair[i];
+      if(sl){const a=ctrOf(sl.p0),b=ctrOf(sl.pts);sl.pts=cd.pts.map(([x,y])=>[x+b[0]-a[0],y+b[1]-a[1]])} // snap to the found box, moved like the slot since
+      else{sl={pts:cd.pts,name:null,decks:[],conf:0,state:'open',miss:0};added.push(sl)}
+      sl.seen=now;if(!fresh[i])return;
+      sl.per=scores[i];sl.checked=now;const m=byI.get(i),inf=info[i];
+      if(m){
+        sl.miss=0;sl.state='open';
+        if(sl.name===m.name)sl.conf=Math.round((sl.conf+m.conf)/2);          // recent views count, a lucky one doesn't stick
+        else if(!sl.name||m.conf>sl.conf){sl.name=m.name;sl.decks=m.decks;sl.conf=m.conf}
+      }else if(artsLoading){}
+      else if(inf&&!inf.want&&inf.gap>=ART_SURE&&inf.s>=0.45){sl.name=null;sl.state='no'} // clearly another card
+      else if(++sl.miss>=MISS_LIMIT){sl.name=null;sl.state='no'}                            // never matched: probably not wanted
+    });
+    for(const sl of added){                                               // new boxes are from the frame at t0: move them like the probe they're in
+      const p=ctrOf(sl.pts),pr=probes.reduce((b,q)=>Math.hypot(q.c[0]-p[0],q.c[1]-p[1])<Math.hypot(b.c[0]-p[0],b.c[1]-p[1])?q:b),d=ctrOf(pr.pts);
+      sl.pts=sl.pts.map(([x,y])=>[x+d[0]-pr.c[0],y+d[1]-pr.c[1]]);
+    }
+    // a slot well inside the view that no found card matches is a drifted ghost (cards were found, so the view is sharp)
+    if(cards.length>=2)for(const sl of slots){if(used.has(sl)){sl.unseen=0;continue}
+      const [x,y]=ctrOf(sl.p0),w=geo({pts:sl.p0}).w;if(x>w&&y>w&&x<W-w&&y<H-w)sl.unseen=(sl.unseen||0)+1}
+    slots=slots.filter(sl=>now-sl.seen<SLOT_MS&&!(sl.unseen>=2)).concat(added);
+    // two slots on one spot (a card box and a pocket box, say): keep the one that knows most
+    const rank=sl=>(sl.name?200+sl.conf:sl.state==='no'?100:0)+(sl.seen===now?50:0);
+    slots.sort((a,b)=>rank(b)-rank(a));
+    slots=slots.filter((sl,j)=>{const p=ctrOf(sl.pts),w=geo(sl).w;return !slots.slice(0,j).some(o=>{const q=ctrOf(o.pts);return Math.hypot(p[0]-q[0],p[1]-q[1])<0.5*Math.min(w,geo(o).w)})});
+    showSlots();
+    return {cards:cards.length,checked:fresh.filter(Boolean).length};
+  }finally{probes=[]}
+}
+function showSlots(){show(slots.filter(sl=>sl.name))}
+// Live: scan, show, repeat. Marks follow the camera in between.
 async function liveLoop(){
   if(!trackTick.on){trackTick.on=true;requestAnimationFrame(trackTick)}
+  slots=[];
   while(running&&mode==='live'){
     if(!vid.videoWidth){await new Promise(r=>setTimeout(r,200));continue}
-    let g0=null;
     try{
-      const t0=Date.now();g0=grayNow();
-      const r=await scanImage(vid,vid.videoWidth,vid.videoHeight,{side:LIVE_SIDE,onYield:()=>new Promise(res=>setTimeout(res,0))});
-      if(running&&mode==='live'){
-        const cur=grayNow();flow(g0,cur,r.marks);if(trk)trk.g.delete();trk=cur; // scan marks were for the frame at t0: move them to now
-        const now=Date.now(),ctr=m=>[m.pts.reduce((t,p)=>t+p[0],0)/4,m.pts.reduce((t,p)=>t+p[1],0)/4];
-        for(const m of r.marks)m.seen=now;
-        const held=marks.filter(o=>now-(o.seen||0)<HOLD_MS&&!r.marks.some(m=>{const a=ctr(m),b=ctr(o);return Math.hypot(a[0]-b[0],a[1]-b[1])<0.5*Math.hypot(m.pts[0][0]-m.pts[2][0],m.pts[0][1]-m.pts[2][1])}));
-        show(r.marks.concat(held));status(summary(r.cards)+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight);
-      }
+      const t0=Date.now(),r=await liveScan();
+      if(running&&mode==='live')status(summary(r.cards)+' · '+r.checked+' checked'+artNote()+' · '+(Date.now()-t0)+'ms · camera '+vid.videoWidth+'×'+vid.videoHeight);
     }catch(e){status('Error: '+(e.message||e));await new Promise(r=>setTimeout(r,1000))}
-    finally{if(g0)g0.g.delete()}
     await new Promise(r=>requestAnimationFrame(r));
   }
 }
