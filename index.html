@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.136';
+const APP_VERSION = '2026.07.01.137';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10301,7 +10301,7 @@ const ART_BOX=[0.08,0.11,0.84,0.44];   // art box of a modern card (x, y, w, h f
 const ART_WINDOWS=[[0.08,0.11,0.44],[0.06,0.09,0.46],[0.10,0.13,0.42],[0.08,0.09,0.42],[0.08,0.13,0.44],[0.06,0.11,0.44],[0.10,0.11,0.44]];
 const ARTS_PER_CARD=24,ART_URLS_KEY='cs-art-urls3',ART_URLS_DAYS=30;
 const arts=new Map();                  // card key -> [descriptor] (printings loaded so far)
-let artsLoading=null,artsTotal=0,artsDone=0,artsFailed=0;
+let artsLoading=null,artsTotal=0,artsDone=0,artsFailed=0,artsRetryAt=0;
 window._cardScannerArtState=()=>({done:artsDone,total:artsTotal,failed:artsFailed,loading:!!artsLoading,cards:arts.size}); // for tests
 // Thumbnail descriptor from an RGBA Mat: brightness + 2 colour-opponent channels, each normalised
 // to mean 0 / spread 1, so lighting and sleeve glare matter less
@@ -10321,30 +10321,56 @@ function artScore(a,b){
 // Art image URLs per wanted card, cached for a month: one per illustration (set symbol and border don't
 // matter), most-printed first (likely in a binder; Counterspell's Mark Poole art has 14 prints, most
 // Secret Lair arts 1), up to ARTS_PER_CARD
-async function artUrls(name){
-  let cache={};try{cache=JSON.parse(localStorage.getItem(ART_URLS_KEY)||'{}')}catch(e){}
-  const k=key(name),hit=cache[k];
-  if(hit&&Date.now()-hit.t<ART_URLS_DAYS*864e5)return hit.u;
-  const ill=new Map();                                                              // illustration -> {n paper prints, url}
-  let next='https://api.scryfall.com/cards/search?unique=prints&order=released&dir=desc&q='+encodeURIComponent('!"'+name+'"');
-  for(let page=0;next&&page<4;page++){                                              // 175 prints per page; Sol Ring has 100+
-    const res=await fetch(next,{headers:{Accept:'application/json'}});
-    if(res.status===404)break;
-    if(res.status!==200)throw new Error('Scryfall '+res.status);                    // don't cache rate limits/outages
-    const j=await res.json();
-    for(const c of j.data||[]){
-      const im=(c.image_uris||(c.card_faces&&c.card_faces[0].image_uris)||{}).small;if(!im)continue;
-      const id=c.illustration_id||(c.card_faces&&c.card_faces[0].illustration_id)||im,e=ill.get(id)||{n:0,u:im,odd:true};
-      const odd=c.border_color==='borderless'||!!c.full_art||!!c.digital;                // picture the usual frame when there is one
-      if(e.odd&&!odd){e.u=im;e.odd=false}
-      if(!c.digital)e.n++;ill.set(id,e);
-    }
-    next=j.has_more?j.next_page:null;if(next)await new Promise(r=>setTimeout(r,100));
+// Scryfall API calls, spaced out (it answers 429 when a phone asks for 160 cards in a row)
+let scryLast=0;
+async function scryFetch(u){
+  for(let t=0;;t++){
+    const wait=scryLast+500-Date.now();if(wait>0)await new Promise(r=>setTimeout(r,wait));
+    scryLast=Date.now();
+    const res=await fetch(u,{headers:{Accept:'application/json'}});
+    if(res.status!==429||t>=4)return res;
+    await new Promise(r=>setTimeout(r,(+res.headers.get('Retry-After')||2**(t+1))*1000));
   }
-  const u=[...ill.values()].sort((a,b)=>b.n-a.n).slice(0,ARTS_PER_CARD).map(e=>e.u); // stable sort: ties stay newest first
-  try{cache[k]={t:Date.now(),u};localStorage.setItem(ART_URLS_KEY,JSON.stringify(cache))}catch(e){}
-  await new Promise(r=>setTimeout(r,100));                                          // Scryfall asks for ≤10 requests/s
-  return u;
+}
+// Art image URLs per wanted card, cached for a month: one per illustration (set symbol and border don't
+// matter), most-printed first (likely in a binder; Counterspell's Mark Poole art has 14 prints, most
+// Secret Lair arts 1), up to ARTS_PER_CARD. Cards are asked for in batches (one search for ~25 cards).
+async function artUrlsMany(names){
+  let cache={};try{cache=JSON.parse(localStorage.getItem(ART_URLS_KEY)||'{}')}catch(e){}
+  const out=new Map(),need=[];
+  for(const n of names){const k=key(n),hit=cache[k];if(hit&&Date.now()-hit.t<ART_URLS_DAYS*864e5)out.set(k,hit.u);else need.push(n)}
+  const chunks=[];let cur=[],len=0;
+  for(const n of need){const q='!"'+n.replace(/"/g,'')+'"';if(cur.length&&len+q.length>700){chunks.push(cur);cur=[];len=0}cur.push(q);len+=q.length+4}
+  if(cur.length)chunks.push(cur);
+  for(const ch of chunks){
+    const ill=new Map();                                                            // card key -> illustration -> {n paper prints, url}
+    try{
+      let next='https://api.scryfall.com/cards/search?unique=prints&order=released&dir=desc&q='+encodeURIComponent('('+ch.join(' or ')+')');
+      for(let page=0;next&&page<30;page++){
+        const res=await scryFetch(next);
+        if(res.status===404)break;                                                  // none of these names exist
+        if(res.status!==200)throw new Error('Scryfall '+res.status);
+        const j=await res.json();
+        for(const c of j.data||[]){
+          const im=(c.image_uris||(c.card_faces&&c.card_faces[0].image_uris)||{}).small;if(!im)continue;
+          const id=c.illustration_id||(c.card_faces&&c.card_faces[0].illustration_id)||im,odd=c.border_color==='borderless'||!!c.full_art||!!c.digital;
+          for(const k of new Set([key(c.name),key(c.name.split(' // ')[0])])){       // wants may name a double-faced card by its front
+            const m=ill.get(k)||new Map(),e=m.get(id)||{n:0,u:im,odd:true};
+            if(e.odd&&!odd){e.u=im;e.odd=false}                                      // picture the usual frame when there is one
+            if(!c.digital)e.n++;m.set(id,e);ill.set(k,m);
+          }
+        }
+        next=j.has_more?j.next_page:null;
+      }
+    }catch(e){console.warn('card scanner art list:',e.message);continue}          // this batch is retried next time
+    for(const q of ch){
+      const k=key(q.slice(2,-1)),m=ill.get(k);
+      const u=m?[...m.values()].sort((a,b)=>b.n-a.n).slice(0,ARTS_PER_CARD).map(e=>e.u):[]; // stable sort: ties stay newest first
+      out.set(k,u);cache[k]={t:Date.now(),u};
+    }
+    try{localStorage.setItem(ART_URLS_KEY,JSON.stringify(cache))}catch(e){}
+  }
+  return out;
 }
 function loadImage(u){return new Promise((ok,no)=>{const im=new Image();im.crossOrigin='anonymous';im.onload=()=>ok(im);im.onerror=()=>no(new Error('image'));im.src=u})}
 // Load the art of every wanted card in the background; matching uses whatever has loaded so far
@@ -10360,7 +10386,7 @@ const BG_URLS_KEY='cs-bg-urls';
 async function loadBackground(){
   let list=null;try{const h=JSON.parse(localStorage.getItem(BG_URLS_KEY)||'null');if(h&&Date.now()-h.t<ART_URLS_DAYS*864e5)list=h.l}catch(e){}
   if(!list){
-    const res=await fetch('https://api.scryfall.com/cards/search?order=edhrec&q='+encodeURIComponent('game:paper'),{headers:{Accept:'application/json'}});
+    const res=await scryFetch('https://api.scryfall.com/cards/search?order=edhrec&q='+encodeURIComponent('game:paper'));
     if(res.status!==200)return;
     list=((await res.json()).data||[]).map(c=>[key(c.name),(c.image_uris||(c.card_faces&&c.card_faces[0].image_uris)||{}).small]).filter(x=>x[1]);
     try{localStorage.setItem(BG_URLS_KEY,JSON.stringify({t:Date.now(),l:list}))}catch(e){}
@@ -10371,13 +10397,15 @@ function loadArts(wants){
   if(artsLoading)return artsLoading;
   artsLoading=(async()=>{
     const todo=[...wants].filter(([k])=>!arts.has(k));artsTotal=todo.length;artsDone=0;
+    const urls=todo.length&&Date.now()>artsRetryAt?await artUrlsMany(todo.map(([,w])=>w.name)):new Map();
     for(const [k,w] of todo){
-      try{
-        const descs=[];for(const u of await artUrls(w.name))descs.push(await artDescFromUrl(u));
-        arts.delete('bg:'+k);arts.set(k,descs);
-      }catch(e){artsFailed++;console.warn("card scanner art:",w.name,e.message)} // skipped; retried next time the scanner opens
+      const u=urls.get(k);
+      if(!u){artsFailed++;artsDone++;continue}                                         // list not fetched: retried in a minute
+      const descs=[];for(const x of u){try{descs.push(await artDescFromUrl(x))}catch(e){console.warn('card scanner art:',w.name,e.message)}}
+      if(descs.length||!u.length){arts.delete('bg:'+k);arts.set(k,descs)}else artsFailed++;
       artsDone++;
     }
+    if(todo.some(([k])=>!arts.has(k)))artsRetryAt=Date.now()+60000;                  // don't hammer Scryfall on every photo
     try{await loadBackground()}catch(e){}
     window._cardScannerArtCount=[...arts.values()].reduce((t,d)=>t+d.length,0); // for tests
     artsLoading=null;
@@ -10407,19 +10435,19 @@ function artScores(rc,f,pts){
 // a wanted card that clearly beats the runner-up (any other wanted or background art): with hundreds of
 // arts, some art always looks a little like any card, but a real match stands well clear (tested: gap
 // 0.16+ for real matches, under 0.15 for nearly all false ones).
-// Lowered (v.133): gap 0.10+ is yellow/green, 0.06..0.10 is a white "maybe" mark.
-const ART_GAP=0.06,ART_SURE=0.10;
+// Lowered (v.133): gap 0.10+ is yellow/green, 0.08..0.10 is a white "maybe" mark (0.06 gave steady false whites).
+const ART_GAP=0.08,ART_SURE=0.10;
 function artMarks(scores,cards,wants,info){
   const base=new Map();
   for(const k of arts.keys()){const v=scores.map(s=>s.get(k)||0).sort((a,b)=>a-b);base.set(k,Math.max(0.2,v.length>=4?v[Math.floor(v.length/2)]:0))}
-  const out=[];
+  const out=[];window._cardScannerArtTop=scores.map((per,i)=>[cards[i].pts.map(p=>p.map(Math.round))].concat([...per].map(([k,v])=>[k,+v.toFixed(2),+(v-base.get(k)).toFixed(2)]).sort((a,b)=>b[2]-a[2]).slice(0,6))); // for tests
   scores.forEach((per,i)=>{
     let best=null,second=null;
     for(const [k,s] of per){const x={k,s,adj:s-base.get(k)};if(!best||x.adj>best.adj){second=best;best=x}else if(!second||x.adj>second.adj)second=x}
     if(!best)return;
     const gap=best.adj-(second?second.adj:0);if(info)info[i]={want:wants.has(best.k),gap,s:best.s};
     if(best.s<0.45||!wants.has(best.k)||gap<ART_GAP)return;
-    const conf=Math.min(99,Math.round(50+(gap-ART_SURE)*25/0.12)),w=wants.get(best.k); // gap 0.06 → 42% (white), 0.10 → 50%, 0.22 → 75%
+    const conf=Math.min(99,Math.round(50+(gap-ART_SURE)*25/0.12)),w=wants.get(best.k); // gap 0.08 → 46% (white), 0.10 → 50%, 0.22 → 75%
     out.push({name:w.name,decks:w.decks,conf,pts:cards[i].pts,i,by:'art'});
   });
   return out;
@@ -10652,7 +10680,7 @@ function flow(a,b,ms){
 const MISS_LIMIT=3,RECHECK_MS=4000,SLOT_MS=60000,TRACK_FAILS=15;
 let slots=[],probes=[],wasLoading=false;
 const ctrOf=p=>[p.reduce((t,q)=>t+q[0],0)/4,p.reduce((t,q)=>t+q[1],0)/4];
-const sure=s=>!artsLoading&&(s.state==='no'||(!!s.name&&s.conf>=GREEN)); // nothing is sure while art is still loading
+const sure=s=>!artsLoading&&(s.state==='no'||(!!s.name&&s.conf>=GREEN&&s.hits>=2)); // nothing is sure while art is still loading
 window._cardScannerSlots=()=>slots.map(s=>({name:s.name,conf:s.conf,state:s.state,ctr:ctrOf(s.pts).map(Math.round)})); // for tests
 function trackTick(){
   if(!running||mode!=='live'){if(trk){trk.g.delete();trk=null}trackTick.on=false;return}
@@ -10669,7 +10697,7 @@ function trackTick(){
 async function liveScan(){
   const wants=getWants();if(!wants.size){slots=[];show([]);return {cards:0,checked:0}}
   const t0=Date.now(),W=vid.videoWidth,H=vid.videoHeight;
-  if(wasLoading&&!artsLoading)for(const sl of slots)Object.assign(sl,{name:null,conf:0,state:'open',miss:0,per:null}); // all art in: judge every card again
+  if(wasLoading&&!artsLoading)for(const sl of slots)Object.assign(sl,{name:null,conf:0,state:'open',miss:0,per:null,hits:0}); // all art in: judge every card again
   wasLoading=!!artsLoading;
   probes=[];for(let i=0;i<3;i++)for(let j=0;j<3;j++){const x0=W*i/3,y0=H*j/3,x1=W*(i+1)/3,y1=H*(j+1)/3;probes.push({pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],c:[(x0+x1)/2,(y0+y1)/2]})}
   try{
@@ -10703,8 +10731,8 @@ async function liveScan(){
       sl.per=scores[i];sl.checked=now;const m=byI.get(i),inf=info[i];
       if(m){
         sl.miss=0;sl.state='open';
-        if(sl.name===m.name)sl.conf=Math.round((sl.conf+m.conf)/2);          // recent views count, a lucky one doesn't stick
-        else if(!sl.name||m.conf>sl.conf){sl.name=m.name;sl.decks=m.decks;sl.conf=m.conf}
+        if(sl.name===m.name){sl.conf=Math.round((sl.conf+m.conf)/2);sl.hits=(sl.hits||0)+1} // recent views count, a lucky one doesn't stick
+        else if(!sl.name||m.conf>sl.conf){sl.name=m.name;sl.decks=m.decks;sl.conf=m.conf;sl.hits=1}
       }else if(artsLoading){}
       else if(inf&&!inf.want&&inf.gap>=ART_SURE&&inf.s>=0.45){sl.name=null;sl.state='no'} // clearly another card
       else if(++sl.miss>=MISS_LIMIT){sl.name=null;sl.state='no'}                            // never matched: probably not wanted
@@ -10725,7 +10753,7 @@ async function liveScan(){
     return {cards:cards.length,checked:fresh.filter(Boolean).length};
   }finally{probes=[]}
 }
-function showSlots(){show(slots.filter(sl=>sl.name))}
+function showSlots(){show(slots.filter(sl=>sl.name&&sl.hits>=2))} // two scans must agree: one-frame flukes were most false marks
 // Live: scan, show, repeat. Marks follow the camera in between.
 async function liveLoop(){
   if(!trackTick.on){trackTick.on=true;requestAnimationFrame(trackTick)}
@@ -10781,6 +10809,7 @@ async function scanPhoto(file){
   busy=false;
 }
 window.cardScannerScanPhoto=scanPhoto; // also used by tests
+window._cardScannerArtScan=async img=>{await ensureTools(false);await loadArts(getWants());const r=await scanImage(img,img.naturalWidth||img.width,img.naturalHeight||img.height);return {marks:r.marks.map(m=>[m.name,m.conf,m.pts.map(p=>p.map(Math.round))]),top:window._cardScannerArtTop}}; // tests: art only, no memory
 $('cs-file').onchange=e=>{const f=e.target.files&&e.target.files[0];e.target.value='';scanPhoto(f)};
 stage.onclick=()=>{if(mode==='photo'){zoom=zoom>1?1:2.5;fit()}};
 addEventListener('resize',()=>{if(ov.classList.contains('on'))fit()});
