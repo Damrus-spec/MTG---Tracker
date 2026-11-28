@@ -1167,7 +1167,7 @@ function deckDisplayName(d) {
 const DECK_SHARE_VERSION = 1;
 // Bump APP_VERSION on each deploy; the self-update check below force-reloads
 // clients still running an older cached copy so fixes always reach everyone.
-const APP_VERSION = '2026.07.01.138';
+const APP_VERSION = '2026.07.01.139';
 async function checkForUpdate() {
   try {
     // Only attempt once per session to avoid reload loops
@@ -10217,7 +10217,7 @@ const TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.m
 const CV_URL='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';  // ~10MB, loaded only when the scanner opens
 const YELLOW=50, GREEN=75;
 const DETECT_SIDE=1500;   // card finding runs on a copy this size
-const LIVE_SIDE=1100;     // live frames: smaller copy, faster scans (art needs ~160px per card)
+const LIVE_SIDE=1300;     // live frames: smaller copy, faster scans (1100 lost small/far cards: v.139)
 const READ_SIDE=2400;     // cards are straightened from a copy this size (enough for titles, bounded memory)
 const CW=630, CH=880;     // straightened card
 const EDGE_PASSES=[[30,90],[60,180],[100,250]]; // sleeves/glare hide some edges at one sensitivity but not another
@@ -10580,7 +10580,7 @@ function readsOther(texts,k){
 async function scanImage(src,sw,sh,opts={}){
   const wants=getWants();
   if(!wants.size)return {marks:[],cards:0};
-  const side=opts.text?READ_SIDE:DETECT_SIDE;
+  const side=opts.text?READ_SIDE:opts.side||DETECT_SIDE;
   const {c:readCanvas,f}=sized(src,sw,sh,side); // one snapshot for finding and matching (titles need more pixels)
   const cards=findCards(readCanvas,readCanvas.width,readCanvas.height,Math.min(side,DETECT_SIDE)).map(q=>({a:q.a/(f*f),pts:q.pts.map(([x,y])=>[x/f,y/f])}));
   const rc=cv.imread(readCanvas);
@@ -10689,7 +10689,7 @@ const MISS_LIMIT=3,RECHECK_MS=4000,SLOT_MS=60000,TRACK_FAILS=15;
 let slots=[],probes=[],wasLoading=false;
 const ctrOf=p=>[p.reduce((t,q)=>t+q[0],0)/4,p.reduce((t,q)=>t+q[1],0)/4];
 const sure=s=>!artsLoading&&(s.state==='no'||(!!s.name&&s.conf>=GREEN&&s.hits>=2)); // nothing is sure while art is still loading
-window._cardScannerSlots=()=>slots.map(s=>({name:s.name,conf:s.conf,state:s.state,ctr:ctrOf(s.pts).map(Math.round)})); // for tests
+window._cardScannerSlots=()=>slots.map(s=>({name:s.name,conf:s.conf,state:s.state,hits:s.hits,miss:s.miss,ctr:ctrOf(s.pts).map(Math.round)})); // for tests
 function trackTick(){
   if(!running||mode!=='live'){if(trk){trk.g.delete();trk=null}trackTick.on=false;return}
   if((slots.length||probes.length)&&vid.videoWidth){
@@ -10841,7 +10841,7 @@ async function scanPhoto(file){
   busy=false;
 }
 window.cardScannerScanPhoto=scanPhoto; // also used by tests
-window._cardScannerArtScan=async img=>{await ensureTools(false);await loadArts(getWants());const r=await scanImage(img,img.naturalWidth||img.width,img.naturalHeight||img.height);return {marks:r.marks.map(m=>[m.name,m.conf,m.pts.map(p=>p.map(Math.round))]),top:window._cardScannerArtTop}}; // tests: art only, no memory
+window._cardScannerArtScan=async img=>{await ensureTools(false);await loadArts(getWants());const r=await scanImage(img,img.naturalWidth||img.width,img.naturalHeight||img.height,{side:window._cardScannerTestSide});return {marks:r.marks.map(m=>[m.name,m.conf,m.pts.map(p=>p.map(Math.round))]),top:window._cardScannerArtTop}}; // tests: art only, no memory
 $('cs-file').onchange=e=>{const f=e.target.files&&e.target.files[0];e.target.value='';scanPhoto(f)};
 stage.onclick=()=>{if(mode==='photo'){zoom=zoom>1?1:2.5;fit()}};
 addEventListener('resize',()=>{if(ov.classList.contains('on'))fit()});
